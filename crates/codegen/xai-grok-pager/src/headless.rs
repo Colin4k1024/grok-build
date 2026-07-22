@@ -17,7 +17,9 @@ use xai_acp_lib::{AcpAgentTx, AcpClientMessageBox, AcpClientRx, acp_send};
 use xai_grok_shell::agent::auth_method::AuthMethodKind;
 use xai_grok_shell::agent::config::Config as AgentConfig;
 use xai_grok_shell::extensions::task::{CancelSubagentRequest, KillTaskRequest};
-use xai_grok_shell::sampling::error::{RATE_LIMITED_ERROR_CODE, rate_limited_user_message};
+use xai_grok_shell::sampling::error::{
+    RATE_LIMITED_ERROR_CODE, error_detail_from_data, format_rate_limited_user_message,
+};
 use xai_grok_shell::sampling::types::{
     REASONING_EFFORT_META_KEY, parse_canonical_effort_token, reasoning_effort_meta_value,
 };
@@ -180,10 +182,6 @@ pub struct HeadlessOptions {
     pub permission_mode_flag: Option<String>,
     /// Effort token (`--reasoning-effort` / `--effort`); resolved like `/effort` after models load.
     pub reasoning_effort: Option<String>,
-    /// Append a self-verification loop after the prompt completes.
-    pub self_verify: bool,
-    /// Run the task N ways in parallel and pick the best.
-    pub best_of_n: Option<u32>,
     /// Wait for background tasks (bash, subagent, monitor) to report
     /// `task_completed` before exiting. Default: true. Does not wait for
     /// server-side auto-wake (that runs inside the shell). Use
@@ -583,20 +581,6 @@ fn build_headless_init_request(
         .meta(meta.as_object().cloned())
 }
 
-/// Extract the body of a compiled-in SKILL.md (strip YAML frontmatter).
-fn skill_body(raw: &str) -> &str {
-    let trimmed = raw.trim_start();
-    if !trimmed.starts_with("---") {
-        return trimmed;
-    }
-    if let Some(rest) = trimmed.get(3..)
-        && let Some(end) = rest.find("\n---")
-    {
-        return rest[end + 4..].trim_start();
-    }
-    trimmed
-}
-
 struct OpenedSession {
     session_id: acp::SessionId,
     models: ModelState,
@@ -824,7 +808,8 @@ async fn apply_headless_model_and_effort(
 fn headless_materialize_ctx(has_worktree: bool) -> crate::app::session_startup::MaterializeCtx {
     crate::app::session_startup::MaterializeCtx {
         has_worktree,
-        allow_remote_restore: false,
+        allow_remote_restore:
+            crate::app::session_startup::MaterializeCtx::default_allow_remote_restore(),
         chat_mode: false,
     }
 }
@@ -870,7 +855,6 @@ pub async fn run_single_turn(
     agent_config.resolve_runtime_fields(&xai_grok_shell::agent::config::RuntimeResolutionContext {
         raw_config: &raw_config,
         remote_settings: None,
-        cwd: Some(&cwd),
         is_headless: true,
         cli_subagents: None,
         cli_web_search_model: None,
@@ -1085,30 +1069,7 @@ pub async fn run_single_turn(
     }
 
     // Send prompt and stream response
-    let mut prompt_blocks = prompt.into_content_blocks();
-
-    // --check / --self-verify: append the check skill AFTER the user prompt
-    // so the model completes the task first, then runs verification.
-    if options.self_verify {
-        prompt_blocks.push(acp::ContentBlock::Text(acp::TextContent::new(
-            skill_body(xai_grok_shell::builtin::CHECK_SKILL_MD).to_string(),
-        )));
-    }
-
-    // --best-of-n N: prefix the user prompt with the compiled-in best-of-n
-    // skill content and the candidate count.
-    if let Some(n) = options.best_of_n {
-        let n = n.clamp(2, 10);
-        {
-            prompt_blocks.insert(
-                0,
-                acp::ContentBlock::Text(acp::TextContent::new(format!(
-                    "{}\n\n## Number of candidates: {n}",
-                    skill_body(xai_grok_shell::builtin::BEST_OF_N_SKILL_MD)
-                ))),
-            );
-        }
-    }
+    let prompt_blocks = prompt.into_content_blocks();
 
     let prompt_meta = {
         let mut meta = serde_json::Map::new();
@@ -1321,13 +1282,11 @@ pub async fn run_single_turn(
         }
         Some(Err(err)) => {
             let msg = if i32::from(err.code) == RATE_LIMITED_ERROR_CODE {
-                // The -32003 data is the flattened server message; a
-                // free-usage 429 carries the well-known code inline there.
-                if crate::app::acp_error_is_free_usage_exhausted(&err) {
-                    crate::app::FREE_USAGE_USER_MESSAGE.to_string()
-                } else {
-                    rate_limited_user_message(is_api_key_auth).to_string()
-                }
+                let detail = err.data.as_ref().and_then(error_detail_from_data);
+                crate::app::sanitize_user_error(&format_rate_limited_user_message(
+                    detail.as_deref(),
+                    is_api_key_auth,
+                ))
             } else {
                 err.to_string()
             };
@@ -1897,7 +1856,6 @@ mod tests {
         for has_worktree in [false, true] {
             let ctx = headless_materialize_ctx(has_worktree);
             assert!(!ctx.chat_mode);
-            assert!(!ctx.allow_remote_restore);
             assert_eq!(ctx.has_worktree, has_worktree);
         }
     }
@@ -2088,7 +2046,8 @@ mod tests {
         );
         assert!(matches!(
             handle_ext_notification(&notif, OutputFormat::Plain),
-            ExtEvent::TaskBackgrounded { task_id, is_monitor: false } if task_id == "task-abc"
+            ExtEvent::TaskBackgrounded { task_id, is_monitor: false }
+if task_id == "task-abc"
         ));
     }
 
@@ -2104,7 +2063,8 @@ mod tests {
         );
         assert!(matches!(
             handle_ext_notification(&notif, OutputFormat::Plain),
-            ExtEvent::TaskBackgrounded { task_id, is_monitor: true } if task_id == "mon-1"
+            ExtEvent::TaskBackgrounded { task_id, is_monitor: true }
+if task_id == "mon-1"
         ));
     }
 
@@ -2124,7 +2084,8 @@ mod tests {
         );
         assert!(matches!(
             handle_ext_notification(&notif, OutputFormat::Plain),
-            ExtEvent::TaskCompleted { task_id } if task_id == "task-abc"
+            ExtEvent::TaskCompleted { task_id }
+if task_id == "task-abc"
         ));
     }
 
@@ -2143,7 +2104,8 @@ mod tests {
         );
         assert!(matches!(
             handle_ext_notification(&spawned, OutputFormat::Plain),
-            ExtEvent::SubagentSpawned { subagent_id } if subagent_id == "sub-1"
+            ExtEvent::SubagentSpawned { subagent_id }
+if subagent_id == "sub-1"
         ));
         let finished = make_ext_notif(
             "x.ai/session_notification",
@@ -2159,7 +2121,8 @@ mod tests {
         );
         assert!(matches!(
             handle_ext_notification(&finished, OutputFormat::Plain),
-            ExtEvent::SubagentFinished { subagent_id } if subagent_id == "sub-1"
+            ExtEvent::SubagentFinished { subagent_id }
+if subagent_id == "sub-1"
         ));
     }
 

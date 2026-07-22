@@ -61,10 +61,9 @@ pub(crate) enum RefreshReason {
 /// `recovery.rs`.
 pub(crate) const AUTH_LOCK_TIMEOUT: StdDuration = StdDuration::from_secs(10);
 
-/// Longer timeout for `refresh_chain` — the critical path that must
-/// hold the file lock across the IdP call to prevent refresh-token
-/// reuse.  Must exceed `EXTERNAL_REFRESH_TIMEOUT` (30 s) so followers
-/// wait for the leader to finish rather than timing out and retrying.
+/// Lock timeout for `refresh_chain`, held across the IdP call to prevent
+/// refresh-token reuse. Must exceed the external-auth refresh timeout
+/// (`EXTERNAL_AUTH_REFRESH_TIMEOUT`, 5 s) so followers wait rather than retry.
 const REFRESH_LOCK_TIMEOUT: StdDuration = StdDuration::from_secs(45);
 
 /// Long poll interval used by the proactive refresh task when no
@@ -164,6 +163,9 @@ pub struct AuthManager {
     disk_state: RwLock<Option<DiskAuthState>>,
     /// See [`Self::cached_disk_api_key`].
     static_key_cache: parking_lot::Mutex<Option<StaticKeyCacheEntry>>,
+    /// Model `api_key` / resolved `env_key` for voice/tools without a session.
+    /// Not a session token (those live on `inner`). Prefers over disk; env wins.
+    process_static_api_key: parking_lot::RwLock<Option<String>>,
     sleep_gate: SleepGate,
     /// Count of in-flight IdP refreshes (the network call only), so a
     /// sleep-imminent transition can wait for a refresh straddling suspend to
@@ -405,6 +407,7 @@ impl AuthManager {
             refresh_notify: Arc::new(tokio::sync::Notify::new()),
             disk_state: RwLock::new(disk_state),
             static_key_cache: parking_lot::Mutex::new(None),
+            process_static_api_key: parking_lot::RwLock::new(None),
             sleep_gate: SleepGate::default(),
             refresh_in_flight: std::sync::atomic::AtomicU32::new(0),
             refresh_drain_lock: parking_lot::Mutex::new(()),
@@ -953,9 +956,9 @@ impl AuthManager {
 
     /// Run the external auth command and parse its output. Pure: no
     /// state mutation, no logging (refresher logs once on its arm).
-    pub(crate) fn run_external_refresh_command(&self, command: &str) -> Option<GrokAuth> {
+    pub(crate) async fn run_external_refresh_command(&self, command: &str) -> Option<GrokAuth> {
         let prev = self.inner_auth_or_external_default();
-        crate::auth::refresh_with_command(command, &prev)
+        crate::auth::refresh_with_command(command, &prev).await
     }
 
     /// Hot-swap credentials (called by config watcher). Does NOT write to disk.
@@ -2221,11 +2224,8 @@ pub(crate) fn compute_proactive_sleep(this: &AuthManager) -> StdDuration {
     }
 }
 
-/// Tools + pager voice: session token first, then static API key.
-///
-/// Static fallthrough (`XAI_API_KEY` / `auth.json` `xai::api_key`) makes voice
-/// work on API-key-only setups without OAuth. API-key login already persists
-/// the env key to disk.
+/// Tools + pager voice bearer. Static: env → process model key → disk.
+/// Kill-switch / `preferred_method = oidc` block static keys.
 pub(crate) struct SharedAuthKeyProvider(pub Arc<AuthManager>);
 
 impl xai_grok_tools::types::ApiKeyProvider for SharedAuthKeyProvider {
@@ -2266,7 +2266,7 @@ fn prefers_static_api_key(am: &AuthManager) -> bool {
     )
 }
 
-/// Env → `auth.json` `xai::api_key`. Off under kill-switch or `preferred_method = oidc`.
+/// Env → process model key → disk. Off under kill-switch / oidc pin.
 fn resolve_static_api_key(am: &AuthManager) -> Option<String> {
     if am.grok_com_config.api_key_auth_disabled() {
         return None;
@@ -2278,6 +2278,7 @@ fn resolve_static_api_key(am: &AuthManager) -> Option<String> {
         return None;
     }
     non_empty_key(crate::agent::auth_method::read_xai_api_key_env().ok())
+        .or_else(|| non_empty_key(am.process_static_api_key.read().clone()))
         .or_else(|| am.cached_disk_api_key())
 }
 
@@ -2327,6 +2328,12 @@ impl AuthManager {
                 key
             }
         }
+    }
+
+    /// Set the process model key (empty clears). Not for session tokens.
+    pub fn set_process_static_api_key(&self, key: Option<String>) {
+        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        *self.process_static_api_key.write() = key;
     }
 }
 

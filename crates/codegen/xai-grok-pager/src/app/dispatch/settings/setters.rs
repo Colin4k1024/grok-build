@@ -921,6 +921,53 @@ pub(in crate::app::dispatch) fn set_timeline(app: &mut AppView, new: bool) -> Ve
     }]
 }
 
+pub(super) fn set_page_flip_on_send_inner(app: &mut AppView, new: bool) {
+    app.current_ui.page_flip_on_send = Some(new);
+    crate::appearance::cache::set_page_flip_on_send(new);
+}
+
+/// SHARED: cache + `[ui].page_flip_on_send` via `Effect::PersistSetting`.
+pub(in crate::app::dispatch) fn set_page_flip_on_send(app: &mut AppView, new: bool) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_page_flip_on_send();
+    if prev == new {
+        return vec![];
+    }
+    set_page_flip_on_send_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "page_flip_on_send", value = new, "setting changed");
+    app.show_toast(&save_success_toast("Snap prompt to top on send", new));
+    vec![Effect::PersistSetting {
+        key: "page_flip_on_send",
+        value: crate::settings::SettingValue::Bool(new),
+        rollback_value: crate::settings::SettingValue::Bool(prev),
+    }]
+}
+
+pub(super) fn set_combine_queued_prompts_inner(app: &mut AppView, new: bool) {
+    app.current_ui.combine_queued_prompts = Some(new);
+    crate::appearance::cache::set_combine_queued_prompts(new);
+}
+
+/// SHARED: cache + `[ui].combine_queued_prompts` via `Effect::PersistSetting`.
+pub(in crate::app::dispatch) fn set_combine_queued_prompts(
+    app: &mut AppView,
+    new: bool,
+) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_combine_queued_prompts();
+    if prev == new {
+        return vec![];
+    }
+    set_combine_queued_prompts_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "combine_queued_prompts", value = new, "setting changed");
+    app.show_toast(&save_success_toast("Combine queued prompts", new));
+    vec![Effect::PersistSetting {
+        key: "combine_queued_prompts",
+        value: crate::settings::SettingValue::Bool(new),
+        rollback_value: crate::settings::SettingValue::Bool(prev),
+    }]
+}
+
 /// State-only mutation for `simple_mode`.
 ///
 /// Propagates to every agent's `input_mode` so the toggle takes
@@ -1100,6 +1147,21 @@ pub(in crate::app::dispatch) fn set_contextual_hint_word_select(
         "Word select hint",
         prev,
         |h, v| h.word_select = v,
+        new,
+    )
+}
+
+pub(in crate::app::dispatch) fn set_contextual_hint_ssh_wrap(
+    app: &mut AppView,
+    new: bool,
+) -> Vec<Effect> {
+    let prev = app.current_ui.contextual_hints.ssh_wrap;
+    set_contextual_hint(
+        app,
+        "contextual_hints.ssh_wrap",
+        "SSH wrap hint",
+        prev,
+        |h, v| h.ssh_wrap = v,
         new,
     )
 }
