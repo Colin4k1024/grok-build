@@ -3662,6 +3662,14 @@ struct DefaultModelJson {
     auto_compact_threshold_percent: Option<u8>,
     #[serde(default)]
     system_prompt_label: Option<String>,
+    /// Per-entry base URL override for third-party providers (e.g., DashScope).
+    /// When set, this URL is used instead of `endpoints.resolve_inference_base_url()`.
+    base_url: Option<String>,
+    /// Per-entry environment variable name(s) for the provider API key.
+    /// When set, credential resolution uses this env var before falling back to XAI_API_KEY.
+    env_key: Option<EnvKeys>,
+    /// Per-entry auth scheme override (e.g., Bearer vs XApiKey).
+    auth_scheme: Option<AuthScheme>,
 }
 fn default_models(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntryConfig> {
     let root: serde_json::Value = serde_json::from_str(crate::models::DEFAULT_MODELS_JSON)
@@ -3688,11 +3696,24 @@ fn default_models(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntryCon
             let context_window = m
                 .context_window
                 .unwrap_or_else(|| NonZeroU64::new(200_000).expect("200000 is non-zero"));
+            // Third-party providers (e.g., DashScope) supply their own base_url
+            // in the JSON entry; xAI-hosted models use the endpoints config.
+            let has_own_base_url = m.base_url.is_some();
+            let base_url = m
+                .base_url
+                .clone()
+                .unwrap_or_else(|| endpoints.resolve_inference_base_url());
+            let api_base_url = if has_own_base_url {
+                // Third-party providers don't have a separate xAI api_base_url.
+                None
+            } else {
+                Some(endpoints.xai_api_base_url.clone())
+            };
             let config = ModelEntryConfig {
                 id: m.id,
                 model: m.model,
-                base_url: endpoints.resolve_inference_base_url(),
-                api_base_url: Some(endpoints.xai_api_base_url.clone()),
+                base_url,
+                api_base_url,
                 name: m.name,
                 description: m.description,
                 context_window,
@@ -3702,12 +3723,12 @@ fn default_models(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntryCon
                 top_p: m.top_p,
                 max_completion_tokens: m.max_completion_tokens,
                 api_backend: m.api_backend,
-                auth_scheme: None,
+                auth_scheme: m.auth_scheme,
                 agent_type: m.agent_type,
                 inference_idle_timeout_secs: m.inference_idle_timeout_secs,
                 max_retries: None,
                 api_key: None,
-                env_key: None,
+                env_key: m.env_key,
                 extra_headers: IndexMap::new(),
                 use_concise: false,
                 hidden: m.hidden,
