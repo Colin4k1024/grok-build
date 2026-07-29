@@ -86,6 +86,8 @@ See ~/.grok/README.md for more information.
     Wrap(WrapArgs),
     /// Export a session transcript as Markdown
     Export(crate::export_cmd::ExportArgs),
+    /// Manage experience evolution system
+    Evolution(EvolutionArgs),
     /// Export or upload session trace data
     Trace(crate::trace_cmd::TraceArgs),
     /// Check for updates or install a specific version
@@ -140,6 +142,59 @@ See ~/.grok/README.md for more information.
     /// `~/.grok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env
     /// var is set.
     Dashboard,
+}
+/// Arguments for the `evolution` subcommand.
+#[derive(Debug, clap::Args, Clone)]
+pub struct EvolutionArgs {
+    #[command(subcommand)]
+    pub command: EvolutionCommand,
+}
+/// Evolution subcommands.
+#[derive(Debug, Subcommand, Clone)]
+pub enum EvolutionCommand {
+    /// Show evolution system status
+    Status {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List evolution runs
+    List {
+        /// Filter by state.
+        #[arg(long)]
+        state: Option<String>,
+        /// Maximum number of results.
+        #[arg(long, default_value = "20")]
+        limit: u32,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect a specific evolution run
+    Inspect {
+        /// Run ID to inspect.
+        run_id: String,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new isolated trial run
+    Run {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export evidence for a run
+    Export {
+        /// Run ID to export.
+        run_id: String,
+        /// Output format.
+        #[arg(long, default_value = "json")]
+        format: String,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
 #[derive(Debug, clap::Args, Clone)]
@@ -600,6 +655,12 @@ pub struct PagerArgs {
     /// Disable cross-session memory for this session.
     #[arg(long = "no-memory", conflicts_with = "experimental_memory")]
     pub no_memory: bool,
+    /// Enable experience evolution system.
+    #[arg(long = "experimental-evolution", conflicts_with = "no_evolution")]
+    pub experimental_evolution: bool,
+    /// Disable experience evolution for this session.
+    #[arg(long = "no-evolution", conflicts_with = "experimental_evolution")]
+    pub no_evolution: bool,
     /// Agent name or definition file path.
     #[arg(long = "agent", value_name = "NAME")]
     pub agent: Option<String>,

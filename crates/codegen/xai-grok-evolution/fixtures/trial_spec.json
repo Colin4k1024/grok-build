@@ -1,0 +1,1 @@
+{"spec_id":"spec-001","schema_version":1,"candidate_id":"cand-001","allowed_paths":["xai-grok-tools/src/config/"],"forbidden_actions":["delete_test","modify_lock"],"budget":{"max_duration_secs":1200,"max_artifact_bytes":52428800,"max_files_changed":5,"max_lines_changed":300},"validation_recipe":["cargo","test","-p","xai-grok-tools"],"max_variant_rounds":3}

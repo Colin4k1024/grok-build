@@ -20,6 +20,7 @@ pub mod doctor;
 pub mod edit_prompt;
 pub mod effort;
 pub mod effort_levels;
+pub mod evolution;
 pub mod exit;
 pub mod expand;
 pub mod export;
@@ -77,6 +78,7 @@ use std::sync::Arc;
 pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
     vec![
         Arc::new(exit::ExitCommand),
+        Arc::new(evolution::EvolutionCommand),
         Arc::new(help::HelpCommand),
         Arc::new(docs::DocsCommand),
         Arc::new(home::HomeCommand),
@@ -263,6 +265,7 @@ mod tests {
             "doctor",
             "edit-prompt",
             "effort",
+            "evolution",
             "exit",
             "expand",
             "export",

@@ -38,6 +38,7 @@ use super::agent_view::{AgentView, InputMode};
 use super::app_view::{ActiveView, AppView};
 
 mod background;
+mod evolution;
 mod follow_ups;
 mod interactions;
 mod mcp;
@@ -683,6 +684,7 @@ fn handle_ext_notification(notif: &acp::ExtNotification, app: &mut AppView) -> b
         "x.ai/settings/update" => handle_settings_update(notif, app),
         "x.ai/sessions/changed" => handle_sessions_changed(notif, app),
         "x.ai/queue/changed" => handle_queue_changed(notif, app),
+        "x.ai/evolution/update" => evolution::handle_evolution_update(notif, app),
         // TODO(prompt_complete-deprecation): Legacy removal (gated): durable turn_completed is already consumed via finalize_turn_from_terminal; keep & re-point the lost-RPC reconcile to the durable rail before deleting.
         "x.ai/session/prompt_complete" => handle_prompt_complete(notif, app),
         "x.ai/session/interjection" => handle_interjection(notif, app),
@@ -766,6 +768,7 @@ fn handle_ext_method(ext: xai_acp_lib::AcpArgs<acp::ExtRequest>, app: &mut AppVi
     match ext.request.method.as_ref() {
         "x.ai/ask_user_question" => handle_ask_user_question(ext, app),
         "x.ai/exit_plan_mode" => handle_exit_plan_mode(ext, app),
+        "x.ai/evolution/status" => evolution::handle_evolution_status(ext, app),
         unknown => {
             tracing::warn!("Unknown ext_method: {unknown}");
             ext.response_tx

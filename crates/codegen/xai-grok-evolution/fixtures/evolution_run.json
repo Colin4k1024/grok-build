@@ -1,0 +1,1 @@
+{"run_id":"run-001","schema_version":1,"state":"running","trigger":{"trigger_type":"test_failure","source_event_id":null,"description":"cargo test failed in xai-grok-tools"},"config_snapshot":{"mode":"shadow","budget_max_duration_secs":1200,"budget_max_variant_rounds":3},"started_at":1753800000,"completed_at":null,"error":null}

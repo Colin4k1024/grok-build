@@ -24,6 +24,7 @@ members = [
     "crates/codegen/xai-grok-config",
     "crates/codegen/xai-grok-config-types",
     "crates/codegen/xai-grok-env",
+    "crates/codegen/xai-grok-evolution",
     "crates/codegen/xai-grok-hooks",
     "crates/codegen/xai-grok-http",
     "crates/codegen/xai-grok-markdown",
@@ -184,6 +185,8 @@ num_cpus = "1"
 oauth2 = "5"
 obfstr = "0.4"
 once_cell = "1"
+oris-evolution = { path = "../Oris/crates/oris-evolution" }
+oris-kernel = { path = "../Oris/crates/oris-kernel" }
 opentelemetry = "0.32"
 opentelemetry-http = { version = "0.32", features = ["reqwest-blocking"] }
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "reqwest-blocking-client", "tls-roots"] }
@@ -288,6 +291,7 @@ xai-grok-auth = { path = "crates/codegen/xai-grok-auth" }
 xai-grok-config = { path = "crates/codegen/xai-grok-config" }
 xai-grok-config-types = { path = "crates/codegen/xai-grok-config-types" }
 xai-grok-env = { path = "crates/codegen/xai-grok-env" }
+xai-grok-evolution = { path = "crates/codegen/xai-grok-evolution" }
 xai-grok-http = { path = "crates/codegen/xai-grok-http" }
 xai-grok-markdown = { path = "crates/codegen/xai-grok-markdown" }
 xai-grok-markdown-core = { path = "crates/codegen/xai-grok-markdown-core" }

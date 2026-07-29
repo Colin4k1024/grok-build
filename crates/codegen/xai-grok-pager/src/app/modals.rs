@@ -433,6 +433,42 @@ impl AgentView {
             }
         }
 
+        // Evolution modal: handle tab navigation and close.
+        if let ActiveModal::Evolution { state } = modal {
+            use crate::views::evolution_modal::EvolutionTab;
+            match key.code {
+                KeyCode::Esc => {
+                    self.active_modal = None;
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Left => {
+                    state.active_tab = state.active_tab.prev();
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Right => {
+                    state.active_tab = state.active_tab.next();
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Up => {
+                    if state.active_tab == EvolutionTab::Timeline
+                        && state.selected_index > 0
+                    {
+                        state.selected_index -= 1;
+                    }
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Down => {
+                    if state.active_tab == EvolutionTab::Timeline
+                        && state.selected_index + 1 < state.timeline_events.len()
+                    {
+                        state.selected_index += 1;
+                    }
+                    return InputOutcome::Changed;
+                }
+                _ => return InputOutcome::Changed,
+            }
+        }
+
         // ResetSettingsConfirm: y/n routing. Handled before generic
         // char-match so Esc/F2/Ctrl+, route to Cancel (not modal close).
         if let Some(ActiveModal::ResetSettingsConfirm { modal, .. }) = self.active_modal.as_ref() {
@@ -484,7 +520,8 @@ impl AgentView {
             | ActiveModal::MemoryBrowser { .. }
             | ActiveModal::Settings { .. }
             | ActiveModal::ResetSettingsConfirm { .. }
-            | ActiveModal::RememberNoteReview { .. } => unreachable!(),
+            | ActiveModal::RememberNoteReview { .. }
+            | ActiveModal::Evolution { .. } => unreachable!(),
         }
     }
 
@@ -2331,6 +2368,8 @@ impl AgentView {
                     compact,
                     None,
                 );
+            } else if let modal::ActiveModal::Evolution { state: evo_state } = active_modal {
+                crate::views::evolution_modal::draw(buf, area, evo_state);
             } else if matches!(
                 active_modal,
                 modal::ActiveModal::ResetSettingsConfirm { .. }

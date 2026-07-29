@@ -1906,6 +1906,9 @@ async fn async_main(args: PagerArgs) -> Result<()> {
             Command::Memory(memory_args) => {
                 return xai_grok_pager::memory_cmd::run(memory_args);
             }
+            Command::Evolution(evolution_args) => {
+                return run_evolution_command(evolution_args).await;
+            }
             Command::Update {
                 check,
                 json,
@@ -2302,6 +2305,100 @@ async fn signal_leaders_to_relaunch(installed_version: &str) {
         }
         client.cancel();
     }
+}
+/// Handle the `grok evolution` subcommand.
+async fn run_evolution_command(
+    args: xai_grok_pager::app::cli::EvolutionArgs,
+) -> Result<()> {
+    use xai_grok_pager::app::cli::EvolutionCommand;
+
+    // Load evolution config
+    let config = xai_grok_evolution::EvolutionConfig::default();
+
+    // Open evolution store
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let db_path = home.join(".grok").join("memory").join("evolution").join("evolution.sqlite");
+
+    // For CLI commands, try to open existing store or create in-memory
+    let store = if db_path.exists() {
+        xai_grok_evolution::EvolutionStore::open(&db_path)
+            .unwrap_or_else(|_| xai_grok_evolution::EvolutionStore::open_memory().unwrap())
+    } else {
+        xai_grok_evolution::EvolutionStore::open_memory().unwrap()
+    };
+
+    match args.command {
+        EvolutionCommand::Status { json } => {
+            let resp = xai_grok_evolution::cli::cmd_status(&store, &config)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                println!("Evolution Status");
+                println!("  Mode:               {:?}", resp.mode);
+                println!("  Active runs:        {}", resp.active_runs);
+                println!("  Total experiences:  {}", resp.total_experiences);
+                println!("  Active:             {}", resp.active_experiences);
+                println!("  Quarantined:        {}", resp.quarantined_experiences);
+                println!("  Pending signals:    {}", resp.pending_signals);
+                println!("  Circuit breaker:    {}", resp.circuit_breaker_state);
+            }
+        }
+        EvolutionCommand::List { state, limit, json } => {
+            let req = xai_grok_evolution::acp::ListRunsRequest {
+                state_filter: state,
+                limit: Some(limit),
+                offset: None,
+            };
+            let resp = xai_grok_evolution::cli::cmd_list(&store, &req)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                println!("Evolution Runs ({} total)", resp.total);
+                if resp.runs.is_empty() {
+                    println!("  No runs found.");
+                }
+            }
+        }
+        EvolutionCommand::Inspect { run_id, json } => {
+            let req = xai_grok_evolution::acp::InspectRunRequest { run_id };
+            let resp = xai_grok_evolution::cli::cmd_inspect(&store, &req)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                println!("Run: {}", resp.run.run_id);
+                println!("  State:   {:?}", resp.run.state);
+                println!("  Events:  {}", resp.events.len());
+                for e in &resp.events {
+                    println!("    [{}] {}", e.event_type, e.description);
+                }
+            }
+        }
+        EvolutionCommand::Run { json } => {
+            let resp = xai_grok_evolution::cli::cmd_run(&config)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                println!("Created trial run: {}", resp.new_run_id);
+                println!("  Status: {}", resp.status);
+            }
+        }
+        EvolutionCommand::Export { run_id, format, json } => {
+            let req = xai_grok_evolution::acp::ExportEvidenceRequest {
+                run_id,
+                format: Some(format),
+            };
+            let resp = xai_grok_evolution::cli::cmd_export(&store, &req)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp)?);
+            } else {
+                println!("Exported to: {}", resp.path);
+                println!("  Size:   {} bytes", resp.size_bytes);
+                println!("  Format: {}", resp.format);
+            }
+        }
+    }
+
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

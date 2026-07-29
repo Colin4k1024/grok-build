@@ -1004,6 +1004,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::PreviewAutoDarkTheme(v) => preview_auto_dark_theme(app, v),
         Action::PreviewAutoLightTheme(v) => preview_auto_light_theme(app, v),
         Action::OpenSettings => dispatch_open_settings(app),
+        Action::OpenEvolutionModal => dispatch_open_evolution(app),
         Action::OpenCommandPalette => dispatch_open_command_palette(app),
         Action::OpenHowtoGuides => dispatch_open_howto_guides(app),
         Action::OpenResetConfirm { key } => dispatch_open_reset_confirm(app, key),
@@ -1463,4 +1464,29 @@ pub(super) fn dispatch_action_result(
             }
         },
     }
+}
+
+/// Open the evolution modal.
+fn dispatch_open_evolution(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::evolution_modal::EvolutionModalState;
+    use crate::views::modal::ActiveModal;
+
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return vec![];
+    };
+
+    // Toggle: if already open, close it
+    if matches!(&agent.active_modal, Some(ActiveModal::Evolution { .. })) {
+        agent.active_modal = None;
+        return vec![];
+    }
+
+    let state = EvolutionModalState::new("Off".to_string());
+    agent.active_modal = Some(ActiveModal::Evolution {
+        state: Box::new(state),
+    });
+    vec![]
 }

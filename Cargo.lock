@@ -7102,6 +7102,35 @@ name = "ordered_hashmap"
 version = "0.0.3"
 
 [[package]]
+name = "oris-evolution"
+version = "0.4.1"
+dependencies = [
+ "chrono",
+ "hex",
+ "oris-kernel",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "oris-kernel"
+version = "0.2.13"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hex",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "os_info"
 version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13225,6 +13254,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "xai-grok-evolution"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "libc",
+ "oris-evolution",
+ "oris-kernel",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "uuid",
+ "xai-circuit-breaker",
+ "xai-sqlite-journal",
+]
+
+[[package]]
 name = "xai-grok-hooks"
 version = "0.1.0"
 dependencies = [
@@ -13484,6 +13537,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cryptify",
+ "dirs 5.0.1",
  "dunce",
  "libc",
  "obfstr",
@@ -13501,6 +13555,7 @@ dependencies = [
  "xai-acp-lib",
  "xai-crash-handler",
  "xai-grok-config",
+ "xai-grok-evolution",
  "xai-grok-pager",
  "xai-grok-pager-minimal",
  "xai-grok-sandbox",
