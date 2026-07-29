@@ -477,13 +477,19 @@ pub async fn run(
     let raw_config = xai_grok_shell::config::load_effective_config()
         .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
     let prefetch_elapsed = startup_start.elapsed();
-    let (use_leader, policy_disable_reason) = resolve_use_leader(
+    let (mut use_leader, policy_disable_reason) = resolve_use_leader(
         args.leader,
         args.no_leader,
         &raw_config,
         remote_settings.as_ref(),
         true,
     );
+    if args.experimental_evolution || args.no_evolution {
+        // An already-running leader cannot observe this process's CLI override.
+        // Keep CLI > environment > config precedence deterministic by using the
+        // directly constructed agent for this invocation.
+        use_leader = false;
+    }
     tracing::info!(
         use_leader,
         ?policy_disable_reason,

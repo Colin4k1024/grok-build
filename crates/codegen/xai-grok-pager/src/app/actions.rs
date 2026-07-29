@@ -593,6 +593,21 @@ pub enum Action {
     OpenSettings,
     /// Open the evolution modal (`/evolution`).
     OpenEvolutionModal,
+    SetEvolutionMode {
+        target_mode: String,
+    },
+    InspectEvolutionRun {
+        run_id: String,
+    },
+    LoadEvolutionLineage {
+        experience_id: String,
+    },
+    RetryEvolutionTrial {
+        run_id: String,
+    },
+    ExportEvolutionEvidence {
+        run_id: String,
+    },
     /// Open the command palette (`/help`). The keybinding path (Ctrl+P) opens it
     /// directly in `handle_agent_action`; this lets a slash command reach the
     /// same modal through dispatch.
@@ -1764,6 +1779,36 @@ pub enum Effect {
         agent_id: AgentId,
         session_id: acp::SessionId,
     },
+    /// Load evolution status and timeline from the session's workspace service.
+    FetchEvolutionState {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+    },
+    SetEvolutionMode {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        target_mode: String,
+    },
+    InspectEvolutionRun {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
+    LoadEvolutionLineage {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        experience_id: String,
+    },
+    RetryEvolutionTrial {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
+    ExportEvolutionEvidence {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
     /// Toggle a skill via x.ai/skills/toggle (enable/disable without restart).
     ToggleSkill {
         agent_id: AgentId,
@@ -2405,6 +2450,27 @@ pub enum TaskResult {
     PluginsListLoaded {
         agent_id: AgentId,
         result: Result<xai_hooks_plugins_types::PluginsListResponse, String>,
+    },
+    EvolutionStateLoaded {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionViewData, String>,
+    },
+    EvolutionModeChanged {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionModeChangeResult, String>,
+    },
+    EvolutionRunInspected {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionRunDetail, String>,
+    },
+    EvolutionLineageLoaded {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionLineageData, String>,
+    },
+    EvolutionOperationCompleted {
+        agent_id: AgentId,
+        operation: &'static str,
+        result: Result<crate::views::evolution_modal::EvolutionOperationResult, String>,
     },
     /// Hooks action completed.
     HooksActionResult {

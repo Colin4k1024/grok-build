@@ -1295,6 +1295,7 @@ fn dummy_tracker(
         hunk_tracker_handle: xai_hunk_tracker::HunkTrackerHandle::noop(),
         chat_state_handle: xai_chat_state::ChatStateHandle::noop(),
         signals_handle,
+        evolution_service: std::sync::Arc::new(parking_lot::RwLock::new(None)),
         gateway_enabled: Arc::new(AtomicBool::new(false)),
         mcp_servers: vec![],
         initial_client_mcp_servers: vec![],

@@ -1717,6 +1717,11 @@ fn main() {
 async fn async_main(args: PagerArgs) -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let mut args = args.apply_cwd()?;
+    if args.experimental_evolution {
+        unsafe { std::env::set_var("GROK_EVOLUTION", "shadow") };
+    } else if args.no_evolution {
+        unsafe { std::env::set_var("GROK_EVOLUTION", "off") };
+    }
     if let Some(ref mode) = args.compaction_mode {
         unsafe { std::env::set_var("GROK_COMPACTION_MODE", mode) };
     }
@@ -2307,29 +2312,19 @@ async fn signal_leaders_to_relaunch(installed_version: &str) {
     }
 }
 /// Handle the `grok evolution` subcommand.
-async fn run_evolution_command(
-    args: xai_grok_pager::app::cli::EvolutionArgs,
-) -> Result<()> {
+async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) -> Result<()> {
     use xai_grok_pager::app::cli::EvolutionCommand;
 
-    // Load evolution config
-    let config = xai_grok_evolution::EvolutionConfig::default();
-
-    // Open evolution store
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let db_path = home.join(".grok").join("memory").join("evolution").join("evolution.sqlite");
-
-    // For CLI commands, try to open existing store or create in-memory
-    let store = if db_path.exists() {
-        xai_grok_evolution::EvolutionStore::open(&db_path)
-            .unwrap_or_else(|_| xai_grok_evolution::EvolutionStore::open_memory().unwrap())
-    } else {
-        xai_grok_evolution::EvolutionStore::open_memory().unwrap()
-    };
+    let raw_config = xai_grok_shell::config::load_effective_config_disk_only()
+        .map_err(|error| anyhow::anyhow!("Failed to load config: {error}"))?;
+    let config = xai_grok_evolution::EvolutionConfig::resolve(false, false, &raw_config)?;
+    let workspace = std::env::current_dir()?;
+    let memory_root = xai_grok_config::grok_home().join("memory");
+    let service = xai_grok_evolution::EvolutionService::open_at(&workspace, &memory_root, config)?;
 
     match args.command {
         EvolutionCommand::Status { json } => {
-            let resp = xai_grok_evolution::cli::cmd_status(&store, &config)?;
+            let resp = service.status()?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
@@ -2341,15 +2336,16 @@ async fn run_evolution_command(
                 println!("  Quarantined:        {}", resp.quarantined_experiences);
                 println!("  Pending signals:    {}", resp.pending_signals);
                 println!("  Circuit breaker:    {}", resp.circuit_breaker_state);
+                println!("  Rollout approved:   {}", resp.rollout_approved);
+                if let Some(approval_id) = &resp.rollout_approval_id {
+                    println!("  Approval ID:        {approval_id}");
+                }
             }
         }
         EvolutionCommand::List { state, limit, json } => {
-            let req = xai_grok_evolution::acp::ListRunsRequest {
-                state_filter: state,
-                limit: Some(limit),
-                offset: None,
-            };
-            let resp = xai_grok_evolution::cli::cmd_list(&store, &req)?;
+            let runs = service.list_runs(state.as_deref(), limit, 0)?;
+            let total = service.store().count_runs(state.as_deref())?;
+            let resp = xai_grok_evolution::acp::ListRunsResponse { runs, total };
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
@@ -2360,8 +2356,14 @@ async fn run_evolution_command(
             }
         }
         EvolutionCommand::Inspect { run_id, json } => {
-            let req = xai_grok_evolution::acp::InspectRunRequest { run_id };
-            let resp = xai_grok_evolution::cli::cmd_inspect(&store, &req)?;
+            let (run, events, evidence) = service.inspect_run(&run_id)?;
+            let resp = xai_grok_evolution::acp::InspectRunResponse {
+                run,
+                events,
+                experience: None,
+                trial_outcome: None,
+                evidence,
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
@@ -2374,7 +2376,23 @@ async fn run_evolution_command(
             }
         }
         EvolutionCommand::Run { json } => {
-            let resp = xai_grok_evolution::cli::cmd_run(&config)?;
+            let result = service.run_manual(
+                "manual CLI evolution run".to_string(),
+                xai_grok_evolution::SelectionContext {
+                    repo: Some(workspace.to_string_lossy().into_owned()),
+                    task_type: Some("manual".to_string()),
+                    signal_types: vec![xai_grok_evolution::SignalType::UserCorrection],
+                    env_fingerprint: None,
+                    now: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64,
+                },
+            )?;
+            let resp = xai_grok_evolution::acp::RetryTrialResponse {
+                new_run_id: result.run_id,
+                status: format!("{:?}", result.state).to_ascii_lowercase(),
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
@@ -2382,12 +2400,21 @@ async fn run_evolution_command(
                 println!("  Status: {}", resp.status);
             }
         }
-        EvolutionCommand::Export { run_id, format, json } => {
-            let req = xai_grok_evolution::acp::ExportEvidenceRequest {
-                run_id,
-                format: Some(format),
+        EvolutionCommand::Export {
+            run_id,
+            format,
+            json,
+        } => {
+            if format != "json" {
+                anyhow::bail!("Only JSON evidence export is currently supported");
+            }
+            let path =
+                service.export_evidence_json(&run_id, &service.data_dir().join("exports"))?;
+            let resp = xai_grok_evolution::acp::ExportEvidenceResponse {
+                size_bytes: std::fs::metadata(&path)?.len(),
+                path: path.to_string_lossy().into_owned(),
+                format,
             };
-            let resp = xai_grok_evolution::cli::cmd_export(&store, &req)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&resp)?);
             } else {
@@ -2396,9 +2423,98 @@ async fn run_evolution_command(
                 println!("  Format: {}", resp.format);
             }
         }
+        EvolutionCommand::ApproveRollout {
+            shadow_metrics,
+            sandbox_report,
+            evidence_report,
+            safety_drill_report,
+            replay_report,
+            approved_by,
+            source_pollution_events,
+            unexplained_network_or_writes,
+            replay_regressions,
+            confirm,
+            json,
+        } => {
+            if !confirm {
+                anyhow::bail!("Rollout approval requires --confirm");
+            }
+            let evidence = xai_grok_evolution::RolloutEvidence {
+                shadow_metrics_hash: hash_rollout_report(&shadow_metrics)?,
+                sandbox_report_hash: hash_rollout_report(&sandbox_report)?,
+                evidence_completeness_hash: hash_rollout_report(&evidence_report)?,
+                safety_drill_report_hash: hash_rollout_report(&safety_drill_report)?,
+                replay_report_hash: hash_rollout_report(&replay_report)?,
+            };
+            let approval = service.approve_rollout(
+                xai_grok_evolution::RolloutReadiness {
+                    source_pollution_events,
+                    sandbox_complete: true,
+                    evidence_complete: true,
+                    unexplained_network_or_writes,
+                    safety_drills_passed: true,
+                    replay_regressions,
+                    metrics_baseline_established: true,
+                },
+                evidence,
+                approved_by,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&approval)?);
+            } else {
+                println!("Reuse rollout approved: {}", approval.approval_id);
+                println!("  Approved by:  {}", approval.approved_by);
+                println!("  Evidence hash: {}", approval.evidence_hash);
+            }
+        }
+        EvolutionCommand::RevokeRollout {
+            reason,
+            confirm,
+            json,
+        } => {
+            if !confirm {
+                anyhow::bail!("Rollout revocation requires --confirm");
+            }
+            let revoked = service.revoke_rollout_approval(&reason)?;
+            if json {
+                println!("{}", serde_json::json!({ "revoked": revoked, "reason": reason }));
+            } else if revoked {
+                println!("Reuse rollout approval revoked: {reason}");
+            } else {
+                println!("No active rollout approval was found.");
+            }
+        }
     }
 
     Ok(())
+}
+
+fn hash_rollout_report(path: &std::path::Path) -> Result<String> {
+    use std::io::Read as _;
+
+    const MAX_REPORT_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| anyhow::anyhow!("Cannot read rollout report {}: {error}", path.display()))?;
+    if !metadata.is_file() {
+        anyhow::bail!("Rollout report is not a file: {}", path.display());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_REPORT_BYTES {
+        anyhow::bail!(
+            "Rollout report must be between 1 byte and {MAX_REPORT_BYTES} bytes: {}",
+            path.display()
+        );
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 #[cfg(test)]
 mod tests {

@@ -61,6 +61,8 @@ pub struct StatusResponse {
     pub quarantined_experiences: u32,
     pub pending_signals: u32,
     pub circuit_breaker_state: String,
+    pub rollout_approved: bool,
+    pub rollout_approval_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +251,8 @@ mod tests {
             quarantined_experiences: 2,
             pending_signals: 3,
             circuit_breaker_state: "closed".to_string(),
+            rollout_approved: false,
+            rollout_approval_id: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: StatusResponse = serde_json::from_str(&json).unwrap();
@@ -314,7 +318,11 @@ mod tests {
             METHOD_EXPORT_EVIDENCE,
         ];
         for m in methods {
-            assert!(m.starts_with("x.ai/evolution/"), "method {} missing prefix", m);
+            assert!(
+                m.starts_with("x.ai/evolution/"),
+                "method {} missing prefix",
+                m
+            );
         }
     }
 }

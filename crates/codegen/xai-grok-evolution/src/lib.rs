@@ -24,6 +24,7 @@
 pub mod acp;
 pub mod cli;
 pub mod config;
+pub mod engine;
 pub mod error;
 pub mod events;
 pub mod governor;
@@ -31,21 +32,31 @@ pub mod oris;
 pub mod reuse;
 pub mod rollout;
 pub mod select;
+pub mod service;
 pub mod signal;
 pub mod solidify;
 pub mod state;
 pub mod telemetry;
-pub mod tui;
 pub mod trial;
+pub mod tui;
 pub mod types;
 
-pub use config::{EvolutionBudgetConfig, EvolutionCapacityConfig, EvolutionConfig, EvolutionGovernorConfig, EvolutionMode};
+pub use config::{
+    EvolutionBudgetConfig, EvolutionCapacityConfig, EvolutionConfig, EvolutionGovernorConfig,
+    EvolutionMode,
+};
+pub use engine::{
+    EngineRunResult, EvolutionEngine, TrialEvaluator, TrialExecution, TrialExecutor,
+    TrialValidator, ValidationComparison, VariantGenerator,
+};
 pub use error::EvolutionError;
 pub use events::schema::SCHEMA_VERSION;
-pub use events::{EvolutionEvent, QuarantineReasonType};
 pub use events::store::EvolutionStore;
+pub use events::{EvolutionEvent, QuarantineReasonType};
 pub use governor::{BudgetStatus, EvolutionGovernor};
 pub use oris::GrokEvolutionPipeline;
+pub use rollout::{RolloutApproval, RolloutEvidence, RolloutReadiness};
 pub use select::{SelectionContext, SelectionResult};
+pub use service::{EvolutionPorts, EvolutionService, ExperienceInjection};
 pub use signal::{DefaultSignalCollector, SessionSignalsDelta, SignalCollector};
 pub use types::*;

@@ -9,10 +9,10 @@
 
 use std::path::PathBuf;
 
-use oris_evolution::port::{SandboxExecutionResult, SandboxPort};
 use oris_evolution::PreparedMutation;
+use oris_evolution::port::{SandboxExecutionResult, SandboxPort};
 
-use crate::trial::worker::{InProcessWorker, WorkerCommand, WorkerProcess, WorkerResult, WorkerRequest, PROTOCOL_VERSION};
+use crate::trial::worker::{PROTOCOL_VERSION, WorkerCommand, WorkerProcess, WorkerRequest};
 
 /// Grok sandbox adapter.
 ///
@@ -82,9 +82,12 @@ impl SandboxPort for GrokSandboxAdapter {
         } else if let (Some(worktree), Some(binary)) = (&self.worktree_path, &self.worker_binary) {
             // IsolatedAutonomous with real worker subprocess
             Self::execute_with_worker(mutation, worktree, binary)
-        } else if let Some(ref worktree_path) = self.worktree_path {
-            // IsolatedAutonomous with in-process worker (fallback)
-            Self::execute_in_process(mutation, worktree_path)
+        } else if self.worktree_path.is_some() {
+            SandboxExecutionResult::failure(
+                "No sandboxed worker binary configured".to_string(),
+                "in-process execution is test-only and forbidden in production".to_string(),
+                0,
+            )
         } else {
             SandboxExecutionResult::failure(
                 "No worktree configured for IsolatedAutonomous mode".to_string(),
@@ -146,12 +149,13 @@ impl GrokSandboxAdapter {
                         )
                     }
                     crate::trial::worker::WorkerResult::Error { message, .. } => {
-                        SandboxExecutionResult::failure(message, "worker error".to_string(), elapsed)
+                        SandboxExecutionResult::failure(
+                            message,
+                            "worker error".to_string(),
+                            elapsed,
+                        )
                     }
-                    _ => SandboxExecutionResult::success(
-                        "Mutation applied".to_string(),
-                        elapsed,
-                    ),
+                    _ => SandboxExecutionResult::success("Mutation applied".to_string(), elapsed),
                 }
             }
             Err(e) => SandboxExecutionResult::failure(
@@ -161,55 +165,22 @@ impl GrokSandboxAdapter {
             ),
         }
     }
-
-    /// Execute a mutation using the in-process worker (fallback).
-    fn execute_in_process(
-        _mutation: &PreparedMutation,
-        worktree_path: &std::path::Path,
-    ) -> SandboxExecutionResult {
-        let worker = InProcessWorker::new(worktree_path.to_path_buf());
-
-        let result = worker.execute(&WorkerCommand::RunValidator {
-            argv: vec!["echo".to_string(), "mutation-applied".to_string()],
-            timeout_secs: 30,
-        });
-
-        match result {
-            WorkerResult::ValidatorResult { exit_code, stdout, stderr } => {
-                if exit_code == 0 {
-                    SandboxExecutionResult::success(stdout, 0)
-                } else {
-                    SandboxExecutionResult::failure(stderr, "validation failed".to_string(), 0)
-                }
-            }
-            WorkerResult::Error { kind, message } => {
-                SandboxExecutionResult::failure(
-                    message.clone(),
-                    format!("Worker error: {:?}", kind),
-                    0,
-                )
-            }
-            _ => SandboxExecutionResult::failure(
-                "Unexpected worker result".to_string(),
-                "Internal error".to_string(),
-                0,
-            ),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oris_evolution::{MutationIntent, MutationArtifact, PreparedMutation};
     use oris_evolution::{ArtifactEncoding, MutationTarget, RiskLevel};
+    use oris_evolution::{MutationArtifact, MutationIntent, PreparedMutation};
 
     fn sample_mutation() -> PreparedMutation {
         PreparedMutation {
             intent: MutationIntent {
                 id: "mut-1".to_string(),
                 intent: "fix null handling".to_string(),
-                target: MutationTarget::Crate { name: "my-crate".to_string() },
+                target: MutationTarget::Crate {
+                    name: "my-crate".to_string(),
+                },
                 expected_effect: "test passes".to_string(),
                 risk: RiskLevel::Low,
                 signals: vec!["sig-1".to_string()],
@@ -233,12 +204,12 @@ mod tests {
     }
 
     #[test]
-    fn isolated_mode_with_worktree_executes() {
+    fn isolated_mode_with_worktree_fails_closed_without_worker_binary() {
         let dir = tempfile::tempdir().unwrap();
         let adapter = GrokSandboxAdapter::isolated(dir.path().to_path_buf());
         let result = adapter.execute(&sample_mutation());
-        // Should succeed since the validator is just `echo`
-        assert!(result.success);
+        assert!(!result.success);
+        assert!(result.stderr.contains("worker binary"));
     }
 
     #[test]
@@ -246,6 +217,6 @@ mod tests {
         let adapter = GrokSandboxAdapter::new(false);
         let result = adapter.execute(&sample_mutation());
         assert!(!result.success);
-        assert!(result.stderr.contains("not yet implemented") || result.stderr.contains("No worktree"));
+        assert!(result.stderr.contains("No worktree"));
     }
 }

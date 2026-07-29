@@ -859,7 +859,10 @@ if let
             context_summary, respond_to } => { let s = session.clone();
             tokio::task::spawn_local(async move { let result = s
             .handle_rewrite_memory_note(& raw_text, & context_summary). await; let _ =
-            respond_to.send(result); }); } SessionCommand::Interject { text, id, images }
+            respond_to.send(result); }); } SessionCommand::EvolutionModelRequest { request
+            } => { let s = session.clone(); tokio::task::spawn_local(async move {
+            s.handle_evolution_model_request(request).await; }); }
+            SessionCommand::Interject { text, id, images }
             => { session.broadcast_interjection(& text, id.as_deref()); session.events
             .emit(crate ::session::events::Event::Interjected { source : crate
             ::session::events::InterjectionSource::Direct, image_count : images.len() as

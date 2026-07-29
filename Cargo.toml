@@ -185,8 +185,8 @@ num_cpus = "1"
 oauth2 = "5"
 obfstr = "0.4"
 once_cell = "1"
-oris-evolution = { path = "../Oris/crates/oris-evolution" }
-oris-kernel = { path = "../Oris/crates/oris-kernel" }
+oris-evolution = "=0.4.1"
+oris-kernel = "=0.2.13"
 opentelemetry = "0.32"
 opentelemetry-http = { version = "0.32", features = ["reqwest-blocking"] }
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "reqwest-blocking-client", "tls-roots"] }

@@ -11,7 +11,6 @@ use serde::Serialize;
 use crate::acp::*;
 use crate::config::EvolutionConfig;
 use crate::error::EvolutionError;
-use crate::events::schema::SCHEMA_VERSION;
 use crate::events::store::EvolutionStore;
 use crate::types::*;
 
@@ -32,29 +31,70 @@ pub fn cmd_status(
     let active = store.experiences_by_state(ExperienceState::Active)?;
     let quarantined = store.experiences_by_state(ExperienceState::Quarantined)?;
     let candidates = store.experiences_by_state(ExperienceState::Candidate)?;
+    let rollout_approval = store.current_rollout_approval()?;
 
     Ok(StatusResponse {
         mode: config.mode,
-        active_runs: 0, // Would query runs table
+        active_runs: store.count_runs(Some("running"))?,
         total_experiences: (active.len() + quarantined.len() + candidates.len()) as u32,
         active_experiences: active.len() as u32,
         quarantined_experiences: quarantined.len() as u32,
-        pending_signals: 0, // Would query signal queue
-        circuit_breaker_state: "closed".to_string(),
+        pending_signals: 0,
+        circuit_breaker_state: if crate::rollout::killswitch::global_kill_switch().is_active() {
+            "open".to_string()
+        } else {
+            "closed".to_string()
+        },
+        rollout_approved: rollout_approval.is_some(),
+        rollout_approval_id: rollout_approval.map(|approval| approval.approval_id),
     })
 }
 
 /// `grok evolution list [--state <state>] [--limit <n>]`
 pub fn cmd_list(
-    _store: &EvolutionStore,
+    store: &EvolutionStore,
     request: &ListRunsRequest,
 ) -> Result<ListRunsResponse, EvolutionError> {
-    // In a full implementation, this would query the runs table
-    // with state filter, limit, and offset
-    let _ = request;
+    let limit = request.limit.unwrap_or(20);
+    let offset = request.offset.unwrap_or(0);
+    let runs = store
+        .list_runs(request.state_filter.as_deref(), limit, offset)?
+        .into_iter()
+        .map(|run| {
+            let events = store.events_for_run(&run.run_id)?;
+            let signals_count = events
+                .iter()
+                .filter_map(|event| event.decode().ok())
+                .find_map(|event| match event {
+                    crate::events::EvolutionEvent::SignalsDetected { signals, .. } => {
+                        Some(signals.len() as u32)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let outcome = events
+                .iter()
+                .filter_map(|event| event.decode().ok())
+                .find_map(|event| match event {
+                    crate::events::EvolutionEvent::AdoptionDecided { decision, .. } => {
+                        Some(decision)
+                    }
+                    _ => None,
+                });
+            Ok(RunSummary {
+                run_id: run.run_id,
+                state: run.state,
+                trigger_type: run.trigger.trigger_type,
+                started_at: run.started_at,
+                completed_at: run.completed_at,
+                signals_count,
+                outcome,
+            })
+        })
+        .collect::<Result<Vec<_>, EvolutionError>>()?;
     Ok(ListRunsResponse {
-        runs: vec![],
-        total: 0,
+        runs,
+        total: store.count_runs(request.state_filter.as_deref())?,
     })
 }
 
@@ -63,9 +103,12 @@ pub fn cmd_inspect(
     store: &EvolutionStore,
     request: &InspectRunRequest,
 ) -> Result<InspectRunResponse, EvolutionError> {
-    let events = store.events_for_run(&request.run_id)?;
+    let stored_events = store.events_for_run(&request.run_id)?;
+    let run = store
+        .get_run(&request.run_id)?
+        .ok_or_else(|| EvolutionError::Internal(format!("run not found: {}", request.run_id)))?;
 
-    let event_summaries: Vec<EventSummary> = events
+    let event_summaries: Vec<EventSummary> = stored_events
         .iter()
         .map(|e| EventSummary {
             event_type: e.event_type.clone(),
@@ -74,41 +117,32 @@ pub fn cmd_inspect(
         })
         .collect();
 
+    let decoded = stored_events
+        .iter()
+        .filter_map(|event| event.decode().ok())
+        .collect::<Vec<_>>();
+    let experience = decoded.iter().find_map(|event| match event {
+        crate::events::EvolutionEvent::RevisionPublished { revision, .. } => Some(revision.clone()),
+        _ => None,
+    });
+    let trial_outcome = decoded.iter().find_map(|event| match event {
+        crate::events::EvolutionEvent::TrialCompleted { outcome, .. } => Some(outcome.clone()),
+        _ => None,
+    });
     Ok(InspectRunResponse {
-        run: EvolutionRun {
-            run_id: request.run_id.clone(),
-            schema_version: SCHEMA_VERSION,
-            state: RunState::Running,
-            trigger: TriggerInfo {
-                trigger_type: TriggerType::Manual,
-                source_event_id: None,
-                description: String::new(),
-            },
-            config_snapshot: ConfigSnapshot {
-                mode: "unknown".to_string(),
-                budget_max_duration_secs: 0,
-                budget_max_variant_rounds: 0,
-            },
-            started_at: 0,
-            completed_at: None,
-            error: None,
-        },
+        run,
         events: event_summaries,
-        experience: None,
-        trial_outcome: None,
-        evidence: None,
+        experience,
+        trial_outcome,
+        evidence: store.evidence_for_run(&request.run_id)?,
     })
 }
 
 /// `grok evolution run` (create isolated trial)
-pub fn cmd_run(
-    _config: &EvolutionConfig,
-) -> Result<RetryTrialResponse, EvolutionError> {
-    let run_id = uuid::Uuid::new_v4().to_string();
-    Ok(RetryTrialResponse {
-        new_run_id: run_id,
-        status: "created".to_string(),
-    })
+pub fn cmd_run(_config: &EvolutionConfig) -> Result<RetryTrialResponse, EvolutionError> {
+    Err(EvolutionError::PreflightFailed(
+        "manual runs require EvolutionService and a workspace".to_string(),
+    ))
 }
 
 /// `grok evolution export <run-id> [--json]`
@@ -116,25 +150,21 @@ pub fn cmd_export(
     _store: &EvolutionStore,
     request: &ExportEvidenceRequest,
 ) -> Result<ExportEvidenceResponse, EvolutionError> {
-    let format = request.format.as_deref().unwrap_or("json");
-    Ok(ExportEvidenceResponse {
-        path: format!("/tmp/evolution-export-{}.{}", request.run_id, format),
-        size_bytes: 0,
-        format: format.to_string(),
-    })
+    let _ = request;
+    Err(EvolutionError::PreflightFailed(
+        "evidence export requires EvolutionService and an explicit output directory".to_string(),
+    ))
 }
 
 /// Format a result for CLI output.
 pub fn format_output<T: Serialize>(result: &T, format: OutputFormat) -> String {
     match format {
-        OutputFormat::Json => serde_json::to_string_pretty(result).unwrap_or_else(|e| {
-            format!("{{\"error\": \"{}\"}}", e)
-        }),
+        OutputFormat::Json => serde_json::to_string_pretty(result)
+            .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e)),
         OutputFormat::Text => {
             // Default text formatting — callers can override
-            serde_json::to_string_pretty(result).unwrap_or_else(|e| {
-                format!("Error formatting output: {}", e)
-            })
+            serde_json::to_string_pretty(result)
+                .unwrap_or_else(|e| format!("Error formatting output: {}", e))
         }
     }
 }
@@ -155,43 +185,47 @@ mod tests {
     #[test]
     fn list_returns_empty_initially() {
         let store = EvolutionStore::open_memory().unwrap();
-        let resp = cmd_list(&store, &ListRunsRequest {
-            state_filter: None,
-            limit: None,
-            offset: None,
-        })
+        let resp = cmd_list(
+            &store,
+            &ListRunsRequest {
+                state_filter: None,
+                limit: None,
+                offset: None,
+            },
+        )
         .unwrap();
         assert_eq!(resp.total, 0);
     }
 
     #[test]
-    fn inspect_returns_events() {
+    fn inspect_rejects_missing_run() {
         let store = EvolutionStore::open_memory().unwrap();
-        let resp = cmd_inspect(&store, &InspectRunRequest {
-            run_id: "nonexistent".to_string(),
-        })
-        .unwrap();
-        assert!(resp.events.is_empty());
+        let resp = cmd_inspect(
+            &store,
+            &InspectRunRequest {
+                run_id: "nonexistent".to_string(),
+            },
+        );
+        assert!(resp.is_err());
     }
 
     #[test]
-    fn run_creates_new_id() {
+    fn run_requires_workspace_service() {
         let config = EvolutionConfig::default();
-        let resp = cmd_run(&config).unwrap();
-        assert!(!resp.new_run_id.is_empty());
-        assert_eq!(resp.status, "created");
+        assert!(cmd_run(&config).is_err());
     }
 
     #[test]
-    fn export_returns_path() {
+    fn export_requires_explicit_service_path() {
         let store = EvolutionStore::open_memory().unwrap();
-        let resp = cmd_export(&store, &ExportEvidenceRequest {
-            run_id: "run-1".to_string(),
-            format: Some("json".to_string()),
-        })
-        .unwrap();
-        assert!(resp.path.contains("run-1"));
-        assert_eq!(resp.format, "json");
+        let resp = cmd_export(
+            &store,
+            &ExportEvidenceRequest {
+                run_id: "run-1".to_string(),
+                format: Some("json".to_string()),
+            },
+        );
+        assert!(resp.is_err());
     }
 
     #[test]

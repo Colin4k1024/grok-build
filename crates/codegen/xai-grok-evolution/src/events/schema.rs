@@ -4,7 +4,7 @@
 //! Schema migrations are tracked in the `schema_migrations` table.
 
 /// Current schema version. Increment when changing the DDL.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Full schema SQL for initialization.
 pub const SCHEMA_SQL: &str = r#"
@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS runs (
     run_id       TEXT PRIMARY KEY,
     state        TEXT NOT NULL,
     trigger_type TEXT NOT NULL,
+    trigger_json TEXT NOT NULL DEFAULT '{}',
+    config_json  TEXT NOT NULL DEFAULT '{}',
     started_at   INTEGER NOT NULL,
     completed_at INTEGER,
     error        TEXT
@@ -84,8 +86,25 @@ CREATE TABLE IF NOT EXISTS evidence_manifests (
     artifact_hash TEXT NOT NULL,
     artifact_size INTEGER NOT NULL,
     scrubbed      INTEGER NOT NULL DEFAULT 0,
+    bundle_json   TEXT NOT NULL DEFAULT '{}',
     created_at    INTEGER NOT NULL
 );
+
+-- Auditable operator approvals for the final rollout gate.
+CREATE TABLE IF NOT EXISTS rollout_approvals (
+    approval_id       TEXT PRIMARY KEY,
+    readiness_json    TEXT NOT NULL,
+    evidence_json     TEXT NOT NULL,
+    evidence_hash     TEXT NOT NULL,
+    approved_by       TEXT NOT NULL,
+    approved_at       INTEGER NOT NULL,
+    revoked_at        INTEGER,
+    revocation_reason TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rollout_approvals_active
+    ON rollout_approvals((1))
+    WHERE revoked_at IS NULL;
 
 -- Schema migration tracking.
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -93,6 +112,48 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at INTEGER NOT NULL
 );
 "#;
+
+/// Apply forward-only SQLite migrations after the idempotent base DDL.
+///
+/// SQLite has no `ADD COLUMN IF NOT EXISTS`, so column presence is checked
+/// explicitly. Migrations are intentionally additive and safe to retry.
+pub fn apply_migrations(conn: &rusqlite::Connection) -> Result<(), crate::error::EvolutionError> {
+    add_column_if_missing(
+        conn,
+        "runs",
+        "trigger_json",
+        "ALTER TABLE runs ADD COLUMN trigger_json TEXT NOT NULL DEFAULT '{}'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "runs",
+        "config_json",
+        "ALTER TABLE runs ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "evidence_manifests",
+        "bundle_json",
+        "ALTER TABLE evidence_manifests ADD COLUMN bundle_json TEXT NOT NULL DEFAULT '{}'",
+    )?;
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    sql: &str,
+) -> Result<(), crate::error::EvolutionError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !names.iter().any(|name| name == column) {
+        conn.execute_batch(sql)?;
+    }
+    Ok(())
+}
 
 /// Upcast an event payload from `from_version` to `to_version`.
 ///
@@ -133,15 +194,16 @@ pub fn upcast_event(
 
 /// Upcast from version N to version N+1.
 ///
-/// Currently a no-op at schema version 1. Add migration logic here as
-/// the schema evolves.
+/// Event v2 adds run/stage facts without changing existing v1 payloads, so
+/// v1 events upcast losslessly.
 fn upcast_one(
     payload: &serde_json::Value,
     from_version: u32,
 ) -> Result<serde_json::Value, crate::error::EvolutionError> {
     match from_version {
-        // v1 → v2: placeholder for future migration
-        1 => Ok(payload.clone()),
+        // v1 → v2 and v2 → v3: existing event variants are wire-compatible.
+        // Version 3 adds rollout approval storage without changing events.
+        1 | 2 => Ok(payload.clone()),
         _ => Err(crate::error::EvolutionError::Internal(format!(
             "no upcaster for version {}",
             from_version
@@ -179,6 +241,13 @@ mod tests {
     fn upcast_single_step_v1_to_v2() {
         let payload = json!({"type": "RunStarted"});
         let result = upcast_event(&payload, 1, 2).unwrap().unwrap();
+        assert_eq!(result, payload);
+    }
+
+    #[test]
+    fn upcast_v2_to_v3_is_wire_compatible() {
+        let payload = json!({"type": "RunStarted"});
+        let result = upcast_event(&payload, 2, 3).unwrap().unwrap();
         assert_eq!(result, payload);
     }
 }

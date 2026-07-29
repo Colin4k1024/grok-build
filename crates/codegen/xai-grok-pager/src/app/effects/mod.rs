@@ -2488,6 +2488,192 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::FetchEvolutionState { agent_id, session_id } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let params = serde_json::json!({ "sessionId": session_id.0.to_string() });
+                let raw_params = serde_json::value::to_raw_value(&params)
+                    .expect("serialize evolution params");
+                let status_request = acp::ExtRequest::new(
+                    "x.ai/evolution/status",
+                    raw_params.clone().into(),
+                );
+                let list_request = acp::ExtRequest::new(
+                    "x.ai/evolution/list_runs",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "limit": 100,
+                        "offset": 0,
+                    }))
+                    .expect("serialize evolution list params")
+                    .into(),
+                );
+                let result = async {
+                    let status = acp_send(status_request, &tx)
+                        .await
+                        .map_err(|error| sanitize_user_error(&error.to_string()))?;
+                    let list = acp_send(list_request, &tx)
+                        .await
+                        .map_err(|error| sanitize_user_error(&error.to_string()))?;
+                    let mut status_value: serde_json::Value =
+                        serde_json::from_str(status.0.get())
+                            .map_err(|_| "couldn't decode evolution status".to_string())?;
+                    let list_value: serde_json::Value = serde_json::from_str(list.0.get())
+                        .map_err(|_| "couldn't decode evolution runs".to_string())?;
+                    status_value["runs"] = list_value
+                        .get("runs")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    serde_json::from_value::<
+                        crate::views::evolution_modal::EvolutionViewData,
+                    >(status_value)
+                    .map_err(|_| "couldn't load evolution state".to_string())
+                }
+                .await;
+                TaskResult::EvolutionStateLoaded { agent_id, result }
+            });
+        }
+        Effect::SetEvolutionMode {
+            agent_id,
+            session_id,
+            target_mode,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let request = acp::ExtRequest::new(
+                    "x.ai/evolution/set_mode",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "target_mode": target_mode,
+                        "confirm": true,
+                    }))
+                    .expect("serialize evolution mode params")
+                    .into(),
+                );
+                let result = match acp_send(request, &tx).await {
+                    Ok(response) => serde_json::from_str::<
+                        crate::views::evolution_modal::EvolutionModeChangeResult,
+                    >(response.0.get())
+                    .map_err(|_| "couldn't decode evolution mode response".to_string()),
+                    Err(error) => Err(sanitize_user_error(&error.to_string())),
+                };
+                TaskResult::EvolutionModeChanged { agent_id, result }
+            });
+        }
+        Effect::InspectEvolutionRun {
+            agent_id,
+            session_id,
+            run_id,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let request = acp::ExtRequest::new(
+                    "x.ai/evolution/inspect_run",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "run_id": run_id,
+                    }))
+                    .expect("serialize evolution inspect params")
+                    .into(),
+                );
+                let result = match acp_send(request, &tx).await {
+                    Ok(response) => serde_json::from_str::<
+                        crate::views::evolution_modal::EvolutionRunDetail,
+                    >(response.0.get())
+                    .map_err(|_| "couldn't decode evolution run detail".to_string()),
+                    Err(error) => Err(sanitize_user_error(&error.to_string())),
+                };
+                TaskResult::EvolutionRunInspected { agent_id, result }
+            });
+        }
+        Effect::LoadEvolutionLineage {
+            agent_id,
+            session_id,
+            experience_id,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let request = acp::ExtRequest::new(
+                    "x.ai/evolution/lineage",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "experience_id": experience_id,
+                        "depth": 16,
+                    }))
+                    .expect("serialize evolution lineage params")
+                    .into(),
+                );
+                let result = match acp_send(request, &tx).await {
+                    Ok(response) => serde_json::from_str::<
+                        crate::views::evolution_modal::EvolutionLineageData,
+                    >(response.0.get())
+                    .map_err(|_| "couldn't decode evolution lineage".to_string()),
+                    Err(error) => Err(sanitize_user_error(&error.to_string())),
+                };
+                TaskResult::EvolutionLineageLoaded { agent_id, result }
+            });
+        }
+        Effect::RetryEvolutionTrial {
+            agent_id,
+            session_id,
+            run_id,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let request = acp::ExtRequest::new(
+                    "x.ai/evolution/retry_trial",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "run_id": run_id,
+                    }))
+                    .expect("serialize evolution retry params")
+                    .into(),
+                );
+                let result = match acp_send(request, &tx).await {
+                    Ok(response) => serde_json::from_str::<
+                        crate::views::evolution_modal::EvolutionOperationResult,
+                    >(response.0.get())
+                    .map_err(|_| "couldn't decode evolution retry response".to_string()),
+                    Err(error) => Err(sanitize_user_error(&error.to_string())),
+                };
+                TaskResult::EvolutionOperationCompleted {
+                    agent_id,
+                    operation: "retry",
+                    result,
+                }
+            });
+        }
+        Effect::ExportEvolutionEvidence {
+            agent_id,
+            session_id,
+            run_id,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let request = acp::ExtRequest::new(
+                    "x.ai/evolution/export_evidence",
+                    serde_json::value::to_raw_value(&serde_json::json!({
+                        "sessionId": session_id.0.to_string(),
+                        "run_id": run_id,
+                        "format": "json",
+                    }))
+                    .expect("serialize evolution export params")
+                    .into(),
+                );
+                let result = match acp_send(request, &tx).await {
+                    Ok(response) => serde_json::from_str::<
+                        crate::views::evolution_modal::EvolutionOperationResult,
+                    >(response.0.get())
+                    .map_err(|_| "couldn't decode evolution export response".to_string()),
+                    Err(error) => Err(sanitize_user_error(&error.to_string())),
+                };
+                TaskResult::EvolutionOperationCompleted {
+                    agent_id,
+                    operation: "export",
+                    result,
+                }
+            });
+        }
         Effect::ToggleSkill { agent_id, session_id: _, skill_name, enabled } => {
             let tx = acp_tx.clone();
             tasks

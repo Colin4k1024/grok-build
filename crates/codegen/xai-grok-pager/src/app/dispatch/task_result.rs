@@ -621,6 +621,133 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         TaskResult::PluginsListLoaded { agent_id, result } => {
             handle_plugins_list_loaded(app, agent_id, result)
         }
+        TaskResult::EvolutionStateLoaded { agent_id, result } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id)
+                && let Some(crate::views::modal::ActiveModal::Evolution { state }) =
+                    &mut agent.active_modal
+            {
+                match result {
+                    Ok(data) => state.apply_view_data(data),
+                    Err(error) => {
+                        state.mode_label = "Unavailable".to_string();
+                        state.load_error = Some(error);
+                    }
+                }
+            }
+            vec![]
+        }
+        TaskResult::EvolutionModeChanged { agent_id, result } => {
+            let mut effects = Vec::new();
+            let mut refresh = false;
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                if let Some(crate::views::modal::ActiveModal::Evolution { state }) =
+                    &mut agent.active_modal
+                {
+                    match result {
+                        Ok(report) => {
+                            state.mode_label = report.new_mode;
+                            state.control_message = Some(if report.preflight_passed {
+                                "Preflight passed; mode changed".to_string()
+                            } else {
+                                format!(
+                                    "Preflight incomplete: {}",
+                                    report.failure_reasons.join("; ")
+                                )
+                            });
+                            state.load_error = None;
+                            refresh = true;
+                        }
+                        Err(error) => {
+                            state.control_message =
+                                Some(format!("Preflight/mode change rejected: {error}"));
+                        }
+                    }
+                }
+                if refresh
+                    && let Some(session_id) = agent.session.session_id.clone()
+                {
+                    effects.push(Effect::FetchEvolutionState {
+                        agent_id,
+                        session_id,
+                    });
+                }
+            }
+            effects
+        }
+        TaskResult::EvolutionRunInspected { agent_id, result } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id)
+                && let Some(crate::views::modal::ActiveModal::Evolution { state }) =
+                    &mut agent.active_modal
+            {
+                match result {
+                    Ok(detail) => {
+                        state.run_detail = Some(detail);
+                        state.active_tab = crate::views::evolution_modal::EvolutionTab::Evidence;
+                        state.control_message = Some("Run detail loaded".to_string());
+                        state.load_error = None;
+                    }
+                    Err(error) => {
+                        state.control_message = Some(format!("Run inspection failed: {error}"));
+                    }
+                }
+            }
+            vec![]
+        }
+        TaskResult::EvolutionLineageLoaded { agent_id, result } => {
+            if let Some(agent) = app.agents.get_mut(&agent_id)
+                && let Some(crate::views::modal::ActiveModal::Evolution { state }) =
+                    &mut agent.active_modal
+            {
+                match result {
+                    Ok(lineage) => {
+                        state.lineage = Some(lineage);
+                        state.control_message = Some("Lineage loaded".to_string());
+                        state.load_error = None;
+                    }
+                    Err(error) => {
+                        state.control_message = Some(format!("Lineage load failed: {error}"));
+                    }
+                }
+            }
+            vec![]
+        }
+        TaskResult::EvolutionOperationCompleted {
+            agent_id,
+            operation,
+            result,
+        } => {
+            let mut refresh_session = None;
+            if let Some(agent) = app.agents.get_mut(&agent_id) {
+                if let Some(crate::views::modal::ActiveModal::Evolution { state }) =
+                    &mut agent.active_modal
+                {
+                    state.control_message = Some(match result {
+                        Ok(report) if operation == "retry" => format!(
+                            "Retry created {} ({})",
+                            report.new_run_id.as_deref().unwrap_or("unknown run"),
+                            report.status.as_deref().unwrap_or("unknown status")
+                        ),
+                        Ok(report) => format!(
+                            "Evidence exported to {} ({} bytes, {})",
+                            report.path.as_deref().unwrap_or("unknown path"),
+                            report.size_bytes.unwrap_or(0),
+                            report.format.as_deref().unwrap_or("unknown format")
+                        ),
+                        Err(error) => format!("Evolution {operation} failed: {error}"),
+                    });
+                }
+                if operation == "retry" {
+                    refresh_session = agent.session.session_id.clone();
+                }
+            }
+            refresh_session
+                .map(|session_id| Effect::FetchEvolutionState {
+                    agent_id,
+                    session_id,
+                })
+                .into_iter()
+                .collect()
+        }
         TaskResult::HooksActionResult { agent_id, result }
         | TaskResult::PluginsActionResult { agent_id, result }
         | TaskResult::MarketplaceActionResult { agent_id, result } => {

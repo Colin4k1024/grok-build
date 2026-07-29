@@ -4,10 +4,11 @@
 //! validation infrastructure (cargo test, fmt --check, etc.).
 //!
 //! **P2 (Shadow mode)**: Returns a stub validation result.
-//! **P3 (IsolatedAutonomous)**: Will run actual validation commands in the trial worktree.
+//! Autonomous production validation is owned by Grok's `EvolutionEngine`;
+//! this compatibility adapter stays fail-closed outside Shadow mode.
 
-use oris_evolution::port::{ValidateInput, ValidatePort};
 use oris_evolution::evolver::ValidationResult as OrisValidationResult;
+use oris_evolution::port::{ValidateInput, ValidatePort};
 
 /// Grok validate adapter.
 pub struct GrokValidateAdapter {
@@ -42,7 +43,9 @@ impl ValidatePort for GrokValidateAdapter {
                 score: 0.0,
                 issues: vec![oris_evolution::evolver::ValidationIssue {
                     severity: oris_evolution::evolver::IssueSeverity::Error,
-                    description: "IsolatedAutonomous validation not yet implemented (P3)".to_string(),
+                    description:
+                        "legacy Oris validation adapter is disabled for autonomous production runs"
+                            .to_string(),
                     location: None,
                 }],
                 simulation_results: None,

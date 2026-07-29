@@ -91,6 +91,86 @@ impl Default for EvolutionConfig {
     }
 }
 
+impl EvolutionConfig {
+    /// Resolve config with priority CLI > environment > TOML > default Off.
+    pub fn resolve(
+        experimental_evolution: bool,
+        no_evolution: bool,
+        config: &toml::Value,
+    ) -> Result<Self, crate::error::EvolutionError> {
+        Self::resolve_with_env(
+            experimental_evolution,
+            no_evolution,
+            config,
+            std::env::var("GROK_EVOLUTION").ok().as_deref(),
+        )
+    }
+
+    pub fn resolve_with_env(
+        experimental_evolution: bool,
+        no_evolution: bool,
+        config: &toml::Value,
+        env_value: Option<&str>,
+    ) -> Result<Self, crate::error::EvolutionError> {
+        let mut resolved: Self = config
+            .get("evolution")
+            .map(|value| value.clone().try_into())
+            .transpose()
+            .map_err(|error| {
+                crate::error::EvolutionError::PreflightFailed(format!(
+                    "invalid [evolution] config: {error}"
+                ))
+            })?
+            .unwrap_or_default();
+
+        if let Some(value) = env_value {
+            resolved.mode = parse_mode(value)?;
+        }
+        if experimental_evolution {
+            resolved.mode = EvolutionMode::Shadow;
+        }
+        if no_evolution {
+            resolved.mode = EvolutionMode::Off;
+        }
+        resolved.validate()?;
+        Ok(resolved)
+    }
+
+    pub fn validate(&self) -> Result<(), crate::error::EvolutionError> {
+        if !(0.0..=1.0).contains(&self.shadow_sample_rate) {
+            return Err(crate::error::EvolutionError::PreflightFailed(
+                "evolution.shadow_sample_rate must be between 0 and 1".to_string(),
+            ));
+        }
+        if self.max_trials_per_session == 0 || self.max_concurrent_trials == 0 {
+            return Err(crate::error::EvolutionError::PreflightFailed(
+                "evolution trial limits must be greater than zero".to_string(),
+            ));
+        }
+        if self.budget.max_duration_secs == 0
+            || self.budget.max_variant_rounds == 0
+            || self.budget.max_artifact_mb == 0
+        {
+            return Err(crate::error::EvolutionError::PreflightFailed(
+                "evolution budgets must be greater than zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn parse_mode(value: &str) -> Result<EvolutionMode, crate::error::EvolutionError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "0" | "false" | "off" => Ok(EvolutionMode::Off),
+        "1" | "true" | "shadow" => Ok(EvolutionMode::Shadow),
+        "isolated_autonomous" | "isolated-autonomous" => Ok(EvolutionMode::IsolatedAutonomous),
+        "reuse_eligible" | "reuse-eligible" => Ok(EvolutionMode::ReuseEligible),
+        other => Err(crate::error::EvolutionError::PreflightFailed(format!(
+            "unknown GROK_EVOLUTION mode: {other}"
+        ))),
+    }
+}
+
 /// Budget constraints for a single trial.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
@@ -267,5 +347,28 @@ max_age_days = 30
 "#;
         let config: EvolutionConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.mode, EvolutionMode::IsolatedAutonomous);
+    }
+
+    #[test]
+    fn resolution_precedence_is_cli_then_env_then_config() {
+        let config: toml::Value = toml::from_str("[evolution]\nmode = 'reuse_eligible'").unwrap();
+        assert_eq!(
+            EvolutionConfig::resolve_with_env(false, false, &config, Some("shadow"))
+                .unwrap()
+                .mode,
+            EvolutionMode::Shadow
+        );
+        assert_eq!(
+            EvolutionConfig::resolve_with_env(true, false, &config, Some("off"))
+                .unwrap()
+                .mode,
+            EvolutionMode::Shadow
+        );
+        assert_eq!(
+            EvolutionConfig::resolve_with_env(true, true, &config, Some("shadow"))
+                .unwrap()
+                .mode,
+            EvolutionMode::Off
+        );
     }
 }

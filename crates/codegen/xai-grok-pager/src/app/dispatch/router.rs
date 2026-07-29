@@ -1005,6 +1005,39 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::PreviewAutoLightTheme(v) => preview_auto_light_theme(app, v),
         Action::OpenSettings => dispatch_open_settings(app),
         Action::OpenEvolutionModal => dispatch_open_evolution(app),
+        Action::SetEvolutionMode { target_mode } => dispatch_set_evolution_mode(app, target_mode),
+        Action::InspectEvolutionRun { run_id } => dispatch_evolution_run_action(
+            app,
+            |agent_id, session_id| Effect::InspectEvolutionRun {
+                agent_id,
+                session_id,
+                run_id,
+            },
+        ),
+        Action::LoadEvolutionLineage { experience_id } => dispatch_evolution_run_action(
+            app,
+            |agent_id, session_id| Effect::LoadEvolutionLineage {
+                agent_id,
+                session_id,
+                experience_id,
+            },
+        ),
+        Action::RetryEvolutionTrial { run_id } => dispatch_evolution_run_action(
+            app,
+            |agent_id, session_id| Effect::RetryEvolutionTrial {
+                agent_id,
+                session_id,
+                run_id,
+            },
+        ),
+        Action::ExportEvolutionEvidence { run_id } => dispatch_evolution_run_action(
+            app,
+            |agent_id, session_id| Effect::ExportEvolutionEvidence {
+                agent_id,
+                session_id,
+                run_id,
+            },
+        ),
         Action::OpenCommandPalette => dispatch_open_command_palette(app),
         Action::OpenHowtoGuides => dispatch_open_howto_guides(app),
         Action::OpenResetConfirm { key } => dispatch_open_reset_confirm(app, key),
@@ -1484,9 +1517,54 @@ fn dispatch_open_evolution(app: &mut AppView) -> Vec<Effect> {
         return vec![];
     }
 
-    let state = EvolutionModalState::new("Off".to_string());
+    let session_id = agent.session.session_id.clone();
+    let state = EvolutionModalState::new("Loading…".to_string());
     agent.active_modal = Some(ActiveModal::Evolution {
         state: Box::new(state),
     });
-    vec![]
+    session_id
+        .map(|session_id| Effect::FetchEvolutionState {
+            agent_id: id,
+            session_id,
+        })
+        .into_iter()
+        .collect()
+}
+
+fn dispatch_set_evolution_mode(app: &mut AppView, target_mode: String) -> Vec<Effect> {
+    let ActiveView::Agent(agent_id) = app.active_view else {
+        return vec![];
+    };
+    let Some(session_id) = app
+        .agents
+        .get(&agent_id)
+        .and_then(|agent| agent.session.session_id.clone())
+    else {
+        return vec![];
+    };
+    vec![Effect::SetEvolutionMode {
+        agent_id,
+        session_id,
+        target_mode,
+    }]
+}
+
+fn dispatch_evolution_run_action(
+    app: &AppView,
+    build: impl FnOnce(
+        crate::app::agent::AgentId,
+        agent_client_protocol::SessionId,
+    ) -> Effect,
+) -> Vec<Effect> {
+    let ActiveView::Agent(agent_id) = app.active_view else {
+        return vec![];
+    };
+    let Some(session_id) = app
+        .agents
+        .get(&agent_id)
+        .and_then(|agent| agent.session.session_id.clone())
+    else {
+        return vec![];
+    };
+    vec![build(agent_id, session_id)]
 }
