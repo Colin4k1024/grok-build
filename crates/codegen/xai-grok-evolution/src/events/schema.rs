@@ -4,7 +4,7 @@
 //! Schema migrations are tracked in the `schema_migrations` table.
 
 /// Current schema version. Increment when changing the DDL.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Full schema SQL for initialization.
 pub const SCHEMA_SQL: &str = r#"
@@ -89,6 +89,22 @@ CREATE TABLE IF NOT EXISTS evidence_manifests (
     bundle_json   TEXT NOT NULL DEFAULT '{}',
     created_at    INTEGER NOT NULL
 );
+
+-- Auditable operator approvals for the final rollout gate.
+CREATE TABLE IF NOT EXISTS rollout_approvals (
+    approval_id       TEXT PRIMARY KEY,
+    readiness_json    TEXT NOT NULL,
+    evidence_json     TEXT NOT NULL,
+    evidence_hash     TEXT NOT NULL,
+    approved_by       TEXT NOT NULL,
+    approved_at       INTEGER NOT NULL,
+    revoked_at        INTEGER,
+    revocation_reason TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rollout_approvals_active
+    ON rollout_approvals((1))
+    WHERE revoked_at IS NULL;
 
 -- Schema migration tracking.
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -185,8 +201,9 @@ fn upcast_one(
     from_version: u32,
 ) -> Result<serde_json::Value, crate::error::EvolutionError> {
     match from_version {
-        // v1 → v2: existing variants are wire-compatible.
-        1 => Ok(payload.clone()),
+        // v1 → v2 and v2 → v3: existing event variants are wire-compatible.
+        // Version 3 adds rollout approval storage without changing events.
+        1 | 2 => Ok(payload.clone()),
         _ => Err(crate::error::EvolutionError::Internal(format!(
             "no upcaster for version {}",
             from_version
@@ -224,6 +241,13 @@ mod tests {
     fn upcast_single_step_v1_to_v2() {
         let payload = json!({"type": "RunStarted"});
         let result = upcast_event(&payload, 1, 2).unwrap().unwrap();
+        assert_eq!(result, payload);
+    }
+
+    #[test]
+    fn upcast_v2_to_v3_is_wire_compatible() {
+        let payload = json!({"type": "RunStarted"});
+        let result = upcast_event(&payload, 2, 3).unwrap().unwrap();
         assert_eq!(result, payload);
     }
 }

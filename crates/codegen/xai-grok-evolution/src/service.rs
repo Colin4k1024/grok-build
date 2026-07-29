@@ -1,7 +1,7 @@
 //! Workspace-scoped runtime service and product-facing query surface.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use tokio_util::sync::CancellationToken;
@@ -19,6 +19,7 @@ use crate::events::EvolutionEvent;
 use crate::events::store::{EvolutionStore, StoredEvent};
 use crate::reuse;
 use crate::rollout::killswitch::{KillSwitch, global_kill_switch};
+use crate::rollout::{RolloutApproval, RolloutEvidence, RolloutReadiness};
 use crate::select::SelectionContext;
 use crate::signal::{DefaultSignalCollector, SessionSignalsDelta, SignalCollector};
 use crate::solidify::artifact::gc_orphans;
@@ -33,29 +34,6 @@ pub struct EvolutionPorts {
     pub validator: Arc<dyn TrialValidator>,
     pub evaluator: Arc<dyn TrialEvaluator>,
     pub preflight: Arc<dyn IsolationPreflight>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RolloutReadiness {
-    pub source_pollution_events: u32,
-    pub sandbox_complete: bool,
-    pub evidence_complete: bool,
-    pub unexplained_network_or_writes: u32,
-    pub safety_drills_passed: bool,
-    pub replay_regressions: u32,
-    pub metrics_baseline_established: bool,
-}
-
-impl RolloutReadiness {
-    pub fn reuse_eligible(&self) -> bool {
-        self.source_pollution_events == 0
-            && self.sandbox_complete
-            && self.evidence_complete
-            && self.unexplained_network_or_writes == 0
-            && self.safety_drills_passed
-            && self.replay_regressions == 0
-            && self.metrics_baseline_established
-    }
 }
 
 struct QueuedRun {
@@ -74,7 +52,6 @@ struct ServiceInner {
     pending: Arc<AtomicUsize>,
     kill_switch: KillSwitch,
     cancel: CancellationToken,
-    rollout_ready: AtomicBool,
     preflight: Option<Arc<dyn IsolationPreflight>>,
     last_preflight: RwLock<Option<PreflightResult>>,
 }
@@ -175,7 +152,6 @@ impl EvolutionService {
                 pending,
                 kill_switch,
                 cancel,
-                rollout_ready: AtomicBool::new(false),
                 preflight,
                 last_preflight: RwLock::new(None),
             }),
@@ -302,21 +278,37 @@ impl EvolutionService {
                 ));
             }
         }
-        if target == EvolutionMode::ReuseEligible
-            && !self.inner.rollout_ready.load(Ordering::Acquire)
-        {
-            return Err(EvolutionError::PreflightFailed(
-                "reuse rollout gates have not been approved".to_string(),
-            ));
+        if target == EvolutionMode::ReuseEligible {
+            self.inner
+                .store
+                .current_rollout_approval()?
+                .ok_or_else(|| {
+                    EvolutionError::PreflightFailed(
+                        "reuse rollout gates have not been approved".to_string(),
+                    )
+                })?;
         }
         config.mode = target;
         Ok(target)
     }
 
-    pub fn update_rollout_readiness(&self, readiness: &RolloutReadiness) {
-        self.inner
-            .rollout_ready
-            .store(readiness.reuse_eligible(), Ordering::Release);
+    pub fn approve_rollout(
+        &self,
+        readiness: RolloutReadiness,
+        evidence: RolloutEvidence,
+        approved_by: String,
+    ) -> Result<RolloutApproval, EvolutionError> {
+        let approval = RolloutApproval::new(readiness, evidence, approved_by, now_epoch())?;
+        self.inner.store.save_rollout_approval(&approval)?;
+        Ok(approval)
+    }
+
+    pub fn rollout_approval(&self) -> Result<Option<RolloutApproval>, EvolutionError> {
+        self.inner.store.current_rollout_approval()
+    }
+
+    pub fn revoke_rollout_approval(&self, reason: &str) -> Result<bool, EvolutionError> {
+        self.inner.store.revoke_rollout_approval(reason, now_epoch())
     }
 
     pub fn last_preflight(&self) -> Result<Option<PreflightResult>, EvolutionError> {
@@ -344,6 +336,9 @@ impl EvolutionService {
     ) -> Result<Option<ExperienceInjection>, EvolutionError> {
         let config = self.config()?;
         if !config.mode.can_inject() || self.inner.kill_switch.is_active() {
+            return Ok(None);
+        }
+        if self.inner.store.current_rollout_approval()?.is_none() {
             return Ok(None);
         }
         let candidates = self
@@ -405,6 +400,7 @@ impl EvolutionService {
             .store
             .experiences_by_state(ExperienceState::Quarantined)?;
         let all = self.inner.store.all_experiences()?;
+        let rollout_approval = self.inner.store.current_rollout_approval()?;
         Ok(StatusResponse {
             mode: config.mode,
             active_runs: self.inner.store.count_runs(Some("running"))?,
@@ -417,6 +413,8 @@ impl EvolutionService {
             } else {
                 "closed".to_string()
             },
+            rollout_approved: rollout_approval.is_some(),
+            rollout_approval_id: rollout_approval.map(|approval| approval.approval_id),
         })
     }
 
@@ -823,6 +821,28 @@ mod tests {
         }
     }
 
+    fn passing_readiness() -> RolloutReadiness {
+        RolloutReadiness {
+            source_pollution_events: 0,
+            sandbox_complete: true,
+            evidence_complete: true,
+            unexplained_network_or_writes: 0,
+            safety_drills_passed: true,
+            replay_regressions: 0,
+            metrics_baseline_established: true,
+        }
+    }
+
+    fn rollout_evidence() -> RolloutEvidence {
+        RolloutEvidence {
+            shadow_metrics_hash: "1".repeat(64),
+            sandbox_report_hash: "2".repeat(64),
+            evidence_completeness_hash: "3".repeat(64),
+            safety_drill_report_hash: "4".repeat(64),
+            replay_report_hash: "5".repeat(64),
+        }
+    }
+
     #[test]
     fn shadow_turn_creates_real_run_without_touching_workspace() {
         global_kill_switch().deactivate();
@@ -933,6 +953,61 @@ mod tests {
     }
 
     #[test]
+    fn rollout_approval_persists_and_revocation_is_immediate() {
+        let workspace = tempfile::tempdir().unwrap();
+        let memory = tempfile::tempdir().unwrap();
+        let service = EvolutionService::open_at(
+            workspace.path(),
+            memory.path(),
+            EvolutionConfig {
+                mode: EvolutionMode::Shadow,
+                ..EvolutionConfig::default()
+            },
+        )
+        .unwrap();
+        let approval = service
+            .approve_rollout(
+                passing_readiness(),
+                rollout_evidence(),
+                "release-operator@example.com".to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            service
+                .rollout_approval()
+                .unwrap()
+                .unwrap()
+                .approval_id,
+            approval.approval_id
+        );
+        assert!(service.status().unwrap().rollout_approved);
+        service.shutdown();
+        drop(service);
+
+        let reopened = EvolutionService::open_at(
+            workspace.path(),
+            memory.path(),
+            EvolutionConfig {
+                mode: EvolutionMode::Shadow,
+                ..EvolutionConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            reopened
+                .rollout_approval()
+                .unwrap()
+                .unwrap()
+                .approval_id,
+            approval.approval_id
+        );
+        assert!(reopened.revoke_rollout_approval("replay baseline changed").unwrap());
+        assert!(reopened.rollout_approval().unwrap().is_none());
+        assert!(!reopened.status().unwrap().rollout_approved);
+        reopened.shutdown();
+    }
+
+    #[test]
     fn lifecycle_promotes_injects_and_quarantines_immediately() {
         global_kill_switch().deactivate();
         let workspace = tempfile::tempdir().unwrap();
@@ -1016,6 +1091,13 @@ mod tests {
                 }
             );
         }
+        service
+            .approve_rollout(
+                passing_readiness(),
+                rollout_evidence(),
+                "test-operator".to_string(),
+            )
+            .unwrap();
         service.inner.config.write().unwrap().mode = EvolutionMode::ReuseEligible;
         let first = service
             .experience_injection(&selection_context())
@@ -1023,6 +1105,24 @@ mod tests {
             .expect("active experience should be injected");
         assert_eq!(first.experience_id, experience_id);
         assert!(first.prompt.contains("do not delete tests"));
+        assert!(
+            service
+                .revoke_rollout_approval("safety drill requested")
+                .unwrap()
+        );
+        assert!(
+            service
+                .experience_injection(&selection_context())
+                .unwrap()
+                .is_none()
+        );
+        service
+            .approve_rollout(
+                passing_readiness(),
+                rollout_evidence(),
+                "test-operator".to_string(),
+            )
+            .unwrap();
         assert_eq!(
             service
                 .record_reuse(

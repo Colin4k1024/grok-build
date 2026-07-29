@@ -2336,6 +2336,10 @@ async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) ->
                 println!("  Quarantined:        {}", resp.quarantined_experiences);
                 println!("  Pending signals:    {}", resp.pending_signals);
                 println!("  Circuit breaker:    {}", resp.circuit_breaker_state);
+                println!("  Rollout approved:   {}", resp.rollout_approved);
+                if let Some(approval_id) = &resp.rollout_approval_id {
+                    println!("  Approval ID:        {approval_id}");
+                }
             }
         }
         EvolutionCommand::List { state, limit, json } => {
@@ -2419,9 +2423,98 @@ async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) ->
                 println!("  Format: {}", resp.format);
             }
         }
+        EvolutionCommand::ApproveRollout {
+            shadow_metrics,
+            sandbox_report,
+            evidence_report,
+            safety_drill_report,
+            replay_report,
+            approved_by,
+            source_pollution_events,
+            unexplained_network_or_writes,
+            replay_regressions,
+            confirm,
+            json,
+        } => {
+            if !confirm {
+                anyhow::bail!("Rollout approval requires --confirm");
+            }
+            let evidence = xai_grok_evolution::RolloutEvidence {
+                shadow_metrics_hash: hash_rollout_report(&shadow_metrics)?,
+                sandbox_report_hash: hash_rollout_report(&sandbox_report)?,
+                evidence_completeness_hash: hash_rollout_report(&evidence_report)?,
+                safety_drill_report_hash: hash_rollout_report(&safety_drill_report)?,
+                replay_report_hash: hash_rollout_report(&replay_report)?,
+            };
+            let approval = service.approve_rollout(
+                xai_grok_evolution::RolloutReadiness {
+                    source_pollution_events,
+                    sandbox_complete: true,
+                    evidence_complete: true,
+                    unexplained_network_or_writes,
+                    safety_drills_passed: true,
+                    replay_regressions,
+                    metrics_baseline_established: true,
+                },
+                evidence,
+                approved_by,
+            )?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&approval)?);
+            } else {
+                println!("Reuse rollout approved: {}", approval.approval_id);
+                println!("  Approved by:  {}", approval.approved_by);
+                println!("  Evidence hash: {}", approval.evidence_hash);
+            }
+        }
+        EvolutionCommand::RevokeRollout {
+            reason,
+            confirm,
+            json,
+        } => {
+            if !confirm {
+                anyhow::bail!("Rollout revocation requires --confirm");
+            }
+            let revoked = service.revoke_rollout_approval(&reason)?;
+            if json {
+                println!("{}", serde_json::json!({ "revoked": revoked, "reason": reason }));
+            } else if revoked {
+                println!("Reuse rollout approval revoked: {reason}");
+            } else {
+                println!("No active rollout approval was found.");
+            }
+        }
     }
 
     Ok(())
+}
+
+fn hash_rollout_report(path: &std::path::Path) -> Result<String> {
+    use std::io::Read as _;
+
+    const MAX_REPORT_BYTES: u64 = 16 * 1024 * 1024;
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| anyhow::anyhow!("Cannot read rollout report {}: {error}", path.display()))?;
+    if !metadata.is_file() {
+        anyhow::bail!("Rollout report is not a file: {}", path.display());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_REPORT_BYTES {
+        anyhow::bail!(
+            "Rollout report must be between 1 byte and {MAX_REPORT_BYTES} bytes: {}",
+            path.display()
+        );
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
 }
 #[cfg(test)]
 mod tests {

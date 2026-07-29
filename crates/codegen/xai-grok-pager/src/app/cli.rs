@@ -195,6 +195,54 @@ pub enum EvolutionCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Approve ReuseEligible rollout using hashed operator-reviewed reports
+    ApproveRollout {
+        /// Shadow metrics baseline report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        shadow_metrics: PathBuf,
+        /// Worker sandbox/preflight report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        sandbox_report: PathBuf,
+        /// Evidence completeness report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        evidence_report: PathBuf,
+        /// Kill-switch, circuit-breaker, and quarantine drill report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        safety_drill_report: PathBuf,
+        /// Fixed replay corpus report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        replay_report: PathBuf,
+        /// Stable identity of the approving operator.
+        #[arg(long)]
+        approved_by: String,
+        /// Observed source worktree pollution events.
+        #[arg(long, default_value = "0")]
+        source_pollution_events: u32,
+        /// Unexplained network or out-of-bounds write events.
+        #[arg(long, default_value = "0")]
+        unexplained_network_or_writes: u32,
+        /// Correctness regressions in the fixed replay corpus.
+        #[arg(long, default_value = "0")]
+        replay_regressions: u32,
+        /// Confirm this production rollout approval.
+        #[arg(long)]
+        confirm: bool,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke the active ReuseEligible rollout approval
+    RevokeRollout {
+        /// Auditable reason for revocation.
+        #[arg(long)]
+        reason: String,
+        /// Confirm immediate rollout revocation.
+        #[arg(long)]
+        confirm: bool,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
 #[derive(Debug, clap::Args, Clone)]
@@ -1373,5 +1421,56 @@ mod tests {
             panic!("expected agent subcommand");
         };
         assert_eq!(agent.reasoning_effort.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn evolution_rollout_approval_requires_report_arguments() {
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "evolution",
+            "approve-rollout",
+            "--shadow-metrics",
+            "shadow.json",
+            "--sandbox-report",
+            "sandbox.json",
+            "--evidence-report",
+            "evidence.json",
+            "--safety-drill-report",
+            "drills.json",
+            "--replay-report",
+            "replay.json",
+            "--approved-by",
+            "operator@example.com",
+            "--confirm",
+        ])
+        .expect("rollout approval arguments parse");
+        assert!(matches!(
+            args.command,
+            Some(Command::Evolution(EvolutionArgs {
+                command: EvolutionCommand::ApproveRollout { confirm: true, .. },
+            }))
+        ));
+        assert!(
+            PagerArgs::try_parse_from(["grok", "evolution", "approve-rollout"]).is_err()
+        );
+    }
+
+    #[test]
+    fn evolution_rollout_revocation_parses() {
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "evolution",
+            "revoke-rollout",
+            "--reason",
+            "baseline changed",
+            "--confirm",
+        ])
+        .expect("rollout revocation arguments parse");
+        assert!(matches!(
+            args.command,
+            Some(Command::Evolution(EvolutionArgs {
+                command: EvolutionCommand::RevokeRollout { confirm: true, .. },
+            }))
+        ));
     }
 }

@@ -26,8 +26,156 @@
 pub mod killswitch;
 pub mod metrics;
 
+use serde::{Deserialize, Serialize};
+
 use crate::config::EvolutionMode;
+use crate::error::EvolutionError;
 use crate::trial::preflight::PreflightResult;
+
+/// Measured gates that must all pass before reusable experiences may be injected.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolloutReadiness {
+    pub source_pollution_events: u32,
+    pub sandbox_complete: bool,
+    pub evidence_complete: bool,
+    pub unexplained_network_or_writes: u32,
+    pub safety_drills_passed: bool,
+    pub replay_regressions: u32,
+    pub metrics_baseline_established: bool,
+}
+
+impl RolloutReadiness {
+    pub fn reuse_eligible(&self) -> bool {
+        self.source_pollution_events == 0
+            && self.sandbox_complete
+            && self.evidence_complete
+            && self.unexplained_network_or_writes == 0
+            && self.safety_drills_passed
+            && self.replay_regressions == 0
+            && self.metrics_baseline_established
+    }
+}
+
+/// Content hashes for the reports reviewed by the approving operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolloutEvidence {
+    pub shadow_metrics_hash: String,
+    pub sandbox_report_hash: String,
+    pub evidence_completeness_hash: String,
+    pub safety_drill_report_hash: String,
+    pub replay_report_hash: String,
+}
+
+impl RolloutEvidence {
+    pub fn validate(&self) -> Result<(), EvolutionError> {
+        for (name, hash) in [
+            ("shadow_metrics_hash", &self.shadow_metrics_hash),
+            ("sandbox_report_hash", &self.sandbox_report_hash),
+            (
+                "evidence_completeness_hash",
+                &self.evidence_completeness_hash,
+            ),
+            ("safety_drill_report_hash", &self.safety_drill_report_hash),
+            ("replay_report_hash", &self.replay_report_hash),
+        ] {
+            if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(EvolutionError::PreflightFailed(format!(
+                    "{name} must be a 64-character content hash"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Immutable, auditable approval record persisted in the evolution database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolloutApproval {
+    pub approval_id: String,
+    pub readiness: RolloutReadiness,
+    pub evidence: RolloutEvidence,
+    pub evidence_hash: String,
+    pub approved_by: String,
+    pub approved_at: i64,
+    pub revoked_at: Option<i64>,
+    pub revocation_reason: Option<String>,
+}
+
+impl RolloutApproval {
+    pub fn new(
+        readiness: RolloutReadiness,
+        evidence: RolloutEvidence,
+        approved_by: String,
+        approved_at: i64,
+    ) -> Result<Self, EvolutionError> {
+        if !readiness.reuse_eligible() {
+            return Err(EvolutionError::PreflightFailed(
+                "rollout readiness gates are not all satisfied".to_string(),
+            ));
+        }
+        evidence.validate()?;
+        validate_operator(&approved_by)?;
+        let evidence_hash = approval_payload_hash(&readiness, &evidence, &approved_by, approved_at)?;
+        Ok(Self {
+            approval_id: uuid::Uuid::new_v4().to_string(),
+            readiness,
+            evidence,
+            evidence_hash,
+            approved_by,
+            approved_at,
+            revoked_at: None,
+            revocation_reason: None,
+        })
+    }
+
+    pub fn verify(&self) -> Result<(), EvolutionError> {
+        if self.revoked_at.is_some() || !self.readiness.reuse_eligible() {
+            return Err(EvolutionError::PreflightFailed(
+                "rollout approval is revoked or no longer eligible".to_string(),
+            ));
+        }
+        self.evidence.validate()?;
+        validate_operator(&self.approved_by)?;
+        let actual = approval_payload_hash(
+            &self.readiness,
+            &self.evidence,
+            &self.approved_by,
+            self.approved_at,
+        )?;
+        if actual != self.evidence_hash {
+            return Err(EvolutionError::ArtifactIntegrity {
+                expected: self.evidence_hash.clone(),
+                actual,
+            });
+        }
+        Ok(())
+    }
+}
+
+fn approval_payload_hash(
+    readiness: &RolloutReadiness,
+    evidence: &RolloutEvidence,
+    approved_by: &str,
+    approved_at: i64,
+) -> Result<String, EvolutionError> {
+    let payload = serde_json::to_vec(&(readiness, evidence, approved_by, approved_at))
+        .map_err(|error| EvolutionError::Internal(format!("serialize rollout approval: {error}")))?;
+    Ok(blake3::hash(&payload).to_hex().to_string())
+}
+
+fn validate_operator(approved_by: &str) -> Result<(), EvolutionError> {
+    let approved_by = approved_by.trim();
+    if approved_by.is_empty()
+        || approved_by.len() > 128
+        || approved_by.chars().any(char::is_control)
+    {
+        return Err(EvolutionError::PreflightFailed(
+            "approved_by must be a non-empty operator identity of at most 128 characters"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
 
 /// Rollout controller managing mode transitions.
 pub struct RolloutController {
@@ -270,6 +418,57 @@ mod tests {
             vcs_clean: true,
             failure_reasons: vec![],
         }
+    }
+
+    fn eligible_readiness() -> RolloutReadiness {
+        RolloutReadiness {
+            source_pollution_events: 0,
+            sandbox_complete: true,
+            evidence_complete: true,
+            unexplained_network_or_writes: 0,
+            safety_drills_passed: true,
+            replay_regressions: 0,
+            metrics_baseline_established: true,
+        }
+    }
+
+    fn complete_evidence() -> RolloutEvidence {
+        RolloutEvidence {
+            shadow_metrics_hash: "a".repeat(64),
+            sandbox_report_hash: "b".repeat(64),
+            evidence_completeness_hash: "c".repeat(64),
+            safety_drill_report_hash: "d".repeat(64),
+            replay_report_hash: "e".repeat(64),
+        }
+    }
+
+    #[test]
+    fn approval_rejects_incomplete_gates() {
+        let mut readiness = eligible_readiness();
+        readiness.replay_regressions = 1;
+        assert!(RolloutApproval::new(
+            readiness,
+            complete_evidence(),
+            "operator".to_string(),
+            1,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn approval_hash_detects_tampering() {
+        let mut approval = RolloutApproval::new(
+            eligible_readiness(),
+            complete_evidence(),
+            "operator".to_string(),
+            1,
+        )
+        .unwrap();
+        approval.evidence.replay_report_hash = "f".repeat(64);
+        assert!(matches!(
+            approval.verify(),
+            Err(EvolutionError::ArtifactIntegrity { .. })
+        ));
     }
 
     #[test]

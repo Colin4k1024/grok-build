@@ -74,12 +74,14 @@ Requirements:
 
 ```sh
 cargo run -p xai-grok-pager-bin              # build + launch the TUI
-cargo build -p xai-grok-pager-bin --release  # release binary: target/release/xai-grok-pager
+cargo build -p xai-grok-pager-bin --release  # release binaries: pager + isolated worker
 cargo check -p xai-grok-pager-bin            # fast validation
 ```
 
-The binary artifact is named `xai-grok-pager`; official installs ship it as
-`grok`. On first launch it opens your browser to authenticate — see the
+The user-facing artifact is named `xai-grok-pager`; official installs ship it as
+`grok`. Release packages must also install `xai-grok-evolution-worker` beside
+the pager binary so isolated evolution trials can pass preflight. On first
+launch the pager opens your browser to authenticate — see the
 [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
 
 ## Documentation

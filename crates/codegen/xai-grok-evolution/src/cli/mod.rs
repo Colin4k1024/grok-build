@@ -31,6 +31,7 @@ pub fn cmd_status(
     let active = store.experiences_by_state(ExperienceState::Active)?;
     let quarantined = store.experiences_by_state(ExperienceState::Quarantined)?;
     let candidates = store.experiences_by_state(ExperienceState::Candidate)?;
+    let rollout_approval = store.current_rollout_approval()?;
 
     Ok(StatusResponse {
         mode: config.mode,
@@ -44,6 +45,8 @@ pub fn cmd_status(
         } else {
             "closed".to_string()
         },
+        rollout_approved: rollout_approval.is_some(),
+        rollout_approval_id: rollout_approval.map(|approval| approval.approval_id),
     })
 }
 

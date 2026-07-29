@@ -50,3 +50,32 @@ P6 的放量控制和 fail-closed 门禁已经实现，但 `ReuseEligible` 必�
 3. 只有内部 worker preflight 全部通过时才允许进入 `IsolatedAutonomous`。
 4. 只有 source pollution 为零、sandbox/evidence 完整率 100%、安全演练和固定 replay 通过、指标基线建立后，才批准 `ReuseEligible`。
 5. 任一安全门失败立即降级或关闭，不允许使用模拟成功或内存回退绕过。
+
+## 发布与审批操作
+
+- 发布构建必须同时交付 `xai-grok-pager` 和同目录下的
+  `xai-grok-evolution-worker`。可用
+  `cargo build -p xai-grok-pager-bin --release` 构建两个二进制。
+- Oris 依赖使用 registry 精确版本，构建不依赖仓库外的本地兄弟目录。
+- `ReuseEligible` 审批是工作区级持久化记录。审批前准备 Shadow 指标、
+  sandbox、证据完整性、安全演练和固定 replay 五份报告，然后执行：
+
+```sh
+grok evolution approve-rollout \
+  --shadow-metrics shadow-metrics.json \
+  --sandbox-report sandbox-report.json \
+  --evidence-report evidence-report.json \
+  --safety-drill-report safety-drills.json \
+  --replay-report replay-report.json \
+  --approved-by operator@example.com \
+  --confirm
+```
+
+CLI 会计算并持久化每份报告的 BLAKE3 哈希。任一污染、越界写或 replay
+回归计数非零时审批失败。需要立即停止经验注入时执行：
+
+```sh
+grok evolution revoke-rollout --reason "replay baseline changed" --confirm
+```
+
+撤销记录会保留在 SQLite 审计表中，并在下一次经验注入前动态生效。

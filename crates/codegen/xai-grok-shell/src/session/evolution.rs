@@ -191,6 +191,10 @@ fn resolve_worker_binary() -> Result<PathBuf, EvolutionError> {
     let current = std::env::current_exe().map_err(|error| {
         EvolutionError::SandboxUnavailable(format!("resolve current executable: {error}"))
     })?;
+    resolve_worker_binary_next_to(&current)
+}
+
+fn resolve_worker_binary_next_to(current: &Path) -> Result<PathBuf, EvolutionError> {
     let name = if cfg!(windows) {
         "xai-grok-evolution-worker.exe"
     } else {
@@ -513,5 +517,23 @@ mod tests {
         );
         assert_eq!(contexts.len(), 1);
         assert_eq!(contexts[0]["path"], "safe.rs");
+    }
+
+    #[test]
+    fn release_layout_finds_worker_next_to_pager() {
+        let install = tempfile::tempdir().unwrap();
+        let pager = install.path().join("xai-grok-pager");
+        let worker = install.path().join(if cfg!(windows) {
+            "xai-grok-evolution-worker.exe"
+        } else {
+            "xai-grok-evolution-worker"
+        });
+        std::fs::write(&pager, "pager").unwrap();
+        std::fs::write(&worker, "worker").unwrap();
+
+        assert_eq!(
+            resolve_worker_binary_next_to(&pager).unwrap(),
+            worker.canonicalize().unwrap()
+        );
     }
 }

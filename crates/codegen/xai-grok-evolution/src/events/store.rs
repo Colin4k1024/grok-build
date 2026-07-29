@@ -12,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::error::EvolutionError;
 use crate::events::EvolutionEvent;
 use crate::events::schema::{SCHEMA_SQL, SCHEMA_VERSION, apply_migrations};
+use crate::rollout::{RolloutApproval, RolloutEvidence, RolloutReadiness};
 use crate::types::*;
 
 /// Append-only event store backed by SQLite.
@@ -709,6 +710,114 @@ impl EvolutionStore {
             hashes.push(row?);
         }
         Ok(hashes)
+    }
+
+    /// Persist a new rollout approval and revoke any previous active approval
+    /// in one immediate transaction.
+    pub fn save_rollout_approval(
+        &self,
+        approval: &RolloutApproval,
+    ) -> Result<(), EvolutionError> {
+        approval.verify()?;
+        let readiness_json = serde_json::to_string(&approval.readiness).map_err(|error| {
+            EvolutionError::Internal(format!("serialize rollout readiness: {error}"))
+        })?;
+        let evidence_json = serde_json::to_string(&approval.evidence).map_err(|error| {
+            EvolutionError::Internal(format!("serialize rollout evidence: {error}"))
+        })?;
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|error| EvolutionError::Internal(format!("lock poisoned: {error}")))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "UPDATE rollout_approvals SET revoked_at = ?1, revocation_reason = 'superseded by a newer approval' WHERE revoked_at IS NULL",
+            params![approval.approved_at],
+        )?;
+        tx.execute(
+            "INSERT INTO rollout_approvals (approval_id, readiness_json, evidence_json, evidence_hash, approved_by, approved_at, revoked_at, revocation_reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL)",
+            params![
+                approval.approval_id,
+                readiness_json,
+                evidence_json,
+                approval.evidence_hash,
+                approval.approved_by,
+                approval.approved_at,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Load and integrity-check the active rollout approval, if one exists.
+    pub fn current_rollout_approval(&self) -> Result<Option<RolloutApproval>, EvolutionError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| EvolutionError::Internal(format!("lock poisoned: {error}")))?;
+        let row: Option<(String, String, String, String, String, i64)> = conn
+            .query_row(
+                "SELECT approval_id, readiness_json, evidence_json, evidence_hash, approved_by, approved_at FROM rollout_approvals WHERE revoked_at IS NULL ORDER BY approved_at DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((approval_id, readiness_json, evidence_json, evidence_hash, approved_by, approved_at)) = row else {
+            return Ok(None);
+        };
+        let approval = RolloutApproval {
+            approval_id,
+            readiness: serde_json::from_str::<RolloutReadiness>(&readiness_json).map_err(
+                |error| {
+                    EvolutionError::Internal(format!(
+                        "deserialize persisted rollout readiness: {error}"
+                    ))
+                },
+            )?,
+            evidence: serde_json::from_str::<RolloutEvidence>(&evidence_json).map_err(|error| {
+                EvolutionError::Internal(format!(
+                    "deserialize persisted rollout evidence: {error}"
+                ))
+            })?,
+            evidence_hash,
+            approved_by,
+            approved_at,
+            revoked_at: None,
+            revocation_reason: None,
+        };
+        approval.verify()?;
+        Ok(Some(approval))
+    }
+
+    /// Revoke the active rollout approval. Returns false when none is active.
+    pub fn revoke_rollout_approval(
+        &self,
+        reason: &str,
+        revoked_at: i64,
+    ) -> Result<bool, EvolutionError> {
+        let reason = reason.trim();
+        if reason.is_empty() || reason.len() > 512 || reason.chars().any(char::is_control) {
+            return Err(EvolutionError::PreflightFailed(
+                "revocation reason must be non-empty and at most 512 characters".to_string(),
+            ));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| EvolutionError::Internal(format!("lock poisoned: {error}")))?;
+        Ok(conn.execute(
+            "UPDATE rollout_approvals SET revoked_at = ?1, revocation_reason = ?2 WHERE revoked_at IS NULL",
+            params![revoked_at, reason],
+        )? > 0)
     }
 
     /// Record a reuse observation and any resulting promotion/quarantine in a

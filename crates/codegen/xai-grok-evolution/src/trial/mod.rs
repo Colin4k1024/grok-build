@@ -9,6 +9,7 @@
 pub mod preflight;
 pub mod runner;
 pub mod worker;
+pub mod worker_entry;
 pub mod worktree;
 
 pub use preflight::{

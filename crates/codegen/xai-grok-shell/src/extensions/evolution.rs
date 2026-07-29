@@ -89,6 +89,8 @@ pub async fn handle(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
                     quarantined_experiences: 0,
                     pending_signals: 0,
                     circuit_breaker_state: "closed".to_string(),
+                    rollout_approved: false,
+                    rollout_approval_id: None,
                 },
             };
             to_raw_response(&status)
