@@ -127,6 +127,9 @@ async fn test_e2e_idle_resume_refreshes_model_metadata() {
                     cwd: cwd.as_str().to_string(),
                 },
                 attribution_callback: None,
+                evolution_service: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+                evolution_context_injected: std::sync::atomic::AtomicBool::new(false),
+                evolution_injection: parking_lot::Mutex::new(None),
                 auth_method_id: test_auth_method_id("cached_token"),
                 model_auth_memo: std::cell::RefCell::new(None),
                 auth_manager: {

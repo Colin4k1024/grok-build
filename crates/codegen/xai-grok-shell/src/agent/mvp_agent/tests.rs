@@ -1143,6 +1143,7 @@ fn make_test_handle(
         hunk_tracker_handle,
         chat_state_handle: xai_chat_state::ChatStateHandle::noop(),
         signals_handle: crate::session::signals::SessionSignalsHandle::new(),
+        evolution_service: std::sync::Arc::new(parking_lot::RwLock::new(None)),
         gateway_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
         mcp_servers: vec![],
         initial_client_mcp_servers: vec![],

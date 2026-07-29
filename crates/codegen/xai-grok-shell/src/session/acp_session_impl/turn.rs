@@ -35,6 +35,125 @@ fn validate_structured_output(
         Err(e) => Err(format!("output does not match the required schema: {e}")),
     }
 }
+
+fn evolution_delta_from_turn(
+    session_id: &str,
+    turn_id: &str,
+    snapshot: &TurnDeltaSnapshot,
+) -> xai_grok_evolution::SessionSignalsDelta {
+    let tool_failures = snapshot
+        .delta
+        .tool_outcomes_this_turn
+        .iter()
+        .filter(|outcome| outcome.failures > 0)
+        .map(|outcome| xai_grok_evolution::signal::ToolFailure {
+            tool_name: outcome.tool_name.clone(),
+            error_message: format!(
+                "tool {} reported {} failed invocation(s)",
+                outcome.tool_name, outcome.failures
+            ),
+            file_path: None,
+            exit_code: None,
+        })
+        .collect();
+    let mut test_failures = Vec::new();
+    let mut timeouts = Vec::new();
+    let mut panics = Vec::new();
+    let mut compilation_errors = Vec::new();
+    for error_type in &snapshot.delta.error_types_this_turn {
+        let normalized = error_type.to_ascii_lowercase();
+        if normalized.contains("timeout") {
+            timeouts.push(xai_grok_evolution::signal::TimeoutInfo {
+                operation: error_type.clone(),
+                timeout_secs: 0,
+                tool_name: None,
+            });
+        } else if normalized.contains("panic") {
+            panics.push(xai_grok_evolution::signal::PanicInfo {
+                message: error_type.clone(),
+                file_path: None,
+                backtrace_hash: None,
+            });
+        } else if normalized.contains("compile") {
+            compilation_errors.push(xai_grok_evolution::signal::CompilationError {
+                error_message: error_type.clone(),
+                file_path: None,
+                package: None,
+            });
+        } else if normalized.contains("test") {
+            test_failures.push(xai_grok_evolution::signal::TestFailure {
+                test_name: "turn validation".to_string(),
+                error_message: error_type.clone(),
+                file_path: None,
+                package: None,
+            });
+        }
+    }
+    let negative_feedback = (0..snapshot.delta.delta_negative_ratings.max(0).min(8))
+        .map(|_| xai_grok_evolution::signal::NegativeFeedback {
+            rating: -1,
+            comment: None,
+        })
+        .collect();
+    xai_grok_evolution::SessionSignalsDelta {
+        session_id: session_id.to_string(),
+        turn_id: Some(turn_id.to_string()),
+        tool_failures,
+        test_failures,
+        timeouts,
+        panics,
+        user_corrections: Vec::new(),
+        negative_feedback,
+        performance_regressions: Vec::new(),
+        retries_exhausted: Vec::new(),
+        compilation_errors,
+    }
+}
+
+fn evolution_signal_types(
+    delta: &xai_grok_evolution::SessionSignalsDelta,
+) -> Vec<xai_grok_evolution::SignalType> {
+    let mut types = Vec::new();
+    types.extend(
+        delta
+            .tool_failures
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::ToolFailure),
+    );
+    types.extend(
+        delta
+            .test_failures
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::TestFailure),
+    );
+    types.extend(
+        delta
+            .timeouts
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::Timeout),
+    );
+    types.extend(
+        delta
+            .panics
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::Panic),
+    );
+    types.extend(
+        delta
+            .negative_feedback
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::NegativeFeedback),
+    );
+    types.extend(
+        delta
+            .compilation_errors
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::CompilationError),
+    );
+    types.sort_by_key(|signal_type| format!("{signal_type:?}"));
+    types.dedup();
+    types
+}
 /// Result of the turn-end usage drain (and cancel's no-drain snapshot).
 ///
 /// **Ledger marks** only when [`Self::fail_closed`]. Sticky and background
@@ -1666,6 +1785,44 @@ impl SessionActor {
             crate::session::helpers::memory_context::format_memory_reminder(&results)
         })
     }
+    fn evolution_selection_context(
+        &self,
+        signal_types: Vec<xai_grok_evolution::SignalType>,
+    ) -> xai_grok_evolution::SelectionContext {
+        xai_grok_evolution::SelectionContext {
+            repo: std::path::Path::new(&self.session_info.cwd)
+                .canonicalize()
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned()),
+            task_type: self.active_agent_type.lock().clone(),
+            signal_types,
+            env_fingerprint: None,
+            now: chrono::Utc::now().timestamp(),
+        }
+    }
+
+    fn first_turn_evolution_reminder(&self) -> Option<String> {
+        let service = self.evolution_service.read().clone()?;
+        if self
+            .evolution_context_injected
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return None;
+        }
+        match service.experience_injection(&self.evolution_selection_context(Vec::new())) {
+            Ok(Some(injection)) => {
+                let prompt = injection.prompt.clone();
+                *self.evolution_injection.lock() = Some(injection);
+                Some(prompt)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(%error, "experience context rejected");
+                None
+            }
+        }
+    }
+
     /// Inspect `tool_calls` for a `StructuredOutput` call and decide the turn's
     /// next step, pushing the call's `tool_result` (correction / retry error /
     /// terminal) as a side effect. Validates the args against `validator` and
@@ -1750,6 +1907,38 @@ impl SessionActor {
                 .notifications
                 .persistence_tx
                 .send(PersistenceMsg::Signals(snap.current.clone()));
+            if let Some(service) = self.evolution_service.read().clone() {
+                let delta =
+                    evolution_delta_from_turn(self.session_info.id.0.as_ref(), req_id, snap);
+                let signal_types = evolution_signal_types(&delta);
+                if let Some(injection) = self.evolution_injection.lock().take() {
+                    let outcome = if !delta.user_corrections.is_empty()
+                        || !delta.negative_feedback.is_empty()
+                    {
+                        xai_grok_evolution::ReuseOutcome::Hindered
+                    } else if delta.tool_failures.is_empty()
+                        && delta.test_failures.is_empty()
+                        && delta.timeouts.is_empty()
+                        && delta.panics.is_empty()
+                        && delta.performance_regressions.is_empty()
+                        && delta.retries_exhausted.is_empty()
+                        && delta.compilation_errors.is_empty()
+                    {
+                        xai_grok_evolution::ReuseOutcome::Helped
+                    } else {
+                        xai_grok_evolution::ReuseOutcome::Neutral
+                    };
+                    if let Err(error) = service.record_reuse(
+                        &injection.experience_id,
+                        &injection.injection_id,
+                        outcome,
+                        injection.context_hash,
+                    ) {
+                        tracing::warn!(%error, "failed to record experience reuse observation");
+                    }
+                }
+                let _ = service.on_turn_end(&delta, self.evolution_selection_context(signal_types));
+            }
         }
         self.feedback_manager
             .send_turn_delta_with_snapshot(
@@ -1908,6 +2097,7 @@ impl SessionActor {
             self.flush_pending_skill_reminders().await;
             self.inject_pending_monitor_events().await;
             let memory_reminder = self.first_turn_memory_reminder().await;
+            let evolution_reminder = self.first_turn_evolution_reminder();
             if memory_reminder.is_some() {
                 self.memory
                     .injection_count
@@ -1917,6 +2107,12 @@ impl SessionActor {
                     "MEMORY_INJECT: first-turn memory context injected"
                 );
             }
+            let supplemental_context = match (memory_reminder, evolution_reminder) {
+                (Some(memory), Some(experience)) => Some(format!("{memory}\n\n{experience}")),
+                (Some(memory), None) => Some(memory),
+                (None, Some(experience)) => Some(experience),
+                (None, None) => None,
+            };
             self.maybe_inject_mcp_reminder().await;
             if self.tool_context.task_output_token_budget.is_none()
                 && self.two_pass_active()
@@ -1961,7 +2157,7 @@ impl SessionActor {
                 .chat_state_handle
                 .build_request(
                     effective_tools,
-                    memory_reminder,
+                    supplemental_context,
                     self.memory.is_enabled(),
                     trace_gcs_config
                         .clone()

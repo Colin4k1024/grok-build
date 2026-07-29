@@ -9,7 +9,7 @@ use oris_evolution::pipeline::{
     EvolutionPipeline, EvolutionPipelineConfig, PipelineContext, PipelineResult,
     StandardEvolutionPipeline,
 };
-use oris_evolution::{ProjectionSelector, Selector, EvolutionProjection};
+use oris_evolution::{EvolutionProjection, ProjectionSelector, Selector};
 
 use crate::config::EvolutionMode;
 use crate::error::EvolutionError;
@@ -31,16 +31,17 @@ pub struct GrokEvolutionPipeline {
 impl GrokEvolutionPipeline {
     /// Build a new pipeline with the given mode and store.
     pub fn new(mode: EvolutionMode, store: EvolutionStore) -> Self {
-        let shadow = mode.level() < EvolutionMode::IsolatedAutonomous.level();
+        let off = mode == EvolutionMode::Off;
+        let shadow = mode == EvolutionMode::Shadow;
 
         // Configure pipeline stages based on mode
         let config = EvolutionPipelineConfig {
-            enable_detect: true,
-            enable_select: true,
-            enable_mutate: shadow, // Shadow: simulate; IA: real
+            enable_detect: !off,
+            enable_select: !off,
+            enable_mutate: mode.can_run_trials(),
             enable_execute: mode.can_run_trials(),
             enable_validate: mode.can_run_trials(),
-            enable_evaluate: true,
+            enable_evaluate: !off,
             enable_solidify: mode.can_run_trials(),
             enable_reuse: mode.can_inject(),
             detect_timeout_secs: 30,
@@ -73,9 +74,9 @@ impl GrokEvolutionPipeline {
 
     /// Execute the pipeline with the given context.
     pub fn execute(&self, context: PipelineContext) -> Result<PipelineResult, EvolutionError> {
-        self.inner.execute(context).map_err(|e| {
-            EvolutionError::Internal(format!("pipeline error: {}", e))
-        })
+        self.inner
+            .execute(context)
+            .map_err(|e| EvolutionError::Internal(format!("pipeline error: {}", e)))
     }
 
     /// Get the current mode.
@@ -120,7 +121,7 @@ mod tests {
                 compiler_output: Some("error: test_parse_config panicked".to_string()),
                 ..Default::default()
             }),
-            ..Default::default()  // PipelineContext has many fields, all defaulted
+            ..Default::default() // PipelineContext has many fields, all defaulted
         };
 
         let result = pipeline.execute(context).unwrap();

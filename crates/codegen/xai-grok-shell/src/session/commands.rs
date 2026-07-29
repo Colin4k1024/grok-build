@@ -698,6 +698,10 @@ pub enum SessionCommand {
         context_summary: String,
         respond_to: oneshot::Sender<Result<String, String>>,
     },
+    EvolutionModelRequest {
+        #[allow(private_interfaces)]
+        request: crate::session::evolution::EvolutionModelRequest,
+    },
     /// Inject a user message into the active turn without canceling it.
     /// The text is queued in `pending_interjections` and drained at the
     /// next safe point in `process_conversation_turn`.  Fire-and-forget:

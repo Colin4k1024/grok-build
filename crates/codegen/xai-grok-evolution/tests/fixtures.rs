@@ -168,7 +168,7 @@ fn fixture_event_confidence_transitioned() {
 
 #[test]
 fn schema_version_is_current() {
-    assert_eq!(xai_grok_evolution::SCHEMA_VERSION, 1);
+    assert_eq!(xai_grok_evolution::SCHEMA_VERSION, 2);
 }
 
 // --- State machine fixture tests ---

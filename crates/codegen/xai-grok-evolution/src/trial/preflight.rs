@@ -14,9 +14,81 @@
 //! 6. **Disk space sufficient** — enough space for trials and artifacts.
 //! 7. **VCS clean** — source repository must be in a clean state.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::error::EvolutionError;
+use crate::trial::worktree::{WorktreeProvider, source_tree_hash};
+use crate::types::SourceRef;
+
+pub trait IsolationPreflight: Send + Sync {
+    fn run(&self) -> Result<PreflightResult, EvolutionError>;
+}
+
+pub struct WorkerIsolationPreflight {
+    worker_binary: PathBuf,
+    provider: Arc<dyn WorktreeProvider>,
+    source: SourceRef,
+    source_root: PathBuf,
+    timeout_secs: u64,
+}
+
+impl WorkerIsolationPreflight {
+    pub fn new(
+        worker_binary: PathBuf,
+        provider: Arc<dyn WorktreeProvider>,
+        source: SourceRef,
+        timeout_secs: u64,
+    ) -> Result<Self, EvolutionError> {
+        let worker_binary = worker_binary.canonicalize().map_err(|error| {
+            EvolutionError::SandboxUnavailable(format!("resolve evolution worker: {error}"))
+        })?;
+        let source_root = PathBuf::from(&source.repo_path)
+            .canonicalize()
+            .map_err(|error| EvolutionError::PreflightFailed(format!("resolve source: {error}")))?;
+        Ok(Self {
+            worker_binary,
+            provider,
+            source,
+            source_root,
+            timeout_secs,
+        })
+    }
+}
+
+impl IsolationPreflight for WorkerIsolationPreflight {
+    fn run(&self) -> Result<PreflightResult, EvolutionError> {
+        let source_hash_before = source_tree_hash(&self.source_root)?;
+        let source_vcs_verified = source_ref_matches(&self.source_root, &self.source)?;
+        let worktree = self.provider.create(&self.source)?;
+        let worktree_path = PathBuf::from(&worktree.path);
+        let result = run_worker_preflight(
+            &self.worker_binary,
+            &self.source_root,
+            &worktree_path,
+            &self.source_root,
+            source_vcs_verified,
+            self.timeout_secs,
+        );
+        let cleanup = self.provider.cleanup(&worktree);
+        let source_hash_after = source_tree_hash(&self.source_root)?;
+        cleanup?;
+        if source_hash_before != source_hash_after {
+            return Err(EvolutionError::ArtifactIntegrity {
+                expected: source_hash_before,
+                actual: source_hash_after,
+            });
+        }
+        let mut result = result?;
+        if !source_ref_matches(&self.source_root, &self.source)? {
+            result.vcs_clean = false;
+            result
+                .failure_reasons
+                .push("Source VCS snapshot changed during preflight".to_string());
+        }
+        Ok(result)
+    }
+}
 
 /// Result of a preflight check.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,6 +116,41 @@ impl PreflightResult {
     }
 }
 
+/// Execute all probes inside the real sandboxed worker process.
+pub fn run_worker_preflight(
+    worker_binary: &Path,
+    source_dir: &Path,
+    evolution_worktree: &Path,
+    temp_dir: &Path,
+    source_vcs_verified: bool,
+    timeout_secs: u64,
+) -> Result<PreflightResult, EvolutionError> {
+    use crate::trial::worker::{
+        PROTOCOL_VERSION, WorkerCommand, WorkerProcess, WorkerRequest, WorkerResult,
+    };
+    let mut worker = WorkerProcess::spawn(
+        worker_binary.to_string_lossy().as_ref(),
+        evolution_worktree.to_string_lossy().as_ref(),
+        timeout_secs,
+    )?;
+    let response = worker.send_request(&WorkerRequest {
+        version: PROTOCOL_VERSION,
+        command: WorkerCommand::IsolationPreflight {
+            source_dir: source_dir.to_path_buf(),
+            temp_dir: temp_dir.to_path_buf(),
+            source_vcs_verified,
+        },
+    })?;
+    worker.terminate()?;
+    match response.result {
+        WorkerResult::IsolationPreflight { result } => Ok(result),
+        WorkerResult::Error { message, .. } => Err(EvolutionError::PreflightFailed(message)),
+        _ => Err(EvolutionError::WorkerProtocol(
+            "unexpected isolation preflight response".to_string(),
+        )),
+    }
+}
+
 /// Run all preflight checks.
 ///
 /// Each check is independent; failures are collected rather than
@@ -53,6 +160,7 @@ pub fn run_preflight(
     source_dir: &Path,
     evolution_worktree: &Path,
     temp_dir: &Path,
+    source_vcs_verified: bool,
 ) -> Result<PreflightResult, EvolutionError> {
     let mut result = PreflightResult {
         source_dir_write_blocked: false,
@@ -65,35 +173,77 @@ pub fn run_preflight(
         failure_reasons: vec![],
     };
 
+    if std::env::var("GROK_EVOLUTION_SANDBOX_ACTIVE").as_deref() != Ok("1") {
+        result
+            .failure_reasons
+            .push("preflight must run inside the kernel-sandboxed evolution worker".to_string());
+        return Ok(result);
+    }
+
     // 1. Check source directory write blocking
     result.source_dir_write_blocked =
         check_source_write_blocked(source_dir, &mut result.failure_reasons);
 
     // 2. Check network blocking (probe a known endpoint)
-    result.network_blocked =
-        check_network_blocked(&mut result.failure_reasons);
+    result.network_blocked = check_network_blocked(&mut result.failure_reasons);
 
     // 3. Check symlink escape blocking
     result.symlink_escape_blocked =
         check_symlink_escape_blocked(evolution_worktree, source_dir, &mut result.failure_reasons);
 
     // 4. Check worktree outside write blocking
-    result.worktree_outside_write_blocked =
-        check_worktree_outside_write_blocked(evolution_worktree, temp_dir, &mut result.failure_reasons);
+    result.worktree_outside_write_blocked = check_worktree_outside_write_blocked(
+        evolution_worktree,
+        temp_dir,
+        &mut result.failure_reasons,
+    );
 
     // 5. Check sandbox availability
-    result.sandbox_available =
-        check_sandbox_available(&mut result.failure_reasons);
+    result.sandbox_available = check_sandbox_available(&mut result.failure_reasons);
 
     // 6. Check disk space
     result.disk_space_sufficient =
         check_disk_space(evolution_worktree, &mut result.failure_reasons);
 
-    // 7. Check VCS clean
-    result.vcs_clean =
-        check_vcs_clean(source_dir, &mut result.failure_reasons);
+    // 7. The trusted parent verifies HEAD/dirty state. The worker is
+    // intentionally unable to read the source repository.
+    result.vcs_clean = source_vcs_verified;
+    if !source_vcs_verified {
+        result
+            .failure_reasons
+            .push("Source VCS snapshot does not match the trial source reference".to_string());
+    }
 
     Ok(result)
+}
+
+fn source_ref_matches(source_dir: &Path, source: &SourceRef) -> Result<bool, EvolutionError> {
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(source_dir)
+            .args(args)
+            .output()
+            .map_err(|error| EvolutionError::PreflightFailed(format!("run git preflight: {error}")))
+    };
+    let head = git(&["rev-parse", "HEAD"])?;
+    if !head.status.success() {
+        return Err(EvolutionError::PreflightFailed(format!(
+            "resolve source HEAD: {}",
+            String::from_utf8_lossy(&head.stderr)
+        )));
+    }
+    let status = git(&["status", "--porcelain", "--untracked-files=all"])?;
+    if !status.status.success() {
+        return Err(EvolutionError::PreflightFailed(format!(
+            "read source status: {}",
+            String::from_utf8_lossy(&status.stderr)
+        )));
+    }
+    Ok(
+        String::from_utf8_lossy(&head.stdout).trim() == source.commit_sha
+            && (!status.stdout.is_empty()) == source.is_dirty,
+    )
 }
 
 /// Check that writing to the source directory fails.
@@ -115,20 +265,52 @@ fn check_source_write_blocked(source_dir: &Path, failures: &mut Vec<String>) -> 
 
 /// Check that network connections are blocked.
 fn check_network_blocked(failures: &mut Vec<String>) -> bool {
-    // Try to connect to a known endpoint with a short timeout
-    // If the sandbox is active, this should fail
-    let result = std::net::TcpStream::connect_timeout(
-        &"1.1.1.1:80".parse().unwrap(),
-        std::time::Duration::from_secs(2),
-    );
-
-    match result {
-        Ok(stream) => {
-            drop(stream);
-            failures.push("Network connection NOT blocked — sandbox network filter not active".to_string());
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            failures.push(format!("Cannot resolve worker for network probe: {error}"));
+            return false;
+        }
+    };
+    #[cfg(target_os = "linux")]
+    let status = {
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new(&executable);
+        command.arg("--network-probe");
+        // SAFETY: the pre-exec closure only installs the seccomp filter.
+        unsafe {
+            command.pre_exec(|| xai_grok_sandbox::child_net::install_child_network_filter());
+        }
+        command.status()
+    };
+    #[cfg(target_os = "macos")]
+    let status = {
+        if std::env::var("GROK_EVOLUTION_NETWORK_SANDBOX").as_deref() != Ok("1") {
+            failures.push("Worker network sandbox marker is absent".to_string());
+            return false;
+        }
+        // WorkerProcess applied the Seatbelt network profile before this
+        // worker started. Its child inherits that policy; applying another
+        // sandbox-exec from inside the sandbox is not supported on macOS.
+        std::process::Command::new(executable)
+            .arg("--network-probe")
+            .status()
+    };
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let status: std::io::Result<std::process::ExitStatus> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "network sandbox unsupported",
+    ));
+    match status {
+        Ok(status) if status.code() == Some(42) => true,
+        Ok(_) => {
+            failures.push("Network connection NOT blocked by worker policy".to_string());
             false
         }
-        Err(_) => true, // Connection failed — network is blocked (expected)
+        Err(error) => {
+            failures.push(format!("Cannot run network isolation probe: {error}"));
+            false
+        }
     }
 }
 
@@ -155,7 +337,9 @@ fn check_symlink_escape_blocked(
 
         match read_result {
             Ok(content) if !content.is_empty() => {
-                failures.push("Symlink escape NOT blocked — can read source files via symlink".to_string());
+                failures.push(
+                    "Symlink escape NOT blocked — can read source files via symlink".to_string(),
+                );
                 false
             }
             _ => true, // Read failed — symlinks are blocked (expected)
@@ -171,45 +355,37 @@ fn check_symlink_escape_blocked(
 
 /// Check that writing outside the worktree is blocked.
 fn check_worktree_outside_write_blocked(
-    _worktree: &Path,
+    worktree: &Path,
     _temp_dir: &Path,
-    _failures: &mut Vec<String>,
+    failures: &mut Vec<String>,
 ) -> bool {
-    // This check verifies that the sandbox restricts writes to the worktree
-    // In Shadow mode, we can't fully test this without a real sandbox
-    // Default to true (assumes the sandbox will enforce this)
-    true
+    let Some(parent) = worktree.parent().and_then(Path::parent) else {
+        failures.push("Cannot identify a denied path outside worktree".to_string());
+        return false;
+    };
+    let probe = parent.join(".evolution-outside-write-probe");
+    match std::fs::write(&probe, "preflight") {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&probe);
+            failures.push("Write outside evolution worktree was not blocked".to_string());
+            false
+        }
+        Err(_) => true,
+    }
 }
 
 /// Check that the sandbox mechanism is available.
 #[allow(unused_variables, clippy::ptr_arg)]
 fn check_sandbox_available(failures: &mut Vec<String>) -> bool {
-    // Check platform-specific sandbox availability
-    #[cfg(target_os = "linux")]
-    {
-        // Check for bwrap
-        let bwrap = std::process::Command::new("bwrap")
-            .arg("--version")
-            .output();
-
-        match bwrap {
-            Ok(output) if output.status.success() => true,
-            _ => {
-                failures.push("bwrap not available on Linux".to_string());
-                false
-            }
-        }
-    }
-
+    let filesystem = std::env::var("GROK_EVOLUTION_SANDBOX_ACTIVE").as_deref() == Ok("1");
     #[cfg(target_os = "macos")]
-    {
-        // Seatbelt is always available on macOS
+    let network = std::env::var("GROK_EVOLUTION_NETWORK_SANDBOX").as_deref() == Ok("1");
+    #[cfg(not(target_os = "macos"))]
+    let network = true;
+    if filesystem && network {
         true
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        failures.push("No kernel-level sandbox available on this platform".to_string());
+    } else {
+        failures.push("Filesystem or network sandbox marker is absent".to_string());
         false
     }
 }
@@ -239,36 +415,8 @@ fn check_disk_space(_dir: &Path, failures: &mut Vec<String>) -> bool {
         }
     }
 
-    // If we can't check, assume it's fine
-    true
-}
-
-/// Check that the source repository is in a clean state.
-fn check_vcs_clean(source_dir: &Path, failures: &mut Vec<String>) -> bool {
-    let output = std::process::Command::new("git")
-        .arg("status")
-        .arg("--porcelain")
-        .current_dir(source_dir)
-        .output();
-
-    match output {
-        Ok(output) => {
-            let status = String::from_utf8_lossy(&output.stdout);
-            if status.trim().is_empty() {
-                true // Clean
-            } else {
-                failures.push(format!(
-                    "Source repository has uncommitted changes: {} lines",
-                    status.lines().count()
-                ));
-                false
-            }
-        }
-        Err(e) => {
-            failures.push(format!("Cannot check VCS status: {}", e));
-            false
-        }
-    }
+    failures.push("Cannot determine free disk space".to_string());
+    false
 }
 
 #[cfg(test)]
@@ -306,9 +454,8 @@ mod tests {
     }
 
     #[test]
-    fn check_vcs_clean_in_clean_repo() {
+    fn source_reference_matches_clean_and_dirty_snapshots() {
         let dir = tempfile::tempdir().unwrap();
-        // Initialize a git repo
         std::process::Command::new("git")
             .args(["init"])
             .current_dir(dir.path())
@@ -325,7 +472,6 @@ mod tests {
             .output()
             .unwrap();
 
-        // Create and commit a file
         std::fs::write(dir.path().join("test.txt"), "content").unwrap();
         std::process::Command::new("git")
             .args(["add", "."])
@@ -337,25 +483,22 @@ mod tests {
             .current_dir(dir.path())
             .output()
             .unwrap();
-
-        let mut failures = vec![];
-        assert!(check_vcs_clean(dir.path(), &mut failures));
-    }
-
-    #[test]
-    fn check_vcs_dirty_repo() {
-        let dir = tempfile::tempdir().unwrap();
-        std::process::Command::new("git")
-            .args(["init"])
+        let head = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
             .current_dir(dir.path())
             .output()
             .unwrap();
+        let commit_sha = String::from_utf8_lossy(&head.stdout).trim().to_string();
+        let mut source = SourceRef {
+            commit_sha,
+            is_dirty: false,
+            repo_path: dir.path().to_string_lossy().into_owned(),
+        };
+        assert!(source_ref_matches(dir.path(), &source).unwrap());
 
-        // Create uncommitted file
         std::fs::write(dir.path().join("dirty.txt"), "content").unwrap();
-
-        let mut failures = vec![];
-        assert!(!check_vcs_clean(dir.path(), &mut failures));
-        assert!(!failures.is_empty());
+        assert!(!source_ref_matches(dir.path(), &source).unwrap());
+        source.is_dirty = true;
+        assert!(source_ref_matches(dir.path(), &source).unwrap());
     }
 }

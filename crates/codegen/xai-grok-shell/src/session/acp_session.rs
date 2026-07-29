@@ -578,6 +578,10 @@ pub(crate) struct ModelAuthMemo {
 /// Phase 3: Post-flight handling after dispatch (inline in execute_tool_calls for now).
 pub(crate) struct SessionActor {
     pub(crate) session_info: SessionInfo,
+    pub(crate) evolution_service: crate::session::handle::EvolutionServiceSlot,
+    pub(crate) evolution_context_injected: std::sync::atomic::AtomicBool,
+    pub(crate) evolution_injection:
+        parking_lot::Mutex<Option<xai_grok_evolution::ExperienceInjection>>,
     /// Shared live handle to the current ACP auth method. Normal sessions hold a
     /// clone of `MvpAgent::auth_method_id`, so a mid-session `/login` is picked
     /// up by the per-turn auth gate without re-spawning; subagents instead get a

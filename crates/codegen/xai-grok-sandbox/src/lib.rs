@@ -146,12 +146,45 @@ impl SandboxManager {
     /// Degrades gracefully if the platform doesn't support it.
     #[cfg(all(feature = "enforce", unix))]
     pub fn apply(&mut self, workspace: &Path) -> anyhow::Result<()> {
+        self.apply_inner(workspace, false, &[])
+    }
+    /// Apply the selected filesystem profile and block all network access in
+    /// the same kernel sandbox operation. This is intended for isolated
+    /// workers that never need model or remote-service access.
+    #[cfg(all(feature = "enforce", unix))]
+    pub fn apply_with_network_blocked(&mut self, workspace: &Path) -> anyhow::Result<()> {
+        self.apply_inner(workspace, true, &[])
+    }
+    /// Worker variant that additionally grants explicit dependency/toolchain
+    /// roots read-only. Callers should pass narrow cache subdirectories and
+    /// must never grant credential files or an entire user home.
+    #[cfg(all(feature = "enforce", unix))]
+    pub fn apply_worker_isolation(
+        &mut self,
+        workspace: &Path,
+        read_only: &[std::path::PathBuf],
+    ) -> anyhow::Result<()> {
+        self.apply_inner(workspace, true, read_only)
+    }
+    #[cfg(all(feature = "enforce", unix))]
+    fn apply_inner(
+        &mut self,
+        workspace: &Path,
+        force_network_block: bool,
+        additional_read_only: &[std::path::PathBuf],
+    ) -> anyhow::Result<()> {
         if self.profile == ProfileName::Off {
             tracing::info!("Sandbox disabled (profile: off)");
             return Ok(());
         }
         let config = profiles::load_sandbox_config(workspace);
         let mut resolved = self.profile.resolve_profile(workspace, &config)?;
+        resolved.read_only.extend(
+            additional_read_only
+                .iter()
+                .filter(|path| path.exists())
+                .cloned(),
+        );
         self.net_restricted = resolved.restrict_network;
         let support = Sandbox::support_info();
         if !support.is_supported {
@@ -166,7 +199,11 @@ impl SandboxManager {
             ));
             return Ok(());
         }
-        let caps = ProfileName::capability_set_from_profile(workspace, &resolved)?;
+        let mut caps = ProfileName::capability_set_from_profile(workspace, &resolved)?;
+        if force_network_block {
+            caps.set_network_blocked(true);
+            self.net_restricted = true;
+        }
         resolved.deny = deny::effective_deny_paths(workspace, &resolved.deny);
         match Sandbox::apply(&caps) {
             Ok(_) => {
@@ -204,6 +241,24 @@ impl SandboxManager {
             profile = % self.profile,
             "Sandbox enforcement unavailable (built without 'enforce' feature)"
         );
+        Ok(())
+    }
+    /// Stub when kernel enforcement is unavailable. Callers must check
+    /// `is_applied()` and fail closed.
+    #[cfg(not(all(feature = "enforce", unix)))]
+    pub fn apply_with_network_blocked(&mut self, _workspace: &Path) -> anyhow::Result<()> {
+        tracing::info!(
+            profile = % self.profile,
+            "Sandbox enforcement unavailable (built without 'enforce' feature)"
+        );
+        Ok(())
+    }
+    #[cfg(not(all(feature = "enforce", unix)))]
+    pub fn apply_worker_isolation(
+        &mut self,
+        _workspace: &Path,
+        _read_only: &[std::path::PathBuf],
+    ) -> anyhow::Result<()> {
         Ok(())
     }
     /// Store globally for session-lifetime violation logging.

@@ -70,6 +70,28 @@ pub enum EvolutionEvent {
         from: ConfidenceState,
         to: ConfidenceState,
     },
+    /// A pipeline stage started. Stage names are stable lowercase identifiers.
+    StageStarted {
+        run_id: RunId,
+        stage: String,
+    },
+    /// A pipeline stage completed successfully.
+    StageCompleted {
+        run_id: RunId,
+        stage: String,
+    },
+    /// A pipeline stage failed. A failed stage is terminal for the run.
+    StageFailed {
+        run_id: RunId,
+        stage: String,
+        error: String,
+    },
+    /// Terminal fact for an evolution run.
+    RunFinished {
+        run_id: RunId,
+        state: RunState,
+        error: Option<String>,
+    },
 }
 
 /// Ranking of a candidate in the selection phase.

@@ -7113,6 +7113,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
@@ -13274,6 +13275,7 @@ dependencies = [
  "tracing",
  "uuid",
  "xai-circuit-breaker",
+ "xai-grok-sandbox",
  "xai-sqlite-journal",
 ]
 
@@ -13901,6 +13903,7 @@ dependencies = [
  "xai-grok-compaction",
  "xai-grok-config",
  "xai-grok-config-types",
+ "xai-grok-evolution",
  "xai-grok-hooks",
  "xai-grok-http",
  "xai-grok-mcp",

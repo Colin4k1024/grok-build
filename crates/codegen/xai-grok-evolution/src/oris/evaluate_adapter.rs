@@ -3,8 +3,8 @@
 //! Implements `oris_evolution::port::EvaluatePort` using grok-build's
 //! deterministic safety gates and critic scoring.
 
+use oris_evolution::pipeline::{EvaluationRecommendation, EvaluationResult as OrisEvalResult};
 use oris_evolution::port::{EvaluateInput, EvaluatePort};
-use oris_evolution::pipeline::{EvaluationResult as OrisEvalResult, EvaluationRecommendation};
 
 /// Grok evaluate adapter.
 pub struct GrokEvaluateAdapter {
@@ -33,7 +33,10 @@ impl EvaluatePort for GrokEvaluateAdapter {
             OrisEvalResult {
                 score,
                 improvements: if has_intent {
-                    vec![format!("Addresses intent: {}", input.intent.chars().take(100).collect::<String>())]
+                    vec![format!(
+                        "Addresses intent: {}",
+                        input.intent.chars().take(100).collect::<String>()
+                    )]
                 } else {
                     vec![]
                 },
@@ -51,7 +54,9 @@ impl EvaluatePort for GrokEvaluateAdapter {
             OrisEvalResult {
                 score: 0.0,
                 improvements: vec![],
-                regressions: vec!["IsolatedAutonomous evaluation not yet implemented (P3)".to_string()],
+                regressions: vec![
+                    "legacy Oris evaluator is disabled for autonomous production runs".to_string(),
+                ],
                 recommendation: EvaluationRecommendation::Reject,
             }
         }

@@ -14,8 +14,8 @@
 //! Parent → Worker: `WorkerRequest` (commands to execute)
 //! Worker → Parent: `WorkerResponse` (results) or `WorkerProgress` (heartbeat)
 
-use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -28,7 +28,7 @@ use crate::types::ContentHash;
 pub const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Worker protocol version.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Default worker timeout in seconds.
 pub const DEFAULT_TIMEOUT_SECS: u64 = 1200;
@@ -60,14 +60,9 @@ pub enum WorkerCommand {
         timeout_secs: u64,
     },
     /// Read a file from the worktree.
-    ReadFile {
-        path: PathBuf,
-    },
+    ReadFile { path: PathBuf },
     /// Search for files matching a pattern.
-    SearchFiles {
-        pattern: String,
-        root: PathBuf,
-    },
+    SearchFiles { pattern: String, root: PathBuf },
     /// Edit a file (string replacement).
     EditFile {
         path: PathBuf,
@@ -76,6 +71,12 @@ pub enum WorkerCommand {
     },
     /// Health check ping.
     Ping,
+    /// Run isolation probes from inside the already-applied worker sandbox.
+    IsolationPreflight {
+        source_dir: PathBuf,
+        temp_dir: PathBuf,
+        source_vcs_verified: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,9 @@ pub enum WorkerResult {
     },
     EditApplied {
         new_content_hash: ContentHash,
+    },
+    IsolationPreflight {
+        result: crate::trial::preflight::PreflightResult,
     },
     Error {
         kind: WorkerError,
@@ -169,6 +173,7 @@ pub enum WorkerError {
 pub struct WorkerProcess {
     child: Child,
     timeout: Duration,
+    output_rx: std::sync::mpsc::Receiver<Result<String, String>>,
 }
 
 impl WorkerProcess {
@@ -181,6 +186,16 @@ impl WorkerProcess {
         worktree_path: &str,
         timeout_secs: u64,
     ) -> Result<Self, EvolutionError> {
+        let isolated_home = Path::new(worktree_path).join(".evolution-home");
+        let isolated_tmp = Path::new(worktree_path).join(".evolution-tmp");
+        std::fs::create_dir_all(&isolated_home).map_err(|error| {
+            EvolutionError::SandboxUnavailable(format!("create isolated worker home: {error}"))
+        })?;
+        std::fs::create_dir_all(&isolated_tmp).map_err(|error| {
+            EvolutionError::SandboxUnavailable(format!("create isolated worker temp: {error}"))
+        })?;
+        let (restricted_path, read_only_roots, isolated_cargo_home) =
+            prepare_worker_runtime(&isolated_home)?;
         let mut cmd = Command::new(worker_binary);
         cmd.arg("--worktree")
             .arg(worktree_path)
@@ -189,17 +204,47 @@ impl WorkerProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
+        for path in &read_only_roots {
+            cmd.arg("--read-only").arg(path);
+        }
+        cmd.env_clear()
+            .env("PATH", restricted_path)
+            .env("HOME", &isolated_home)
+            .env("GROK_HOME", isolated_home.join(".grok"))
+            .env("CARGO_HOME", isolated_cargo_home)
+            .env("TMPDIR", &isolated_tmp)
+            .env("CARGO_NET_OFFLINE", "true")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("LANG", "C.UTF-8");
         // Kill on drop to prevent zombie processes
         // (handled by the Drop impl on Child)
 
-        let child = cmd.spawn().map_err(|e| {
-            EvolutionError::SandboxUnavailable(format!("spawn worker: {}", e))
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| EvolutionError::SandboxUnavailable(format!("spawn worker: {}", e)))?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            EvolutionError::WorkerProtocol("worker stdout not available".to_string())
         })?;
+        let (output_tx, output_rx) = std::sync::mpsc::sync_channel(64);
+        std::thread::Builder::new()
+            .name("evolution-worker-output".to_string())
+            .spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    let result = line.map_err(|error| error.to_string());
+                    if output_tx.send(result).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|error| {
+                EvolutionError::WorkerProtocol(format!("spawn worker output reader: {error}"))
+            })?;
 
         Ok(Self {
             child,
             timeout: Duration::from_secs(timeout_secs),
+            output_rx,
         })
     }
 
@@ -207,15 +252,17 @@ impl WorkerProcess {
     ///
     /// Handles message framing (newline-delimited JSON), timeout,
     /// and progress heartbeats.
-    pub fn send_request(&mut self, request: &WorkerRequest) -> Result<WorkerResponse, EvolutionError> {
+    pub fn send_request(
+        &mut self,
+        request: &WorkerRequest,
+    ) -> Result<WorkerResponse, EvolutionError> {
         let stdin = self.child.stdin.as_mut().ok_or_else(|| {
             EvolutionError::WorkerProtocol("worker stdin not available".to_string())
         })?;
 
         // Serialize and send
-        let payload = serde_json::to_string(request).map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("serialize request: {}", e))
-        })?;
+        let payload = serde_json::to_string(request)
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("serialize request: {}", e)))?;
 
         if payload.len() > MAX_MESSAGE_BYTES {
             return Err(EvolutionError::WorkerProtocol(format!(
@@ -225,15 +272,15 @@ impl WorkerProcess {
             )));
         }
 
-        stdin.write_all(payload.as_bytes()).map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("write to worker: {}", e))
-        })?;
-        stdin.write_all(b"\n").map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("write newline: {}", e))
-        })?;
-        stdin.flush().map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("flush: {}", e))
-        })?;
+        stdin
+            .write_all(payload.as_bytes())
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("write to worker: {}", e)))?;
+        stdin
+            .write_all(b"\n")
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("write newline: {}", e)))?;
+        stdin
+            .flush()
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("flush: {}", e)))?;
 
         // Read response with timeout
         self.read_response()
@@ -241,22 +288,30 @@ impl WorkerProcess {
 
     /// Read a response from the worker with timeout and progress handling.
     fn read_response(&mut self) -> Result<WorkerResponse, EvolutionError> {
-        let stdout = self.child.stdout.as_mut().ok_or_else(|| {
-            EvolutionError::WorkerProtocol("worker stdout not available".to_string())
-        })?;
-
-        let reader = BufReader::new(stdout);
         let start = Instant::now();
-
-        for line_result in reader.lines() {
-            // Check timeout
-            if start.elapsed() > self.timeout {
+        loop {
+            let remaining = self.timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
+                let _ = self.child.kill();
                 return Err(EvolutionError::Timeout(self.timeout.as_secs()));
             }
-
-            let line = line_result.map_err(|e| {
-                EvolutionError::WorkerProtocol(format!("read from worker: {}", e))
-            })?;
+            let line = match self.output_rx.recv_timeout(remaining) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    return Err(EvolutionError::WorkerProtocol(format!(
+                        "read from worker: {error}"
+                    )));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = self.child.kill();
+                    return Err(EvolutionError::Timeout(self.timeout.as_secs()));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(EvolutionError::WorkerProtocol(
+                        "worker exited without sending response".to_string(),
+                    ));
+                }
+            };
 
             if line.len() > MAX_MESSAGE_BYTES {
                 return Err(EvolutionError::WorkerProtocol(format!(
@@ -284,11 +339,6 @@ impl WorkerProcess {
                 }
             }
         }
-
-        // EOF without receiving a Response
-        Err(EvolutionError::WorkerProtocol(
-            "worker exited without sending response".to_string(),
-        ))
     }
 
     /// Send a ping and wait for pong (liveness check).
@@ -301,49 +351,52 @@ impl WorkerProcess {
             EvolutionError::WorkerProtocol("worker stdin not available".to_string())
         })?;
 
-        let payload = serde_json::to_string(&request).map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("serialize ping: {}", e))
-        })?;
-        stdin.write_all(payload.as_bytes()).map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("write ping: {}", e))
-        })?;
-        stdin.write_all(b"\n").map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("write newline: {}", e))
-        })?;
-        stdin.flush().map_err(|e| {
-            EvolutionError::WorkerProtocol(format!("flush: {}", e))
-        })?;
+        let payload = serde_json::to_string(&request)
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("serialize ping: {}", e)))?;
+        stdin
+            .write_all(payload.as_bytes())
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("write ping: {}", e)))?;
+        stdin
+            .write_all(b"\n")
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("write newline: {}", e)))?;
+        stdin
+            .flush()
+            .map_err(|e| EvolutionError::WorkerProtocol(format!("flush: {}", e)))?;
 
-        // Read response
-        let stdout = self.child.stdout.as_mut().ok_or_else(|| {
-            EvolutionError::WorkerProtocol("worker stdout not available".to_string())
-        })?;
-        let reader = BufReader::new(stdout);
-
-        for line_result in reader.lines() {
-            let line = line_result.map_err(|e| {
-                EvolutionError::WorkerProtocol(format!("read pong: {}", e))
-            })?;
+        let start = Instant::now();
+        loop {
+            let remaining = self.timeout.saturating_sub(start.elapsed());
+            let line = match self.output_rx.recv_timeout(remaining) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    return Err(EvolutionError::WorkerProtocol(format!(
+                        "read pong: {error}"
+                    )));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(EvolutionError::Timeout(self.timeout.as_secs()));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err(EvolutionError::WorkerProtocol(
+                        "worker exited without pong".to_string(),
+                    ));
+                }
+            };
             if line.is_empty() {
                 continue;
             }
-            let message: WorkerMessage = serde_json::from_str(&line).map_err(|e| {
-                EvolutionError::WorkerProtocol(format!("parse pong: {}", e))
-            })?;
+            let message: WorkerMessage = serde_json::from_str(&line)
+                .map_err(|e| EvolutionError::WorkerProtocol(format!("parse pong: {}", e)))?;
             match message {
                 WorkerMessage::Pong => return Ok(()),
                 WorkerMessage::Progress(_) => continue,
                 WorkerMessage::Response(_) => {
                     return Err(EvolutionError::WorkerProtocol(
                         "unexpected response to ping".to_string(),
-                    ))
+                    ));
                 }
             }
         }
-
-        Err(EvolutionError::WorkerProtocol(
-            "worker exited without pong".to_string(),
-        ))
     }
 
     /// Terminate the worker process gracefully (SIGTERM, then SIGKILL).
@@ -356,6 +409,78 @@ impl WorkerProcess {
 
         Ok(())
     }
+}
+
+fn prepare_worker_runtime(
+    isolated_home: &Path,
+) -> Result<(std::ffi::OsString, Vec<PathBuf>, PathBuf), EvolutionError> {
+    let output = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .map_err(|error| {
+            EvolutionError::SandboxUnavailable(format!("resolve Rust toolchain: {error}"))
+        })?;
+    if !output.status.success() {
+        return Err(EvolutionError::SandboxUnavailable(format!(
+            "resolve Rust toolchain: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let sysroot = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+        .canonicalize()
+        .map_err(|error| {
+            EvolutionError::SandboxUnavailable(format!("canonicalize Rust sysroot: {error}"))
+        })?;
+    if !sysroot.join("bin/cargo").is_file() {
+        return Err(EvolutionError::SandboxUnavailable(
+            "Rust sysroot does not contain cargo".to_string(),
+        ));
+    }
+    let mut path_entries = vec![sysroot.join("bin")];
+    for system in ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
+        let path = PathBuf::from(system);
+        if path.is_dir() {
+            path_entries.push(path);
+        }
+    }
+    let restricted_path = std::env::join_paths(path_entries).map_err(|error| {
+        EvolutionError::SandboxUnavailable(format!("construct worker PATH: {error}"))
+    })?;
+
+    let isolated_cargo_home = isolated_home.join(".cargo");
+    std::fs::create_dir_all(&isolated_cargo_home).map_err(|error| {
+        EvolutionError::SandboxUnavailable(format!("create isolated CARGO_HOME: {error}"))
+    })?;
+    let mut read_only = vec![sysroot];
+    #[cfg(unix)]
+    if let Some(source_cargo_home) = source_cargo_home() {
+        for name in ["registry", "git"] {
+            let source = source_cargo_home.join(name);
+            if !source.is_dir() {
+                continue;
+            }
+            let source = source.canonicalize().map_err(|error| {
+                EvolutionError::SandboxUnavailable(format!("resolve Cargo {name} cache: {error}"))
+            })?;
+            let destination = isolated_cargo_home.join(name);
+            if !destination.exists() {
+                std::os::unix::fs::symlink(&source, &destination).map_err(|error| {
+                    EvolutionError::SandboxUnavailable(format!(
+                        "link sanitized Cargo {name} cache: {error}"
+                    ))
+                })?;
+            }
+            read_only.push(source);
+        }
+    }
+    Ok((restricted_path, read_only, isolated_cargo_home))
+}
+
+#[cfg(unix)]
+fn source_cargo_home() -> Option<PathBuf> {
+    std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
 }
 
 impl Drop for WorkerProcess {
@@ -387,7 +512,10 @@ impl InProcessWorker {
     pub fn execute(&self, command: &WorkerCommand) -> WorkerResult {
         match command {
             WorkerCommand::ReadFile { path } => {
-                let full_path = self.worktree_path.join(path);
+                let full_path = match self.resolve_path(path, false) {
+                    Ok(path) => path,
+                    Err(result) => return result,
+                };
                 match std::fs::read_to_string(&full_path) {
                     Ok(content) => WorkerResult::FileContent { content },
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => WorkerResult::Error {
@@ -400,33 +528,14 @@ impl InProcessWorker {
                     },
                 }
             }
-            WorkerCommand::RunValidator { argv, timeout_secs: _ } => {
-                if argv.is_empty() {
-                    return WorkerResult::Error {
-                        kind: WorkerError::InvalidRequest,
-                        message: "empty argv".to_string(),
-                    };
-                }
-                // In-process: execute the command directly
-                let output = Command::new(&argv[0])
-                    .args(&argv[1..])
-                    .current_dir(&self.worktree_path)
-                    .output();
-
-                match output {
-                    Ok(output) => WorkerResult::ValidatorResult {
-                        exit_code: output.status.code().unwrap_or(-1),
-                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                    },
-                    Err(e) => WorkerResult::Error {
-                        kind: WorkerError::ValidatorFailed,
-                        message: format!("execute validator: {}", e),
-                    },
-                }
+            WorkerCommand::RunValidator { argv, timeout_secs } => {
+                self.run_validator(argv, *timeout_secs)
             }
             WorkerCommand::EditFile { path, old, new } => {
-                let full_path = self.worktree_path.join(path);
+                let full_path = match self.resolve_path(path, true) {
+                    Ok(path) => path,
+                    Err(result) => return result,
+                };
                 match std::fs::read_to_string(&full_path) {
                     Ok(content) => {
                         if !content.contains(old.as_str()) {
@@ -453,6 +562,40 @@ impl InProcessWorker {
                     },
                 }
             }
+            WorkerCommand::ApplyPatch {
+                diff,
+                allowed_paths,
+            } => self.apply_patch(diff, allowed_paths),
+            WorkerCommand::SearchFiles { pattern, root } => {
+                let root = match self.resolve_path(root, false) {
+                    Ok(path) => path,
+                    Err(result) => return result,
+                };
+                let mut matches = Vec::new();
+                if let Err(error) = search_files(&root, pattern, &mut matches, 10_000) {
+                    return WorkerResult::Error {
+                        kind: WorkerError::Internal,
+                        message: error,
+                    };
+                }
+                WorkerResult::SearchResults { matches }
+            }
+            WorkerCommand::IsolationPreflight {
+                source_dir,
+                temp_dir,
+                source_vcs_verified,
+            } => match crate::trial::preflight::run_preflight(
+                source_dir,
+                &self.worktree_path,
+                temp_dir,
+                *source_vcs_verified,
+            ) {
+                Ok(result) => WorkerResult::IsolationPreflight { result },
+                Err(error) => WorkerResult::Error {
+                    kind: WorkerError::Internal,
+                    message: error.to_string(),
+                },
+            },
             WorkerCommand::Ping => {
                 // Handled at the message level, not here
                 WorkerResult::Error {
@@ -460,12 +603,330 @@ impl InProcessWorker {
                     message: "ping should be handled at message level".to_string(),
                 }
             }
-            _ => WorkerResult::Error {
-                kind: WorkerError::Internal,
-                message: "command not implemented in in-process worker".to_string(),
+        }
+    }
+
+    fn resolve_path(&self, relative: &Path, allow_missing: bool) -> Result<PathBuf, WorkerResult> {
+        if relative.as_os_str().is_empty()
+            || relative.is_absolute()
+            || relative.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            return Err(path_violation(relative));
+        }
+        let root = self
+            .worktree_path
+            .canonicalize()
+            .map_err(|_| path_violation(relative))?;
+        let joined = root.join(relative);
+        let resolved = if joined.exists() {
+            joined
+                .canonicalize()
+                .map_err(|_| path_violation(relative))?
+        } else if allow_missing {
+            let parent = joined.parent().ok_or_else(|| path_violation(relative))?;
+            let parent = parent
+                .canonicalize()
+                .map_err(|_| path_violation(relative))?;
+            parent.join(joined.file_name().ok_or_else(|| path_violation(relative))?)
+        } else {
+            return Err(WorkerResult::Error {
+                kind: WorkerError::NotFound,
+                message: format!("file not found: {}", relative.display()),
+            });
+        };
+        if !resolved.starts_with(&root) {
+            return Err(path_violation(relative));
+        }
+        Ok(resolved)
+    }
+
+    fn run_validator(&self, argv: &[String], timeout_secs: u64) -> WorkerResult {
+        if !validator_allowed(argv) {
+            return WorkerResult::Error {
+                kind: WorkerError::InvalidRequest,
+                message: "validator command is not on the evolution allowlist".to_string(),
+            };
+        }
+        let timeout = Duration::from_secs(timeout_secs.clamp(1, DEFAULT_TIMEOUT_SECS));
+        let mut command = match validator_command(argv, &self.worktree_path) {
+            Ok(command) => command,
+            Err(message) => {
+                return WorkerResult::Error {
+                    kind: WorkerError::ValidatorFailed,
+                    message,
+                };
+            }
+        };
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                return WorkerResult::Error {
+                    kind: WorkerError::ValidatorFailed,
+                    message: format!("execute validator: {error}"),
+                };
+            }
+        };
+        let stdout_reader = child.stdout.take().map(|mut stdout| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = stdout.read_to_end(&mut bytes);
+                bytes
+            })
+        });
+        let stderr_reader = child.stderr.take().map(|mut stderr| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = stderr.read_to_end(&mut bytes);
+                bytes
+            })
+        });
+        let started = Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if started.elapsed() < timeout => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return WorkerResult::Error {
+                        kind: WorkerError::Timeout,
+                        message: format!("validator timed out after {}s", timeout.as_secs()),
+                    };
+                }
+                Err(error) => {
+                    let _ = child.kill();
+                    return WorkerResult::Error {
+                        kind: WorkerError::ValidatorFailed,
+                        message: format!("wait for validator: {error}"),
+                    };
+                }
+            }
+        };
+        let stdout = stdout_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        let stderr = stderr_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        WorkerResult::ValidatorResult {
+            exit_code: status.code().unwrap_or(-1),
+            stdout: bounded_output(&stdout),
+            stderr: bounded_output(&stderr),
+        }
+    }
+
+    fn apply_patch(&self, diff: &str, allowed_paths: &[PathBuf]) -> WorkerResult {
+        if diff.len() > MAX_MESSAGE_BYTES || allowed_paths.is_empty() {
+            return WorkerResult::Error {
+                kind: WorkerError::InvalidRequest,
+                message: "patch is empty/oversized or has no allowed paths".to_string(),
+            };
+        }
+        let changed = match changed_paths(diff) {
+            Ok(paths) if !paths.is_empty() => paths,
+            Ok(_) => {
+                return WorkerResult::Error {
+                    kind: WorkerError::PatchFailed,
+                    message: "patch has no changed files".to_string(),
+                };
+            }
+            Err(message) => {
+                return WorkerResult::Error {
+                    kind: WorkerError::PathViolation,
+                    message,
+                };
+            }
+        };
+        for path in &changed {
+            if self.resolve_path(path, true).is_err()
+                || !allowed_paths
+                    .iter()
+                    .any(|allowed| path == allowed || path.starts_with(allowed))
+            {
+                return path_violation(path);
+            }
+        }
+        let mut child = match Command::new("git")
+            .args(["apply", "--whitespace=nowarn", "--"])
+            .current_dir(&self.worktree_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                return WorkerResult::Error {
+                    kind: WorkerError::PatchFailed,
+                    message: format!("start git apply: {error}"),
+                };
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take()
+            && let Err(error) = stdin.write_all(diff.as_bytes())
+        {
+            let _ = child.kill();
+            return WorkerResult::Error {
+                kind: WorkerError::PatchFailed,
+                message: format!("write patch: {error}"),
+            };
+        }
+        match child.wait_with_output() {
+            Ok(output) if output.status.success() => WorkerResult::PatchApplied {
+                files_changed: changed,
+            },
+            Ok(output) => WorkerResult::Error {
+                kind: WorkerError::PatchFailed,
+                message: bounded_output(&output.stderr),
+            },
+            Err(error) => WorkerResult::Error {
+                kind: WorkerError::PatchFailed,
+                message: format!("wait for git apply: {error}"),
             },
         }
     }
+}
+
+fn path_violation(path: &Path) -> WorkerResult {
+    WorkerResult::Error {
+        kind: WorkerError::PathViolation,
+        message: format!("path is outside the evolution worktree: {}", path.display()),
+    }
+}
+
+fn validator_allowed(argv: &[String]) -> bool {
+    if argv.len() < 2 || argv[0] != "cargo" {
+        return false;
+    }
+    match argv[1].as_str() {
+        "test" | "check" | "clippy" => true,
+        "fmt" => argv.iter().any(|arg| arg == "--check"),
+        _ => false,
+    }
+}
+
+fn validator_command(argv: &[String], worktree: &Path) -> Result<Command, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if std::env::var("GROK_EVOLUTION_NETWORK_SANDBOX").as_deref() != Ok("1") {
+            return Err("worker network sandbox marker is absent; refusing validator".to_string());
+        }
+        // The worker itself is launched under Seatbelt's network-deny
+        // profile. Child validators inherit that restriction; nesting a
+        // second sandbox-exec is rejected on supported macOS versions.
+        let mut command = Command::new(&argv[0]);
+        command.args(&argv[1..]);
+        command
+            .current_dir(worktree)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        return Ok(command);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        let mut command = Command::new(&argv[0]);
+        command
+            .args(&argv[1..])
+            .current_dir(worktree)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // SAFETY: the closure performs only the async-signal-safe seccomp
+        // installation required by `pre_exec`.
+        unsafe {
+            command.pre_exec(|| xai_grok_sandbox::child_net::install_child_network_filter());
+        }
+        return Ok(command);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (argv, worktree);
+        Err("kernel network isolation is unavailable on this platform".to_string())
+    }
+}
+
+fn bounded_output(bytes: &[u8]) -> String {
+    const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+    String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_OUTPUT_BYTES)]).to_string()
+}
+
+fn changed_paths(diff: &str) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::new();
+    for line in diff.lines().filter(|line| line.starts_with("+++ ")) {
+        let raw = line
+            .trim_start_matches("+++ ")
+            .split('\t')
+            .next()
+            .unwrap_or("");
+        if raw == "/dev/null" {
+            continue;
+        }
+        let raw = raw.strip_prefix("b/").unwrap_or(raw);
+        let path = PathBuf::from(raw);
+        if path.is_absolute()
+            || path.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            return Err(format!("patch path escapes worktree: {}", path.display()));
+        }
+        paths.push(path);
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+fn search_files(
+    root: &Path,
+    pattern: &str,
+    matches: &mut Vec<SearchMatch>,
+    remaining_files: usize,
+) -> Result<usize, String> {
+    let mut remaining = remaining_files;
+    if remaining == 0 || matches.len() >= 1_000 {
+        return Ok(remaining);
+    }
+    let entries = std::fs::read_dir(root).map_err(|error| error.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            remaining = search_files(&entry.path(), pattern, matches, remaining)?;
+        } else if file_type.is_file() {
+            remaining = remaining.saturating_sub(1);
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                for (line, text) in content.lines().enumerate() {
+                    if text.contains(pattern) {
+                        matches.push(SearchMatch {
+                            path: entry.path(),
+                            line_number: line as u32 + 1,
+                            line_content: text.chars().take(500).collect(),
+                        });
+                    }
+                }
+            }
+        }
+        if remaining == 0 || matches.len() >= 1_000 {
+            break;
+        }
+    }
+    Ok(remaining)
 }
 
 #[cfg(test)]
@@ -579,6 +1040,59 @@ mod tests {
     }
 
     #[test]
+    fn in_process_worker_rejects_absolute_and_parent_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = InProcessWorker::new(dir.path().to_path_buf());
+        for path in [PathBuf::from("/etc/passwd"), PathBuf::from("../escape")] {
+            let result = worker.execute(&WorkerCommand::ReadFile { path });
+            assert!(matches!(
+                result,
+                WorkerResult::Error {
+                    kind: WorkerError::PathViolation,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn in_process_worker_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", dir.path().join("escape")).unwrap();
+        let worker = InProcessWorker::new(dir.path().to_path_buf());
+        let result = worker.execute(&WorkerCommand::ReadFile {
+            path: PathBuf::from("escape"),
+        });
+        assert!(matches!(
+            result,
+            WorkerResult::Error {
+                kind: WorkerError::PathViolation,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validator_allowlist_rejects_network_capable_commands() {
+        let dir = tempfile::tempdir().unwrap();
+        let worker = InProcessWorker::new(dir.path().to_path_buf());
+        for command in ["curl", "git", "bash"] {
+            let result = worker.execute(&WorkerCommand::RunValidator {
+                argv: vec![command.to_string(), "--version".to_string()],
+                timeout_secs: 1,
+            });
+            assert!(matches!(
+                result,
+                WorkerResult::Error {
+                    kind: WorkerError::InvalidRequest,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
     fn in_process_worker_edit_file() {
         let dir = tempfile::tempdir().unwrap();
         let test_file = dir.path().join("test.txt");
@@ -625,14 +1139,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let worker = InProcessWorker::new(dir.path().to_path_buf());
         let result = worker.execute(&WorkerCommand::RunValidator {
-            argv: vec!["echo".to_string(), "ok".to_string()],
+            argv: vec!["cargo".to_string(), "check".to_string()],
             timeout_secs: 10,
         });
 
+        #[cfg(target_os = "macos")]
+        assert!(matches!(
+            result,
+            WorkerResult::Error {
+                kind: WorkerError::ValidatorFailed,
+                ..
+            }
+        ));
+        #[cfg(not(target_os = "macos"))]
         match result {
-            WorkerResult::ValidatorResult { exit_code, stdout, .. } => {
-                assert_eq!(exit_code, 0);
-                assert!(stdout.contains("ok"));
+            WorkerResult::ValidatorResult {
+                exit_code,
+                stdout,
+                stderr,
+                ..
+            } => {
+                assert_ne!(exit_code, -1);
+                assert!(!stdout.is_empty() || !stderr.is_empty());
             }
             other => panic!("expected ValidatorResult, got {:?}", other),
         }

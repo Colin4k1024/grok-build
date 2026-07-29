@@ -60,18 +60,18 @@ impl GeneStorePersistPort for GrokGeneStoreAdapter {
             updated_at: now,
         };
 
-        // Persist as experience revision
-        if self.store.upsert_experience(&revision).is_err() {
-            return false;
-        }
-
-        // Append RevisionPublished event
+        // Append and project atomically.
         let event = crate::events::EvolutionEvent::RevisionPublished {
             run_id: format!("oris-{}", gene_id),
             revision,
         };
         self.store
-            .append_event(&format!("oris-{}", gene_id), &event, None, Some(&format!("persist-{}", gene_id)))
+            .append_event(
+                &format!("oris-{}", gene_id),
+                &event,
+                None,
+                Some(&format!("persist-{}", gene_id)),
+            )
             .is_ok()
     }
 

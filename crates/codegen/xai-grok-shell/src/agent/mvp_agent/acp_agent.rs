@@ -3235,6 +3235,12 @@ impl acp::Agent for MvpAgent {
             "x.ai/memory/flush" | "x.ai/memory/rewrite" => {
                 crate::extensions::memory::handle(self, &args).await
             }
+            "x.ai/evolution/status" | "x.ai/evolution/list_runs"
+            | "x.ai/evolution/inspect_run" | "x.ai/evolution/lineage"
+            | "x.ai/evolution/set_mode" | "x.ai/evolution/retry_trial"
+            | "x.ai/evolution/export_evidence" => {
+                crate::extensions::evolution::handle(self, &args).await
+            }
             "x.ai/skills/refresh-baseline" => {
                 self.refresh_skill_baseline_for_all_sessions();
                 crate::extensions::to_ext_response(

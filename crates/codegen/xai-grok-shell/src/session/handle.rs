@@ -11,6 +11,10 @@ use tokio::sync::{mpsc, oneshot};
 use xai_file_utils::queue::UploadQueue;
 use xai_grok_sampling_types::ReasoningEffort;
 use xai_hunk_tracker::HunkTrackerHandle;
+
+pub type EvolutionServiceSlot = std::sync::Arc<
+    parking_lot::RwLock<Option<std::sync::Arc<xai_grok_evolution::EvolutionService>>>,
+>;
 /// Coarse lifecycle state of a session as known to the leader/agent.
 ///
 /// A grok session has no
@@ -64,6 +68,9 @@ pub struct SessionHandle {
     pub chat_state_handle: xai_chat_state::ChatStateHandle,
     /// Handle to session signals (used for completion tracking)
     pub signals_handle: super::signals::SessionSignalsHandle,
+    /// Workspace-scoped self-evolution service. `None` is the true Off path:
+    /// no database is opened and no consumer thread is started.
+    pub evolution_service: EvolutionServiceSlot,
     /// Shared gate controlling whether the session actor forwards
     /// notifications to the client via the gateway. See
     /// [`SessionActor::gateway_enabled`] for details.

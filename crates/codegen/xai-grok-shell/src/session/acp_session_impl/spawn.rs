@@ -1390,8 +1390,54 @@ pub(crate) async fn spawn_session_actor(
         }
     };
     let doom_loop_recovery = effective_config.resolve_doom_loop_recovery();
+    let evolution_config = crate::config::load_effective_config()
+        .map_err(|error| error.to_string())
+        .and_then(|raw| {
+            xai_grok_evolution::EvolutionConfig::resolve(false, false, &raw)
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = &evolution_config {
+        tracing::error!(%error, "invalid evolution configuration; forcing Off");
+    }
+    let evolution_service = match evolution_config.ok() {
+        Some(config) if config.mode != xai_grok_evolution::EvolutionMode::Off => {
+            let memory_root = crate::util::grok_home::grok_home().join("memory");
+            let ports = match crate::session::evolution::build_evolution_ports(
+                cmd_tx.clone(),
+                std::path::Path::new(&session_info.cwd),
+                &memory_root,
+                config.budget.max_duration_secs,
+            ) {
+                Ok(ports) => Some(ports),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "autonomous evolution ports unavailable; Shadow remains enabled"
+                    );
+                    None
+                }
+            };
+            match xai_grok_evolution::EvolutionService::open_at_with_ports(
+                std::path::Path::new(&session_info.cwd),
+                &memory_root,
+                config,
+                ports,
+            ) {
+                Ok(service) => Some(Arc::new(service)),
+                Err(error) => {
+                    tracing::error!(%error, "evolution service failed closed during session startup");
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let evolution_service = Arc::new(parking_lot::RwLock::new(evolution_service));
     let session = Arc::new_cyclic(|weak: &std::sync::Weak<SessionActor>| SessionActor {
         session_info: session_info.clone(),
+        evolution_service: evolution_service.clone(),
+        evolution_context_injected: std::sync::atomic::AtomicBool::new(false),
+        evolution_injection: parking_lot::Mutex::new(None),
         auth_method_id,
         model_auth_memo: std::cell::RefCell::new(None),
         attribution_callback,
@@ -1909,6 +1955,7 @@ pub(crate) async fn spawn_session_actor(
             hunk_tracker_handle,
             chat_state_handle: chat_state_handle_for_handle,
             signals_handle,
+            evolution_service,
             gateway_enabled,
             mcp_servers,
             initial_client_mcp_servers,

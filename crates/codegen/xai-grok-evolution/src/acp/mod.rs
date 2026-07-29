@@ -314,7 +314,11 @@ mod tests {
             METHOD_EXPORT_EVIDENCE,
         ];
         for m in methods {
-            assert!(m.starts_with("x.ai/evolution/"), "method {} missing prefix", m);
+            assert!(
+                m.starts_with("x.ai/evolution/"),
+                "method {} missing prefix",
+                m
+            );
         }
     }
 }

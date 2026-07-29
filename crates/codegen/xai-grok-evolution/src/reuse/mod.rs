@@ -32,6 +32,17 @@ pub struct ExperienceContext {
     pub evidence_summary: String,
 }
 
+/// Immutable content stored in the content-addressed artifact referenced by
+/// `ExperienceRevision::content_hash`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExperienceContent {
+    pub preconditions: Vec<String>,
+    pub recommended_steps: Vec<String>,
+    pub forbidden_actions: Vec<String>,
+    pub validation_recipe: Vec<String>,
+    pub evidence_summary: String,
+}
+
 impl ExperienceContext {
     /// Build an EXPERIENCE_CONTEXT string for prompt injection.
     ///
@@ -66,10 +77,7 @@ impl ExperienceContext {
 
         // Forbidden actions (always included — safety boundary)
         if !self.forbidden_actions.is_empty() {
-            sections.push(format!(
-                "**Do NOT:** {}",
-                self.forbidden_actions.join("; ")
-            ));
+            sections.push(format!("**Do NOT:** {}", self.forbidden_actions.join("; ")));
         }
 
         // Validation recipe (always included)
@@ -82,10 +90,7 @@ impl ExperienceContext {
 
         // Evidence summary (first to be removed if over budget)
         if !self.evidence_summary.is_empty() {
-            sections.push(format!(
-                "**Recent evidence:** {}",
-                self.evidence_summary
-            ));
+            sections.push(format!("**Recent evidence:** {}", self.evidence_summary));
         }
 
         let full_text = sections.join("\n");
@@ -140,6 +145,49 @@ pub fn build_context(revision: &ExperienceRevision) -> Option<ExperienceContext>
             revision.failure_count
         ),
     })
+}
+
+/// Build an injectable context from verified artifact content.
+pub fn build_context_from_content(
+    revision: &ExperienceRevision,
+    content: ExperienceContent,
+) -> Option<ExperienceContext> {
+    if revision.state != ExperienceState::Active {
+        return None;
+    }
+    Some(ExperienceContext {
+        experience_id: revision.experience_id.clone(),
+        revision: revision.revision,
+        preconditions: content.preconditions,
+        recommended_steps: content.recommended_steps,
+        forbidden_actions: content.forbidden_actions,
+        validation_recipe: content.validation_recipe,
+        evidence_summary: content.evidence_summary,
+    })
+}
+
+/// Load and verify the immutable content for an active experience.
+pub fn load_context_from_artifact(
+    revision: &ExperienceRevision,
+    artifacts_dir: &std::path::Path,
+) -> Option<ExperienceContext> {
+    if revision.state != ExperienceState::Active {
+        return None;
+    }
+    let path = artifacts_dir.join(&revision.content_hash);
+    let bytes = std::fs::read(path).ok()?;
+    let actual = blake3::hash(&bytes).to_hex().to_string();
+    if actual != revision.content_hash {
+        tracing::error!(
+            experience_id = revision.experience_id,
+            expected = revision.content_hash,
+            actual,
+            "experience artifact hash mismatch"
+        );
+        return None;
+    }
+    let content: ExperienceContent = serde_json::from_slice(&bytes).ok()?;
+    build_context_from_content(revision, content)
 }
 
 /// Token budget allocation priority when injecting experience context.
@@ -316,7 +364,7 @@ mod tests {
 
     #[test]
     fn prompt_injection_truncates_long_evidence() {
-        let mut ctx = ExperienceContext {
+        let ctx = ExperienceContext {
             experience_id: "exp-1".to_string(),
             revision: 1,
             preconditions: vec![],
@@ -334,10 +382,7 @@ mod tests {
     fn token_budget_allocation() {
         assert_eq!(allocate_token_budget(10), None); // too few
         assert_eq!(allocate_token_budget(100), Some(100));
-        assert_eq!(
-            allocate_token_budget(5000),
-            Some(MAX_EXPERIENCE_TOKENS)
-        );
+        assert_eq!(allocate_token_budget(5000), Some(MAX_EXPERIENCE_TOKENS));
     }
 
     #[test]
