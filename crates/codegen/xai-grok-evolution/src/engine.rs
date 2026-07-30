@@ -378,7 +378,7 @@ impl EvolutionEngine {
         }
 
         let experience_id = self.stage(run_id, "solidify", || {
-            self.publish_candidate(run_id, config, &candidate, &execution)
+            self.publish_candidate(run_id, config, &candidate, &execution, &selection_context)
         })?;
         self.stage(run_id, "reuse", || Ok(()))?;
 
@@ -452,6 +452,7 @@ impl EvolutionEngine {
         config: &EvolutionConfig,
         candidate: &ExperienceCandidate,
         execution: &TrialExecution,
+        selection_context: &SelectionContext,
     ) -> Result<ExperienceId, EvolutionError> {
         if !execution.evidence.scrubbed || execution.evidence.run_id != run_id {
             return Err(EvolutionError::PreflightFailed(
@@ -489,10 +490,10 @@ impl EvolutionEngine {
             success_count: 0,
             failure_count: 0,
             scope: ScopeFingerprint {
-                repo: None,
-                task_type: None,
-                signal_types: vec![],
-                env_fingerprint: None,
+                repo: selection_context.repo.clone(),
+                task_type: selection_context.task_type.clone(),
+                signal_types: selection_context.signal_types.clone(),
+                env_fingerprint: selection_context.env_fingerprint.clone(),
             },
             content_hash,
             created_at: now,

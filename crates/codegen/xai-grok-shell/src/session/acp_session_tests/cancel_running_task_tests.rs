@@ -422,6 +422,7 @@ async fn first_turn_memory_injection_persists_to_chat_history() {
                     ),
                     true,
                     None,
+                    None,
                     session_info.id.to_string(),
                     "persist-memory".to_string(),
                 )

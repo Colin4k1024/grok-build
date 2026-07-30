@@ -39,6 +39,7 @@ impl ChatStateActor {
         tool_definitions: Vec<ToolSpec>,
         memory_reminder: Option<String>,
         persist_memory_reminder: bool,
+        experience_context: Option<String>,
         trace: Option<Box<dyn TraceContext>>,
         conv_id: String,
         req_id: String,
@@ -71,7 +72,8 @@ impl ChatStateActor {
         let body_bytes = conversation_body_bytes(&self.state.conversation);
         let inline_images = inline_image_count(&self.state.conversation);
         let needs_image_compaction = body_bytes >= IMAGE_COMPACT_TRIGGER_BYTES;
-        let needs_mutation = needs_prune || memory_reminder.is_some() || needs_image_compaction;
+        let needs_mutation =
+            needs_prune || memory_reminder.is_some() || needs_image_compaction || experience_context.is_some();
 
         // Only allocate the mutable working copy when a mutation path is taken.
         let mut eviction: Option<ImageEvictionOutcome> = None;
@@ -101,6 +103,11 @@ impl ChatStateActor {
                 inject_memory_reminder(&mut items, &reminder);
             }
 
+            // Step 4: Inject experience context as low-priority user message
+            if let Some(experience) = experience_context {
+                inject_experience_context(&mut items, &experience);
+            }
+
             items
         } else {
             // Hot path: no pruning, no memory reminder, no old images —
@@ -124,7 +131,7 @@ impl ChatStateActor {
             });
         }
 
-        // Step 4: Assemble request
+        // Step 5: Assemble request
         ConversationRequest {
             items,
             tools: tool_definitions,
@@ -507,6 +514,32 @@ fn upsert_memory_reminder_text(system_prompt: &mut std::sync::Arc<str>, reminder
 }
 
 // ============================================================================
+// Experience context injection (low-priority, untrusted user message)
+// ============================================================================
+
+/// Inject experience context as a low-priority `User` message at the end of
+/// the conversation — just before where the model would respond.
+///
+/// Model-generated experiences must NOT have system-level authority. This
+/// function wraps the content in explicit trust-boundary tags and inserts it
+/// as a `User` item (not a `System` item), ensuring the model treats it as
+/// untrusted supplemental context rather than authoritative instructions.
+///
+/// Returns `true` when the conversation was changed.
+pub(super) fn inject_experience_context(items: &mut Vec<ConversationItem>, experience: &str) -> bool {
+    let experience = experience.trim();
+    if experience.is_empty() {
+        return false;
+    }
+
+    let wrapped = format!(
+        "<experience-context priority=\"low\" trust=\"untrusted-data\">\n{experience}\n</experience-context>"
+    );
+    items.push(ConversationItem::user(wrapped));
+    true
+}
+
+// ============================================================================
 // String helpers
 // ============================================================================
 
@@ -863,5 +896,76 @@ if text.as_ref() == IMAGE_COMPACT_PLACEHOLDER
         item.add_image(r#"https://example.com/a"b"#);
         let conv = vec![item];
         assert!(conversation_body_bytes(&conv) <= serde_json::to_vec(&conv).unwrap().len());
+    }
+
+    // -- experience context injection tests --
+
+    #[test]
+    fn experience_context_not_in_system_message() {
+        let mut items = vec![
+            ConversationItem::system("You are helpful."),
+            ConversationItem::user("hi"),
+        ];
+        inject_experience_context(&mut items, "Use pattern X for error handling");
+
+        // System message must NOT contain the experience content
+        if let ConversationItem::System(ref sys) = items[0] {
+            assert!(
+                !sys.content.contains("Use pattern X"),
+                "experience context must not be injected into system message"
+            );
+        }
+    }
+
+    #[test]
+    fn experience_context_in_user_message_at_end() {
+        let mut items = vec![
+            ConversationItem::system("You are helpful."),
+            ConversationItem::user("hi"),
+            ConversationItem::assistant("hello"),
+        ];
+        inject_experience_context(&mut items, "Use pattern X for error handling");
+
+        assert_eq!(items.len(), 4, "experience should add one item");
+        // The last item must be a User message with the wrapped experience
+        if let ConversationItem::User(ref user) = items[3] {
+            let text = user.content.iter().find_map(|p| {
+                if let ContentPart::Text { text } = p {
+                    Some(text.as_ref())
+                } else {
+                    None
+                }
+            }).expect("should have text content");
+            assert!(
+                text.contains("<experience-context priority=\"low\" trust=\"untrusted-data\">"),
+                "must have trust boundary open tag"
+            );
+            assert!(
+                text.contains("</experience-context>"),
+                "must have trust boundary close tag"
+            );
+            assert!(
+                text.contains("Use pattern X for error handling"),
+                "must contain the experience content"
+            );
+        } else {
+            panic!("expected User item at end, got {:?}", &items[3]);
+        }
+    }
+
+    #[test]
+    fn experience_context_none_is_noop() {
+        let mut items = vec![
+            ConversationItem::system("You are helpful."),
+            ConversationItem::user("hi"),
+        ];
+        let original_len = items.len();
+        let changed = inject_experience_context(&mut items, "");
+        assert!(!changed, "empty experience should be a no-op");
+        assert_eq!(items.len(), original_len);
+
+        let changed2 = inject_experience_context(&mut items, "   ");
+        assert!(!changed2, "whitespace-only experience should be a no-op");
+        assert_eq!(items.len(), original_len);
     }
 }

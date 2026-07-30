@@ -7,6 +7,7 @@
 //! - Observation collection after task completion
 //! - Quarantine trigger on consecutive failures
 
+pub mod attribution;
 pub mod observation;
 
 use crate::types::*;

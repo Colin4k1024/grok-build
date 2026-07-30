@@ -2107,12 +2107,10 @@ impl SessionActor {
                     "MEMORY_INJECT: first-turn memory context injected"
                 );
             }
-            let supplemental_context = match (memory_reminder, evolution_reminder) {
-                (Some(memory), Some(experience)) => Some(format!("{memory}\n\n{experience}")),
-                (Some(memory), None) => Some(memory),
-                (None, Some(experience)) => Some(experience),
-                (None, None) => None,
-            };
+            // memory_reminder goes into the system message (trusted);
+            // evolution_reminder goes as a low-priority user message (untrusted).
+            let memory_context = memory_reminder;
+            let experience_context = evolution_reminder;
             self.maybe_inject_mcp_reminder().await;
             if self.tool_context.task_output_token_budget.is_none()
                 && self.two_pass_active()
@@ -2157,8 +2155,9 @@ impl SessionActor {
                 .chat_state_handle
                 .build_request(
                     effective_tools,
-                    supplemental_context,
+                    memory_context,
                     self.memory.is_enabled(),
+                    experience_context,
                     trace_gcs_config
                         .clone()
                         .map(|cfg| -> Box<dyn crate::sampling::TraceContext> {

@@ -142,9 +142,9 @@ mod tests {
             success_count: 3,
             failure_count: 0,
             scope: ScopeFingerprint {
-                repo: None,
-                task_type: None,
-                signal_types: vec![],
+                repo: Some("org/repo".to_string()),
+                task_type: Some("bug_fix".to_string()),
+                signal_types: vec![SignalType::TestFailure],
                 env_fingerprint: None,
             },
             content_hash: "abc".to_string(),
