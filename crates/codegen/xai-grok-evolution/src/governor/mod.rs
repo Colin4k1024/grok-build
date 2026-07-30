@@ -10,6 +10,7 @@ use crate::types::*;
 pub mod budget;
 pub mod promotion;
 pub mod quarantine;
+pub mod trial_promotion;
 
 /// Budget status for a running evolution.
 #[derive(Debug, Clone, PartialEq, Eq)]

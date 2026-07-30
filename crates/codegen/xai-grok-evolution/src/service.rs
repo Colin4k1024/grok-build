@@ -51,6 +51,7 @@ struct ServiceInner {
     sender: std::sync::mpsc::SyncSender<QueuedRun>,
     pending: Arc<AtomicUsize>,
     kill_switch: KillSwitch,
+    circuit_breaker: std::sync::Mutex<crate::rollout::metrics::CircuitBreaker>,
     cancel: CancellationToken,
     preflight: Option<Arc<dyn IsolationPreflight>>,
     last_preflight: RwLock<Option<PreflightResult>>,
@@ -151,6 +152,9 @@ impl EvolutionService {
                 sender,
                 pending,
                 kill_switch,
+                circuit_breaker: std::sync::Mutex::new(
+                    crate::rollout::metrics::CircuitBreaker::new(10, 0.5),
+                ),
                 cancel,
                 preflight,
                 last_preflight: RwLock::new(None),
@@ -338,6 +342,13 @@ impl EvolutionService {
         if !config.mode.can_inject() || self.inner.kill_switch.is_active() {
             return Ok(None);
         }
+        // Check circuit breaker
+        if let Ok(cb) = self.inner.circuit_breaker.lock() {
+            if cb.should_trip() {
+                tracing::warn!("experience injection blocked by circuit breaker");
+                return Ok(None);
+            }
+        }
         if self.inner.store.current_rollout_approval()?.is_none() {
             return Ok(None);
         }
@@ -382,11 +393,23 @@ impl EvolutionService {
             context_hash,
             observed_at: now_epoch(),
         };
-        self.inner.store.record_reuse_with_policy(
+        let state = self.inner.store.record_reuse_with_policy(
             &observation,
             config.governor.promote_after_successes,
             config.governor.quarantine_after_failures,
-        )
+        )?;
+        // Feed outcome to circuit breaker
+        if let Ok(mut cb) = self.inner.circuit_breaker.lock() {
+            let success = matches!(outcome, ReuseOutcome::Helped | ReuseOutcome::Neutral);
+            if cb.record(success) {
+                // Circuit breaker tripped — activate kill switch
+                self.inner.kill_switch.activate(
+                    "circuit breaker tripped: high failure rate in recent observations".to_string(),
+                );
+                tracing::error!("evolution kill switch activated by circuit breaker");
+            }
+        }
+        Ok(state)
     }
 
     pub fn status(&self) -> Result<StatusResponse, EvolutionError> {

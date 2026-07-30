@@ -380,7 +380,29 @@ impl EvolutionEngine {
         let experience_id = self.stage(run_id, "solidify", || {
             self.publish_candidate(run_id, config, &candidate, &execution, &selection_context)
         })?;
-        self.stage(run_id, "reuse", || Ok(()))?;
+        self.stage(run_id, "reuse", || {
+            // Schedule promotion trials for the newly published candidate
+            let request = crate::governor::trial_promotion::PromotionTrialRequest {
+                experience_id: experience_id.clone(),
+                origin_run_id: run_id.to_string(),
+                validation_recipe: candidate.proposal.validation_command.clone(),
+                required_successes: config.governor.promote_after_successes,
+            };
+            let result = crate::governor::trial_promotion::execute_promotion_trials(
+                &self.store,
+                &request,
+                config.governor.promote_after_successes,
+                config.governor.quarantine_after_failures,
+            )?;
+            if result.promoted {
+                tracing::info!(
+                    experience_id = %request.experience_id,
+                    trials = result.trials_run,
+                    "candidate promoted to Active via trial promotion"
+                );
+            }
+            Ok(())
+        })?;
 
         Ok(EngineRunResult {
             run_id: run_id.to_string(),
