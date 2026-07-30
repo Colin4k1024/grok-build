@@ -10,6 +10,11 @@
 
 #![cfg(feature = "test-support")]
 
+use std::path::PathBuf;
+
+use tokio_util::sync::CancellationToken;
+
+use xai_grok_evolution::engine::{TrialExecution, TrialExecutor, TrialValidator, ValidationComparison};
 use xai_grok_evolution::events::EvolutionEvent;
 use xai_grok_evolution::governor::trial_promotion::{execute_promotion_trials, PromotionTrialRequest};
 use xai_grok_evolution::reuse::attribution::{determine_outcome, AttributionOutcome, AttributionState};
@@ -18,9 +23,103 @@ use xai_grok_evolution::rollout::metrics::CircuitBreaker;
 use xai_grok_evolution::select::{self, SelectionContext};
 use xai_grok_evolution::solidify::artifact::atomic_publish;
 use xai_grok_evolution::{
-    EvolutionStore, ExperienceRevision, ExperienceState, ReuseObservation, ReuseOutcome,
-    ScopeFingerprint, SignalType, CURRENT_SCHEMA_VERSION,
+    EvidenceBundle, ExperienceCandidate, EvolutionError, EvolutionStore, ExperienceRevision,
+    ExperienceState, ReuseObservation, ReuseOutcome, ScopeFingerprint, SignalType,
+    TrialOutcome, TrialResult, TrialSpec, ValidationResult, VariantProposal,
+    CURRENT_SCHEMA_VERSION,
 };
+
+struct MockExecutor;
+
+impl TrialExecutor for MockExecutor {
+    fn execute(
+        &self,
+        run_id: &str,
+        _candidate: &ExperienceCandidate,
+        _spec: &TrialSpec,
+        _cancel: &CancellationToken,
+    ) -> Result<TrialExecution, EvolutionError> {
+        Ok(TrialExecution {
+            outcome: TrialOutcome {
+                outcome_id: format!("outcome-{run_id}"),
+                schema_version: CURRENT_SCHEMA_VERSION,
+                spec_id: "spec-1".to_string(),
+                result: TrialResult::Success,
+                duration_ms: 100,
+                files_changed: vec![],
+                lines_added: 0,
+                lines_removed: 0,
+                validation_results: vec![ValidationResult {
+                    command: vec!["cargo".to_string(), "test".to_string()],
+                    exit_code: 0,
+                    stdout_hash: "stdout-hash".to_string(),
+                    stderr_hash: "stderr-hash".to_string(),
+                    passed: true,
+                    duration_ms: 50,
+                }],
+                artifact_hash: None,
+                completed_at: now_epoch(),
+            },
+            baseline_results: vec![],
+            evidence: EvidenceBundle {
+                bundle_id: format!("bundle-{run_id}"),
+                schema_version: CURRENT_SCHEMA_VERSION,
+                run_id: run_id.to_string(),
+                refs: vec![],
+                content_hash: "evidence-hash".to_string(),
+                total_bytes: 0,
+                scrubbed: true,
+                created_at: now_epoch(),
+            },
+            staged_evidence_path: PathBuf::from("/tmp/staged"),
+            diff: String::new(),
+            source_hash_before: "before".to_string(),
+            source_hash_after: "after".to_string(),
+        })
+    }
+}
+
+struct MockValidator;
+
+impl TrialValidator for MockValidator {
+    fn validate(
+        &self,
+        _candidate: &ExperienceCandidate,
+        _execution: &TrialExecution,
+    ) -> Result<ValidationComparison, EvolutionError> {
+        Ok(ValidationComparison {
+            baseline: vec![],
+            candidate: vec![ValidationResult {
+                command: vec!["cargo".to_string(), "test".to_string()],
+                exit_code: 0,
+                stdout_hash: "stdout".to_string(),
+                stderr_hash: "stderr".to_string(),
+                passed: true,
+                duration_ms: 50,
+            }],
+        })
+    }
+}
+
+fn test_candidate() -> ExperienceCandidate {
+    ExperienceCandidate {
+        candidate_id: "cand-e2e".to_string(),
+        schema_version: CURRENT_SCHEMA_VERSION,
+        trigger_signals: vec!["test_failure".to_string()],
+        proposal: VariantProposal {
+            target: "src/lib.rs".to_string(),
+            preconditions: vec!["repo matches".to_string()],
+            allowed_paths: vec!["src/".to_string()],
+            forbidden_actions: vec!["do not delete existing tests".to_string()],
+            expected_benefit: "fix null check".to_string(),
+            validation_command: vec!["cargo".to_string(), "test".to_string(), "-p".to_string(), "parser".to_string()],
+            success_predicate: "all tests pass".to_string(),
+            patch: None,
+        },
+        parent_revision_id: None,
+        created_at: now_epoch(),
+    }
+}
 
 fn now_epoch() -> i64 {
     std::time::SystemTime::now()
@@ -106,13 +205,20 @@ fn full_lifecycle_candidate_to_quarantine() {
     assert_eq!(exp.state, ExperienceState::Candidate);
 
     // --- Step 2: Trial-based promotion (3 successes → Active) ---
+    let executor = MockExecutor;
+    let validator = MockValidator;
+    let cancel = CancellationToken::new();
     let request = PromotionTrialRequest {
         experience_id: experience_id.to_string(),
         origin_run_id: "run-origin".to_string(),
         validation_recipe: vec!["cargo test -p parser".to_string()],
         required_successes: 3,
+        candidate: test_candidate(),
     };
-    let result = execute_promotion_trials(&store, &request, 3, 2).unwrap();
+    let result = execute_promotion_trials(
+        &store, &request, &executor, &validator, 3, 2, &cancel,
+    )
+    .unwrap();
     assert!(result.promoted, "should promote after 3 trials");
     assert_eq!(result.trials_succeeded, 3);
 
@@ -322,19 +428,29 @@ fn trial_promotion_idempotent() {
         )
         .unwrap();
 
+    let executor = MockExecutor;
+    let validator = MockValidator;
+    let cancel = CancellationToken::new();
     let request = PromotionTrialRequest {
         experience_id: experience_id.to_string(),
         origin_run_id: "run-idem".to_string(),
         validation_recipe: vec!["true".to_string()],
         required_successes: 3,
+        candidate: test_candidate(),
     };
 
     // First promotion
-    let r1 = execute_promotion_trials(&store, &request, 3, 2).unwrap();
+    let r1 = execute_promotion_trials(
+        &store, &request, &executor, &validator, 3, 2, &cancel,
+    )
+    .unwrap();
     assert!(r1.promoted);
 
     // Second call — already Active, should be safe no-op
-    let r2 = execute_promotion_trials(&store, &request, 3, 2).unwrap();
+    let r2 = execute_promotion_trials(
+        &store, &request, &executor, &validator, 3, 2, &cancel,
+    )
+    .unwrap();
     // Should not crash; experience stays Active
     let exp = store.get_experience(experience_id).unwrap().unwrap();
     assert_eq!(exp.state, ExperienceState::Active);

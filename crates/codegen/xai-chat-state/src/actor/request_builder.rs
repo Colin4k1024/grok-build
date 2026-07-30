@@ -535,7 +535,17 @@ pub(super) fn inject_experience_context(items: &mut Vec<ConversationItem>, exper
     let wrapped = format!(
         "<experience-context priority=\"low\" trust=\"untrusted-data\">\n{experience}\n</experience-context>"
     );
-    items.push(ConversationItem::user(wrapped));
+
+    // Insert BEFORE the last User message so the experience context has lower
+    // positional priority than the user's actual current request.
+    let last_user_pos = items
+        .iter()
+        .rposition(|item| matches!(item, ConversationItem::User(_)));
+
+    match last_user_pos {
+        Some(pos) => items.insert(pos, ConversationItem::user(wrapped)),
+        None => items.push(ConversationItem::user(wrapped)),
+    }
     true
 }
 
@@ -918,17 +928,16 @@ if text.as_ref() == IMAGE_COMPACT_PLACEHOLDER
     }
 
     #[test]
-    fn experience_context_in_user_message_at_end() {
+    fn experience_context_inserted_before_last_user_message() {
         let mut items = vec![
             ConversationItem::system("You are helpful."),
-            ConversationItem::user("hi"),
-            ConversationItem::assistant("hello"),
+            ConversationItem::user("fix the bug"),
         ];
         inject_experience_context(&mut items, "Use pattern X for error handling");
 
-        assert_eq!(items.len(), 4, "experience should add one item");
-        // The last item must be a User message with the wrapped experience
-        if let ConversationItem::User(ref user) = items[3] {
+        assert_eq!(items.len(), 3, "experience should add one item");
+        // Experience must appear BEFORE the user's request (lower positional priority)
+        if let ConversationItem::User(ref user) = items[1] {
             let text = user.content.iter().find_map(|p| {
                 if let ContentPart::Text { text } = p {
                     Some(text.as_ref())
@@ -949,7 +958,23 @@ if text.as_ref() == IMAGE_COMPACT_PLACEHOLDER
                 "must contain the experience content"
             );
         } else {
-            panic!("expected User item at end, got {:?}", &items[3]);
+            panic!("expected experience User item at index 1, got {:?}", &items[1]);
+        }
+        // The user's actual request is now at index 2 (after the experience)
+        if let ConversationItem::User(ref user) = items[2] {
+            let text = user.content.iter().find_map(|p| {
+                if let ContentPart::Text { text } = p {
+                    Some(text.as_ref())
+                } else {
+                    None
+                }
+            }).expect("should have text content");
+            assert!(
+                text.contains("fix the bug"),
+                "user's actual request must remain after experience"
+            );
+        } else {
+            panic!("expected User('fix the bug') at index 2");
         }
     }
 

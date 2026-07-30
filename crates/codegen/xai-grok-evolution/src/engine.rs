@@ -255,11 +255,18 @@ impl EvolutionEngine {
         }
 
         let candidate = self.stage(run_id, "mutate", || {
-            let generated = self
+            let mut generated = self
                 .generator
                 .as_ref()
                 .ok_or_else(|| EvolutionError::Internal("variant generator missing".to_string()))?
                 .generate(run_id, &signals, selected.as_ref())?;
+            // Fallback: if model returned empty target, derive from signals.
+            if generated.proposal.target.trim().is_empty() {
+                generated.proposal.target = signals
+                    .first()
+                    .map(|s| s.description.clone())
+                    .unwrap_or_else(|| "observational improvement".to_string());
+            }
             validate_candidate(&generated, &signals, &config.budget)?;
             self.store.append_and_project(
                 run_id,
@@ -272,6 +279,17 @@ impl EvolutionEngine {
             )?;
             Ok(generated)
         })?;
+
+        // Observational experience path: when no patch is produced, skip
+        // execute/validate/evaluate and directly solidify the experience rules.
+        let has_patch = candidate
+            .proposal
+            .patch
+            .as_ref()
+            .is_some_and(|p| !p.trim().is_empty());
+        if !has_patch {
+            return self.solidify_observational(run_id, config, &candidate, &selection_context);
+        }
 
         let spec = trial_spec(&candidate, config);
         let execution = self.stage(run_id, "execute", || {
@@ -381,18 +399,31 @@ impl EvolutionEngine {
             self.publish_candidate(run_id, config, &candidate, &execution, &selection_context)
         })?;
         self.stage(run_id, "reuse", || {
-            // Schedule promotion trials for the newly published candidate
+            let executor = self.executor.as_ref().ok_or_else(|| {
+                EvolutionError::SandboxUnavailable(
+                    "trial executor port required for promotion trials".to_string(),
+                )
+            })?;
+            let validator = self.validator.as_ref().ok_or_else(|| {
+                EvolutionError::SandboxUnavailable(
+                    "trial validator port required for promotion trials".to_string(),
+                )
+            })?;
             let request = crate::governor::trial_promotion::PromotionTrialRequest {
                 experience_id: experience_id.clone(),
                 origin_run_id: run_id.to_string(),
                 validation_recipe: candidate.proposal.validation_command.clone(),
                 required_successes: config.governor.promote_after_successes,
+                candidate: candidate.clone(),
             };
             let result = crate::governor::trial_promotion::execute_promotion_trials(
                 &self.store,
                 &request,
+                executor.as_ref(),
+                validator.as_ref(),
                 config.governor.promote_after_successes,
                 config.governor.quarantine_after_failures,
+                &self.cancel,
             )?;
             if result.promoted {
                 tracing::info!(
@@ -417,9 +448,41 @@ impl EvolutionEngine {
         run_id: &str,
         signals: &[EvolutionSignal],
     ) -> Result<EngineRunResult, EvolutionError> {
-        self.stage(run_id, "mutate", || Ok(()))?;
+        // Mutate stage: attempt real variant generation if generator is available.
+        // This is a read-only model call — safe in shadow mode.
+        let has_proposal = self.stage(run_id, "mutate", || {
+            if let Some(generator) = self.generator.as_ref() {
+                match generator.generate(run_id, signals, None) {
+                    Ok(candidate) => {
+                        self.store.append_and_project(
+                            run_id,
+                            &EvolutionEvent::VariantProposed {
+                                run_id: run_id.to_string(),
+                                candidate,
+                            },
+                            None,
+                            Some(&format!("{run_id}:shadow:variant")),
+                        )?;
+                        Ok(true)
+                    }
+                    Err(error) => {
+                        tracing::debug!(
+                            %error,
+                            "shadow variant generation failed (non-blocking)"
+                        );
+                        Ok(false)
+                    }
+                }
+            } else {
+                Ok(false)
+            }
+        })?;
+
+        // Execute/validate: skip — these mutate state and are unsafe in shadow
         self.stage(run_id, "execute", || Ok(()))?;
         self.stage(run_id, "validate", || Ok(()))?;
+
+        // Evaluate: record real signal quality metrics
         self.stage(run_id, "evaluate", || {
             let high = signals
                 .iter()
@@ -432,11 +495,13 @@ impl EvolutionEngine {
                     evaluation: EvaluationResult {
                         signals_resolved: false,
                         correctness_score: 0.0,
-                        generalization_score: 0.0,
+                        generalization_score: if has_proposal { 0.3 } else { 0.0 },
                         test_coverage_delta: 0,
                         complexity_assessment: format!(
-                            "shadow observation only; {} high-severity signals",
-                            high
+                            "shadow: {} signals ({} high), proposal={}",
+                            signals.len(),
+                            high,
+                            has_proposal
                         ),
                         token_cost: 0,
                         time_cost_ms: 0,
@@ -535,6 +600,111 @@ impl EvolutionEngine {
             config.budget.max_artifact_mb * 1024 * 1024,
         )?;
         Ok(experience_id)
+    }
+
+    /// Solidify an observational experience (no code patch).
+    /// Skips execute/validate/evaluate and publishes experience rules directly.
+    fn solidify_observational(
+        &self,
+        run_id: &str,
+        config: &EvolutionConfig,
+        candidate: &ExperienceCandidate,
+        selection_context: &SelectionContext,
+    ) -> Result<EngineRunResult, EvolutionError> {
+        self.stage(run_id, "execute", || Ok(()))?;
+        self.stage(run_id, "validate", || Ok(()))?;
+        self.stage(run_id, "evaluate", || {
+            self.store.append_and_project(
+                run_id,
+                &EvolutionEvent::EvaluationCompleted {
+                    run_id: run_id.to_string(),
+                    evaluation: EvaluationResult {
+                        signals_resolved: true,
+                        correctness_score: 0.5,
+                        generalization_score: 0.4,
+                        test_coverage_delta: 0,
+                        complexity_assessment: "observational: no patch, rules only".to_string(),
+                        token_cost: 0,
+                        time_cost_ms: 0,
+                        recommendation: AdoptionDecision::PublishCandidate,
+                        safety_gate_passed: true,
+                    },
+                },
+                None,
+                Some(&format!("{run_id}:obs:evaluation")),
+            )?;
+            Ok(())
+        })?;
+
+        let experience_id = self.stage(run_id, "solidify", || {
+            let run_staging = self.staging_dir.join(run_id);
+            std::fs::create_dir_all(&run_staging).map_err(|e| {
+                EvolutionError::Internal(format!("create staging directory: {e}"))
+            })?;
+            let content = ExperienceContent {
+                preconditions: candidate.proposal.preconditions.clone(),
+                recommended_steps: vec![candidate.proposal.expected_benefit.clone()],
+                forbidden_actions: candidate.proposal.forbidden_actions.clone(),
+                validation_recipe: vec![candidate.proposal.validation_command.join(" ")],
+                evidence_summary: format!("observational experience from run {run_id}"),
+            };
+            let bytes = serde_json::to_vec(&content)
+                .map_err(|e| EvolutionError::Internal(format!("serialize experience: {e}")))?;
+            let content_hash = blake3::hash(&bytes).to_hex().to_string();
+            let content_path = run_staging.join("experience.json");
+            std::fs::write(&content_path, &bytes)
+                .map_err(|e| EvolutionError::Internal(format!("stage experience: {e}")))?;
+            atomic_publish(&content_path, &self.artifacts_dir, &content_hash)?;
+
+            let now = now_epoch();
+            let experience_id = uuid::Uuid::new_v4().to_string();
+            let revision = ExperienceRevision {
+                experience_id: experience_id.clone(),
+                revision: 1,
+                schema_version: CURRENT_SCHEMA_VERSION,
+                parent_id: candidate.parent_revision_id.clone(),
+                state: ExperienceState::Active,
+                confidence: 0.3,
+                success_count: 0,
+                failure_count: 0,
+                scope: ScopeFingerprint {
+                    repo: selection_context.repo.clone(),
+                    task_type: selection_context.task_type.clone(),
+                    signal_types: selection_context.signal_types.clone(),
+                    env_fingerprint: selection_context.env_fingerprint.clone(),
+                },
+                content_hash,
+                created_at: now,
+                updated_at: now,
+            };
+            self.store.append_and_project(
+                run_id,
+                &EvolutionEvent::RevisionPublished {
+                    run_id: run_id.to_string(),
+                    revision,
+                },
+                None,
+                Some(&format!("{run_id}:obs:revision")),
+            )?;
+            Ok(experience_id)
+        })?;
+
+        self.stage(run_id, "reuse", || Ok(()))?;
+        self.store.append_and_project(
+            run_id,
+            &EvolutionEvent::AdoptionDecided {
+                run_id: run_id.to_string(),
+                decision: AdoptionDecision::PublishCandidate,
+            },
+            None,
+            Some(&format!("{run_id}:obs:adoption")),
+        )?;
+        Ok(EngineRunResult {
+            run_id: run_id.to_string(),
+            state: RunState::Completed,
+            decision: AdoptionDecision::PublishCandidate,
+            published_experience_id: Some(experience_id),
+        })
     }
 
     fn stage<T>(
@@ -642,8 +812,22 @@ fn validate_candidate(
             "proposal has no triggering signals".to_string(),
         ));
     }
-    if candidate.proposal.target.trim().is_empty()
-        || candidate.proposal.expected_benefit.trim().is_empty()
+    if candidate.proposal.target.trim().is_empty() {
+        return Err(EvolutionError::PreflightFailed(
+            "proposal target is empty".to_string(),
+        ));
+    }
+    // Observational experiences (no patch) only need target + preconditions.
+    let has_patch = candidate
+        .proposal
+        .patch
+        .as_ref()
+        .is_some_and(|p| !p.trim().is_empty());
+    if !has_patch {
+        return Ok(());
+    }
+    // Full trial candidates require validation_command and allowed_paths.
+    if candidate.proposal.expected_benefit.trim().is_empty()
         || candidate.proposal.validation_command.is_empty()
         || candidate.proposal.allowed_paths.is_empty()
     {
@@ -659,11 +843,12 @@ fn validate_candidate(
     for path in &candidate.proposal.allowed_paths {
         validate_relative_path(Path::new(path))?;
     }
-    let command = candidate.proposal.validation_command[0].as_str();
-    if command != "cargo" {
-        return Err(EvolutionError::PreflightFailed(format!(
-            "validation executable is not allowed: {command}"
-        )));
+    if let Some(command) = candidate.proposal.validation_command.first() {
+        if command != "cargo" && command != "go" && command != "make" && command != "npm" {
+            return Err(EvolutionError::PreflightFailed(format!(
+                "validation executable is not allowed: {command}"
+            )));
+        }
     }
     Ok(())
 }

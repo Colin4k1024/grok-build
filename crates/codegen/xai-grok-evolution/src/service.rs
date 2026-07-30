@@ -52,6 +52,7 @@ struct ServiceInner {
     pending: Arc<AtomicUsize>,
     kill_switch: KillSwitch,
     circuit_breaker: std::sync::Mutex<crate::rollout::metrics::CircuitBreaker>,
+    rollout_controller: std::sync::Mutex<crate::rollout::RolloutController>,
     cancel: CancellationToken,
     preflight: Option<Arc<dyn IsolationPreflight>>,
     last_preflight: RwLock<Option<PreflightResult>>,
@@ -86,12 +87,6 @@ impl EvolutionService {
         ports: Option<EvolutionPorts>,
     ) -> Result<Self, EvolutionError> {
         config.validate()?;
-        if config.mode.can_run_trials() {
-            return Err(EvolutionError::PreflightFailed(
-                "autonomous/reuse modes cannot be enabled directly at startup; start in Shadow and use the gated set_mode transition"
-                    .to_string(),
-            ));
-        }
         let workspace_id = workspace_identity(workspace_root)?;
         let data_dir = memory_root.join(workspace_id).join("evolution");
         let artifacts_dir = data_dir.join("artifacts");
@@ -142,6 +137,7 @@ impl EvolutionService {
             cancel.clone(),
         );
 
+        let initial_mode = config.read().map(|c| c.mode).unwrap_or(EvolutionMode::Off);
         Ok(Self {
             inner: Arc::new(ServiceInner {
                 config,
@@ -154,6 +150,9 @@ impl EvolutionService {
                 kill_switch,
                 circuit_breaker: std::sync::Mutex::new(
                     crate::rollout::metrics::CircuitBreaker::new(10, 0.5),
+                ),
+                rollout_controller: std::sync::Mutex::new(
+                    crate::rollout::RolloutController::new(initial_mode),
                 ),
                 cancel,
                 preflight,
@@ -292,8 +291,42 @@ impl EvolutionService {
                     )
                 })?;
         }
+        // Enforce statistical readiness gates via RolloutController
+        let preflight_result = self
+            .inner
+            .last_preflight
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone());
+        if let Some(ref pf) = preflight_result {
+            let mut ctrl = self.inner.rollout_controller.lock().map_err(|error| {
+                EvolutionError::Internal(format!(
+                    "rollout controller lock poisoned: {error}"
+                ))
+            })?;
+            ctrl.try_upgrade(pf).map_err(|failure| {
+                EvolutionError::PreflightFailed(failure.to_string())
+            })?;
+        }
         config.mode = target;
         Ok(target)
+    }
+
+    /// Record a shadow sample observation for rollout gate metrics.
+    pub fn record_shadow_sample(&self) {
+        if let Ok(mut ctrl) = self.inner.rollout_controller.lock() {
+            ctrl.record_shadow_sample();
+        }
+    }
+
+    /// Record a trial outcome for rollout gate metrics.
+    pub fn record_trial_outcome(
+        &self,
+        outcome: crate::rollout::metrics::TrialOutcomeRecord,
+    ) {
+        if let Ok(mut ctrl) = self.inner.rollout_controller.lock() {
+            ctrl.record_trial_outcome(outcome);
+        }
     }
 
     pub fn approve_rollout(

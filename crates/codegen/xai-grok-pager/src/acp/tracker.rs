@@ -261,6 +261,9 @@ pub struct AcpUpdateTracker {
     ///
     /// Value is the optional description from `raw_input.description`.
     pub(crate) bg_deferred_tools: std::collections::HashMap<String, Option<String>>,
+    /// Buffer for XML-formatted tool calls arriving in the text stream.
+    /// Accumulates chunks between `<tool_call>` and `</tool_call>`.
+    xml_tool_call_buf: Option<String>,
     /// Last seen `stream_start_ms` from notification meta.
     /// When this changes, a new LLM streaming response has started — we
     /// finish any in-flight thinking/agent-message entries so the next
@@ -850,6 +853,7 @@ impl AcpUpdateTracker {
         self.blocking_waits.clear();
         self.orphan_updates.clear();
         self.skip_next_skill_body = false;
+        self.xml_tool_call_buf = None;
     }
     /// Finish the current thinking block, passing elapsed time to the entry.
     ///
@@ -912,16 +916,62 @@ impl AcpUpdateTracker {
         meta: &NotificationMeta,
         scrollback: &mut ScrollbackState,
     ) -> bool {
+        use super::xml_tool_call;
+
         self.finish_thinking(scrollback);
         let text = extract_text_from_content(&chunk.content);
         if text.is_empty() {
             return false;
         }
+
+        // --- XML tool call interception ---
+        // Case 1: Currently buffering an XML tool call across chunks.
+        if let Some(ref mut buf) = self.xml_tool_call_buf {
+            buf.push_str(&text);
+            if xml_tool_call::has_tool_call_end(buf) {
+                let buffered = self.xml_tool_call_buf.take().unwrap();
+                let (tc_part, tail) = xml_tool_call::split_at_end(&buffered);
+                self.emit_xml_tool_call_block(tc_part, scrollback);
+                if let Some(tail) = tail {
+                    self.push_text_to_agent(tail, meta, scrollback);
+                }
+            }
+            return true;
+        }
+        // Case 2: New <tool_call> detected in this chunk.
+        if xml_tool_call::has_tool_call_start(&text) {
+            let (head, tc_start) = xml_tool_call::split_at_start(&text);
+            if let Some(head) = head {
+                if !head.trim().is_empty() {
+                    self.push_text_to_agent(head, meta, scrollback);
+                }
+            }
+            if let Some(tc_start) = tc_start {
+                if xml_tool_call::has_tool_call_end(tc_start) {
+                    let (tc_part, tail) = xml_tool_call::split_at_end(tc_start);
+                    self.emit_xml_tool_call_block(tc_part, scrollback);
+                    if let Some(tail) = tail {
+                        self.push_text_to_agent(tail, meta, scrollback);
+                    }
+                } else {
+                    self.xml_tool_call_buf = Some(tc_start.to_string());
+                }
+            }
+            return true;
+        }
+
+        // --- Normal text path ---
+        self.push_text_to_agent(&text, meta, scrollback)
+    }
+
+    /// Push text to the current agent message block (shared logic).
+    fn push_text_to_agent(
+        &mut self,
+        text: &str,
+        meta: &NotificationMeta,
+        scrollback: &mut ScrollbackState,
+    ) -> bool {
         if self.current_agent_msg.is_none() && text.trim().is_empty() {
-            tracing::warn!(
-                text = % text.escape_debug(),
-                "ignoring whitespace-only agent message chunk (no prior content)"
-            );
             return false;
         }
         let is_new = self.current_agent_msg.is_none();
@@ -937,10 +987,42 @@ impl AcpUpdateTracker {
             entry.created_at = Some(utc_ms_to_local(ts_ms));
         }
         if meta.is_replay {
-            scrollback.push_chunk_to_agent_deferred(id, &text)
+            scrollback.push_chunk_to_agent_deferred(id, text)
         } else {
-            scrollback.push_chunk_to_agent(id, &text)
+            scrollback.push_chunk_to_agent(id, text)
         }
+    }
+
+    /// Convert a buffered XML tool call into a proper ToolCallBlock.
+    fn emit_xml_tool_call_block(&mut self, xml_text: &str, scrollback: &mut ScrollbackState) {
+        use super::xml_tool_call;
+
+        self.current_agent_msg = None;
+
+        if let Some(parsed) = xml_tool_call::parse(xml_text) {
+            let summary = parsed
+                .parameters
+                .get("description")
+                .or_else(|| parsed.parameters.get("command"))
+                .cloned()
+                .unwrap_or_default();
+
+            let mut block = ToolCallBlock::from_name(&parsed.function_name, &summary);
+
+            if let ToolCallBlock::Execute(ref mut exec) = block {
+                if let Some(cmd) = parsed.parameters.get("command") {
+                    exec.command = cmd.clone();
+                }
+                if let Some(desc) = parsed.parameters.get("description") {
+                    exec.description = Some(desc.clone());
+                }
+            }
+
+            scrollback.push_block(RenderBlock::ToolCall(block));
+            scrollback.set_last_running(true);
+        }
+        // Parse failure: silently drop — the raw XML was already intercepted
+        // and won't appear in the text stream.
     }
     /// Handle an agent thought chunk (streaming thinking).
     fn handle_thought_chunk(
