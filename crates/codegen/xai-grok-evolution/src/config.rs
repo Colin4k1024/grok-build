@@ -65,6 +65,8 @@ pub struct EvolutionConfig {
     pub mode: EvolutionMode,
     /// Sampling rate for Shadow mode (0.0 - 1.0).
     pub shadow_sample_rate: f64,
+    /// Sampling rate for positive outcome signals (0.0 - 1.0).
+    pub positive_sample_rate: f64,
     /// Maximum trials per session.
     pub max_trials_per_session: u32,
     /// Maximum concurrent trials globally.
@@ -75,6 +77,10 @@ pub struct EvolutionConfig {
     pub governor: EvolutionGovernorConfig,
     /// Storage capacity limits.
     pub capacity: EvolutionCapacityConfig,
+    /// Skill decay detection window (number of recent observations).
+    pub skill_decay_window: usize,
+    /// Skill decay threshold (fraction of ineffective observations to trigger decay).
+    pub skill_decay_threshold: f64,
 }
 
 impl Default for EvolutionConfig {
@@ -82,11 +88,14 @@ impl Default for EvolutionConfig {
         Self {
             mode: EvolutionMode::default(),
             shadow_sample_rate: 0.1,
+            positive_sample_rate: 0.3,
             max_trials_per_session: 1,
             max_concurrent_trials: 1,
             budget: EvolutionBudgetConfig::default(),
             governor: EvolutionGovernorConfig::default(),
             capacity: EvolutionCapacityConfig::default(),
+            skill_decay_window: 10,
+            skill_decay_threshold: 0.4,
         }
     }
 }

@@ -148,10 +148,15 @@ impl XaiProtoBuilder {
 
             let mut lines = output.lines();
             let first_line = lines.next().context("protoc command output is empty")?;
-            let prefix = "/dev/null:";
-            let rem = first_line.strip_prefix(prefix).with_context(|| {
-                format!("protoc command output must start with /dev/null: {output:?}")
-            })?;
+            // Newer protoc emits Makefile-format "target: deps", older versions
+            // (e.g. 3.20.x) may omit the target prefix entirely.
+            let rem = if let Some(after_colon) = first_line.strip_prefix("/dev/null:") {
+                after_colon
+            } else if first_line.contains(':') {
+                first_line.split_once(':').map(|(_, r)| r).unwrap_or(first_line)
+            } else {
+                first_line
+            };
             for line in iter::once(rem).chain(lines) {
                 let line = line.trim();
                 let line = line.strip_suffix("\\").unwrap_or(line);

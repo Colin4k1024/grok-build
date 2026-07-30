@@ -23,6 +23,42 @@ pub const PIPELINE_STAGES: &[&str] = &[
     "detect", "select", "mutate", "execute", "validate", "evaluate", "solidify", "reuse",
 ];
 
+const SOLIDIFY_MAX_RETRIES: usize = 3;
+const SOLIDIFY_BACKOFF_MS: [u64; 3] = [100, 500, 2000];
+
+fn retry_solidify<F, T>(operation: F) -> Result<T, EvolutionError>
+where
+    F: Fn() -> Result<T, EvolutionError>,
+{
+    let mut last_error = None;
+    for attempt in 0..=SOLIDIFY_MAX_RETRIES {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                if attempt < SOLIDIFY_MAX_RETRIES {
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max = SOLIDIFY_MAX_RETRIES,
+                        %error,
+                        "solidify attempt failed, retrying"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        SOLIDIFY_BACKOFF_MS[attempt],
+                    ));
+                } else {
+                    tracing::error!(
+                        attempts = SOLIDIFY_MAX_RETRIES + 1,
+                        %error,
+                        "solidify failed after all retries"
+                    );
+                }
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap())
+}
+
 /// Model-side structured proposal generation. This runs in the parent process.
 pub trait VariantGenerator: Send + Sync {
     fn generate(
@@ -396,7 +432,9 @@ impl EvolutionEngine {
         }
 
         let experience_id = self.stage(run_id, "solidify", || {
-            self.publish_candidate(run_id, config, &candidate, &execution, &selection_context)
+            retry_solidify(|| {
+                self.publish_candidate(run_id, config, &candidate, &execution, &selection_context)
+            })
         })?;
         self.stage(run_id, "reuse", || {
             let executor = self.executor.as_ref().ok_or_else(|| {
@@ -637,56 +675,58 @@ impl EvolutionEngine {
         })?;
 
         let experience_id = self.stage(run_id, "solidify", || {
-            let run_staging = self.staging_dir.join(run_id);
-            std::fs::create_dir_all(&run_staging).map_err(|e| {
-                EvolutionError::Internal(format!("create staging directory: {e}"))
-            })?;
-            let content = ExperienceContent {
-                preconditions: candidate.proposal.preconditions.clone(),
-                recommended_steps: vec![candidate.proposal.expected_benefit.clone()],
-                forbidden_actions: candidate.proposal.forbidden_actions.clone(),
-                validation_recipe: vec![candidate.proposal.validation_command.join(" ")],
-                evidence_summary: format!("observational experience from run {run_id}"),
-            };
-            let bytes = serde_json::to_vec(&content)
-                .map_err(|e| EvolutionError::Internal(format!("serialize experience: {e}")))?;
-            let content_hash = blake3::hash(&bytes).to_hex().to_string();
-            let content_path = run_staging.join("experience.json");
-            std::fs::write(&content_path, &bytes)
-                .map_err(|e| EvolutionError::Internal(format!("stage experience: {e}")))?;
-            atomic_publish(&content_path, &self.artifacts_dir, &content_hash)?;
+            retry_solidify(|| {
+                let run_staging = self.staging_dir.join(run_id);
+                std::fs::create_dir_all(&run_staging).map_err(|e| {
+                    EvolutionError::Internal(format!("create staging directory: {e}"))
+                })?;
+                let content = ExperienceContent {
+                    preconditions: candidate.proposal.preconditions.clone(),
+                    recommended_steps: vec![candidate.proposal.expected_benefit.clone()],
+                    forbidden_actions: candidate.proposal.forbidden_actions.clone(),
+                    validation_recipe: vec![candidate.proposal.validation_command.join(" ")],
+                    evidence_summary: format!("observational experience from run {run_id}"),
+                };
+                let bytes = serde_json::to_vec(&content)
+                    .map_err(|e| EvolutionError::Internal(format!("serialize experience: {e}")))?;
+                let content_hash = blake3::hash(&bytes).to_hex().to_string();
+                let content_path = run_staging.join("experience.json");
+                std::fs::write(&content_path, &bytes)
+                    .map_err(|e| EvolutionError::Internal(format!("stage experience: {e}")))?;
+                atomic_publish(&content_path, &self.artifacts_dir, &content_hash)?;
 
-            let now = now_epoch();
-            let experience_id = uuid::Uuid::new_v4().to_string();
-            let revision = ExperienceRevision {
-                experience_id: experience_id.clone(),
-                revision: 1,
-                schema_version: CURRENT_SCHEMA_VERSION,
-                parent_id: candidate.parent_revision_id.clone(),
-                state: ExperienceState::Active,
-                confidence: 0.3,
-                success_count: 0,
-                failure_count: 0,
-                scope: ScopeFingerprint {
-                    repo: selection_context.repo.clone(),
-                    task_type: selection_context.task_type.clone(),
-                    signal_types: selection_context.signal_types.clone(),
-                    env_fingerprint: selection_context.env_fingerprint.clone(),
-                },
-                content_hash,
-                created_at: now,
-                updated_at: now,
-            };
-            self.store.append_and_project(
-                run_id,
-                &EvolutionEvent::RevisionPublished {
-                    run_id: run_id.to_string(),
-                    revision,
-                },
-                None,
-                Some(&format!("{run_id}:obs:revision")),
-            )?;
-            Ok(experience_id)
+                let now = now_epoch();
+                let experience_id = uuid::Uuid::new_v4().to_string();
+                let revision = ExperienceRevision {
+                    experience_id: experience_id.clone(),
+                    revision: 1,
+                    schema_version: CURRENT_SCHEMA_VERSION,
+                    parent_id: candidate.parent_revision_id.clone(),
+                    state: ExperienceState::Active,
+                    confidence: 0.3,
+                    success_count: 0,
+                    failure_count: 0,
+                    scope: ScopeFingerprint {
+                        repo: selection_context.repo.clone(),
+                        task_type: selection_context.task_type.clone(),
+                        signal_types: selection_context.signal_types.clone(),
+                        env_fingerprint: selection_context.env_fingerprint.clone(),
+                    },
+                    content_hash,
+                    created_at: now,
+                    updated_at: now,
+                };
+                self.store.append_and_project(
+                    run_id,
+                    &EvolutionEvent::RevisionPublished {
+                        run_id: run_id.to_string(),
+                        revision,
+                    },
+                    None,
+                    Some(&format!("{run_id}:obs:revision")),
+                )?;
+                Ok(experience_id)
+            })
         })?;
 
         self.stage(run_id, "reuse", || Ok(()))?;
