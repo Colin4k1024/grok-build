@@ -2433,6 +2433,10 @@ async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) ->
             source_pollution_events,
             unexplained_network_or_writes,
             replay_regressions,
+            sandbox_complete,
+            evidence_complete,
+            safety_drills_passed,
+            metrics_baseline_established,
             confirm,
             json,
         } => {
@@ -2449,12 +2453,12 @@ async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) ->
             let approval = service.approve_rollout(
                 xai_grok_evolution::RolloutReadiness {
                     source_pollution_events,
-                    sandbox_complete: true,
-                    evidence_complete: true,
+                    sandbox_complete,
+                    evidence_complete,
                     unexplained_network_or_writes,
-                    safety_drills_passed: true,
+                    safety_drills_passed,
                     replay_regressions,
-                    metrics_baseline_established: true,
+                    metrics_baseline_established,
                 },
                 evidence,
                 approved_by,

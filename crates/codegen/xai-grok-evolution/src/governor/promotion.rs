@@ -13,6 +13,14 @@ pub fn check(exp: &ExperienceRevision, promote_after: u32) -> Option<ConfidenceS
         return None;
     }
 
+    // Reject empty scope — too broad to be safely promoted
+    if exp.scope.repo.is_none()
+        && exp.scope.task_type.is_none()
+        && exp.scope.signal_types.is_empty()
+    {
+        return None;
+    }
+
     if exp.success_count >= promote_after && exp.failure_count == 0 {
         Some(ConfidenceState::Active {
             confidence: crate::state::confidence::initial_confidence(exp.success_count),
@@ -37,9 +45,9 @@ mod tests {
             success_count: successes,
             failure_count: failures,
             scope: ScopeFingerprint {
-                repo: None,
-                task_type: None,
-                signal_types: vec![],
+                repo: Some("org/repo".to_string()),
+                task_type: Some("bug_fix".to_string()),
+                signal_types: vec![SignalType::TestFailure],
                 env_fingerprint: None,
             },
             content_hash: "abc".to_string(),
@@ -71,6 +79,18 @@ mod tests {
     fn does_not_promote_non_candidate() {
         let mut exp = make_candidate(5, 0);
         exp.state = ExperienceState::Active;
+        assert!(check(&exp, 3).is_none());
+    }
+
+    #[test]
+    fn does_not_promote_empty_scope() {
+        let mut exp = make_candidate(3, 0);
+        exp.scope = ScopeFingerprint {
+            repo: None,
+            task_type: None,
+            signal_types: vec![],
+            env_fingerprint: None,
+        };
         assert!(check(&exp, 3).is_none());
     }
 }

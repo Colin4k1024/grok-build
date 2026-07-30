@@ -59,7 +59,9 @@ fn scope_match_score(scope: &ScopeFingerprint, ctx: &SelectionContext) -> f64 {
     }
 
     if total_points == 0.0 {
-        return 1.0; // No scope constraints → universal match
+        // Empty scope: experiences without any scope constraints are too broad
+        // and should not be selected — they cannot meaningfully match any context.
+        return 0.0;
     }
 
     match_points / total_points
@@ -121,6 +123,19 @@ mod tests {
         let s = scope_match_score(&scope, &ctx);
         // repo matches (3/5), task doesn't (0/5), signal empty (not scored)
         assert!(s > 0.0 && s < 1.0);
+    }
+
+    #[test]
+    fn empty_scope_scores_zero() {
+        let scope = ScopeFingerprint {
+            repo: None,
+            task_type: None,
+            signal_types: vec![],
+            env_fingerprint: None,
+        };
+        let ctx = make_ctx();
+        let s = scope_match_score(&scope, &ctx);
+        assert_eq!(s, 0.0);
     }
 
     #[test]

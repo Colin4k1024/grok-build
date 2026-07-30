@@ -9,6 +9,8 @@
 //! - Duration
 //! - Revoke rate (user-initiated quarantines)
 
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 
 /// A single trial outcome record for metrics.
@@ -124,6 +126,73 @@ impl RolloutMetrics {
     }
 }
 
+/// Sliding-window circuit breaker for evolution trial outcomes.
+///
+/// Monitors recent trial outcomes and triggers the kill switch when the
+/// failure rate exceeds the configured threshold within the observation window.
+pub struct CircuitBreaker {
+    /// Recent outcomes: (timestamp_secs, was_success)
+    window: VecDeque<(i64, bool)>,
+    /// Maximum window size (number of observations to retain).
+    window_size: usize,
+    /// Failure rate threshold (0.0-1.0) that triggers the breaker.
+    failure_threshold: f64,
+}
+
+impl CircuitBreaker {
+    pub fn new(window_size: usize, failure_threshold: f64) -> Self {
+        Self {
+            window: VecDeque::with_capacity(window_size),
+            window_size,
+            failure_threshold,
+        }
+    }
+
+    /// Record a trial outcome. Returns `true` if the breaker should trip.
+    pub fn record(&mut self, success: bool) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.window.push_back((now, success));
+        while self.window.len() > self.window_size {
+            self.window.pop_front();
+        }
+        self.should_trip()
+    }
+
+    /// Check if the breaker should trip based on current window.
+    pub fn should_trip(&self) -> bool {
+        if self.window.len() < 3 {
+            // Need at least 3 observations to make a decision
+            return false;
+        }
+        let failures = self.window.iter().filter(|(_, success)| !success).count();
+        let rate = failures as f64 / self.window.len() as f64;
+        rate >= self.failure_threshold
+    }
+
+    /// Get the current failure rate.
+    pub fn failure_rate(&self) -> f64 {
+        if self.window.is_empty() {
+            return 0.0;
+        }
+        let failures = self.window.iter().filter(|(_, success)| !success).count();
+        failures as f64 / self.window.len() as f64
+    }
+
+    /// Reset the window (e.g., after kill switch deactivation).
+    pub fn reset(&mut self) {
+        self.window.clear();
+    }
+}
+
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self::new(10, 0.5)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +260,64 @@ mod tests {
         }
         m.record(sample_outcome(true, true));
         assert!(m.has_baseline());
+    }
+
+    #[test]
+    fn breaker_does_not_trip_with_all_success() {
+        let mut cb = CircuitBreaker::new(10, 0.5);
+        for _ in 0..5 {
+            assert!(!cb.record(true));
+        }
+    }
+
+    #[test]
+    fn breaker_trips_at_threshold() {
+        let mut cb = CircuitBreaker::new(10, 0.5);
+        // 3 successes, then 3 failures = 50% failure rate
+        cb.record(true);
+        cb.record(true);
+        cb.record(true);
+        assert!(!cb.record(false));
+        assert!(!cb.record(false));
+        // Now at 3 success, 2 failure = 40%, not yet
+        // Add one more failure: 3 success, 3 failure = 50%
+        assert!(cb.record(false));
+    }
+
+    #[test]
+    fn breaker_needs_minimum_observations() {
+        let mut cb = CircuitBreaker::new(10, 0.5);
+        // Even all failures shouldn't trip with < 3 observations
+        assert!(!cb.record(false));
+        assert!(!cb.record(false));
+        // Third observation should now evaluate
+        assert!(cb.record(false));
+    }
+
+    #[test]
+    fn breaker_window_evicts_old() {
+        let mut cb = CircuitBreaker::new(5, 0.5);
+        // Fill window with failures
+        for _ in 0..5 {
+            cb.record(false);
+        }
+        assert!(cb.should_trip());
+        // Now push successes — old failures should get evicted
+        for _ in 0..5 {
+            cb.record(true);
+        }
+        assert!(!cb.should_trip());
+    }
+
+    #[test]
+    fn breaker_reset_clears_window() {
+        let mut cb = CircuitBreaker::new(10, 0.5);
+        for _ in 0..5 {
+            cb.record(false);
+        }
+        assert!(cb.should_trip());
+        cb.reset();
+        assert!(!cb.should_trip());
+        assert_eq!(cb.failure_rate(), 0.0);
     }
 }

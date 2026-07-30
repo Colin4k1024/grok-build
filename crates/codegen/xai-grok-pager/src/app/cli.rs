@@ -224,6 +224,18 @@ pub enum EvolutionCommand {
         /// Correctness regressions in the fixed replay corpus.
         #[arg(long, default_value = "0")]
         replay_regressions: u32,
+        /// Sandbox isolation verification completed successfully.
+        #[arg(long)]
+        sandbox_complete: bool,
+        /// Evidence completeness verification passed.
+        #[arg(long)]
+        evidence_complete: bool,
+        /// Kill-switch, circuit-breaker, and quarantine safety drills passed.
+        #[arg(long)]
+        safety_drills_passed: bool,
+        /// Metrics baseline has been established from shadow observations.
+        #[arg(long)]
+        metrics_baseline_established: bool,
         /// Confirm this production rollout approval.
         #[arg(long)]
         confirm: bool,

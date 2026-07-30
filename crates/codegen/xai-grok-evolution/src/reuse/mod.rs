@@ -7,6 +7,7 @@
 //! - Observation collection after task completion
 //! - Quarantine trigger on consecutive failures
 
+pub mod attribution;
 pub mod observation;
 
 use crate::types::*;
@@ -47,67 +48,66 @@ impl ExperienceContext {
     /// Build an EXPERIENCE_CONTEXT string for prompt injection.
     ///
     /// The output is structured markdown bounded to `MAX_EXPERIENCE_TOKENS`.
-    /// When token budget is tight, evidence summary is removed first,
-    /// then steps are compressed. ID, boundaries, and validation requirements
-    /// are never omitted.
+    /// Safety-critical sections (forbidden actions, validation recipe) are
+    /// rendered first and never truncated. Lower-priority content (steps,
+    /// evidence) fills remaining budget.
     pub fn to_prompt_injection(&self) -> String {
-        let mut sections = Vec::new();
+        let max_chars = MAX_EXPERIENCE_TOKENS * 4;
 
-        // ID and version (always included)
-        sections.push(format!(
+        // Mandatory block: ID + forbidden actions + validation recipe.
+        // These are NEVER omitted.
+        let mut mandatory = Vec::new();
+        mandatory.push(format!(
             "## Experience {} (v{})",
             self.experience_id, self.revision
         ));
-
-        // Preconditions
-        if !self.preconditions.is_empty() {
-            sections.push(format!(
-                "**Applies when:** {}",
-                self.preconditions.join("; ")
-            ));
-        }
-
-        // Recommended steps
-        if !self.recommended_steps.is_empty() {
-            sections.push("**Recommended steps:**".to_string());
-            for (i, step) in self.recommended_steps.iter().enumerate() {
-                sections.push(format!("{}. {}", i + 1, step));
-            }
-        }
-
-        // Forbidden actions (always included — safety boundary)
         if !self.forbidden_actions.is_empty() {
-            sections.push(format!("**Do NOT:** {}", self.forbidden_actions.join("; ")));
+            mandatory.push(format!("**Do NOT:** {}", self.forbidden_actions.join("; ")));
         }
-
-        // Validation recipe (always included)
         if !self.validation_recipe.is_empty() {
-            sections.push(format!(
+            mandatory.push(format!(
                 "**Validation:** {}",
                 self.validation_recipe.join("; ")
             ));
         }
+        let mandatory_text = mandatory.join("\n");
 
-        // Evidence summary (first to be removed if over budget)
-        if !self.evidence_summary.is_empty() {
-            sections.push(format!("**Recent evidence:** {}", self.evidence_summary));
+        if mandatory_text.len() >= max_chars {
+            tracing::warn!(
+                experience_id = %self.experience_id,
+                "mandatory safety sections alone exceed token budget"
+            );
+            return mandatory_text.chars().take(max_chars).collect();
         }
 
-        let full_text = sections.join("\n");
+        // Optional block: preconditions, recommended steps, evidence summary.
+        // Filled into remaining budget; truncated from the end if needed.
+        let remaining = max_chars - mandatory_text.len() - 1; // -1 for separator newline
 
-        // Truncate to token budget (approximate: 1 token ≈ 4 chars)
-        let max_chars = MAX_EXPERIENCE_TOKENS * 4;
-        if full_text.len() <= max_chars {
-            full_text
-        } else {
-            // Try removing evidence summary first
-            let without_evidence = sections[..sections.len() - 1].join("\n");
-            if without_evidence.len() <= max_chars {
-                without_evidence
-            } else {
-                // Hard truncate
-                full_text.chars().take(max_chars).collect()
+        let mut optional = Vec::new();
+        if !self.preconditions.is_empty() {
+            optional.push(format!(
+                "**Applies when:** {}",
+                self.preconditions.join("; ")
+            ));
+        }
+        if !self.recommended_steps.is_empty() {
+            optional.push("**Recommended steps:**".to_string());
+            for (i, step) in self.recommended_steps.iter().enumerate() {
+                optional.push(format!("{}. {}", i + 1, step));
             }
+        }
+        if !self.evidence_summary.is_empty() {
+            optional.push(format!("**Recent evidence:** {}", self.evidence_summary));
+        }
+
+        let optional_text = optional.join("\n");
+        if optional_text.len() <= remaining {
+            format!("{}\n{}", mandatory_text, optional_text)
+        } else {
+            // Truncate optional content to fit remaining budget
+            let truncated: String = optional_text.chars().take(remaining).collect();
+            format!("{}\n{}", mandatory_text, truncated)
         }
     }
 
@@ -376,6 +376,65 @@ mod tests {
         let prompt = ctx.to_prompt_injection();
         // Should be truncated
         assert!(prompt.len() <= MAX_EXPERIENCE_TOKENS * 4);
+    }
+
+    #[test]
+    fn safety_sections_survive_long_steps() {
+        let ctx = ExperienceContext {
+            experience_id: "exp-safety".to_string(),
+            revision: 1,
+            preconditions: vec!["always".to_string()],
+            recommended_steps: vec!["x".repeat(8000)],
+            forbidden_actions: vec!["never delete production data".to_string()],
+            validation_recipe: vec!["cargo test --all".to_string()],
+            evidence_summary: "some evidence".to_string(),
+        };
+        let prompt = ctx.to_prompt_injection();
+
+        assert!(prompt.len() <= MAX_EXPERIENCE_TOKENS * 4);
+        assert!(
+            prompt.contains("never delete production data"),
+            "forbidden_actions must survive long recommended_steps"
+        );
+        assert!(
+            prompt.contains("cargo test --all"),
+            "validation_recipe must survive long recommended_steps"
+        );
+    }
+
+    #[test]
+    fn mandatory_block_always_complete_when_within_budget() {
+        let ctx = ExperienceContext {
+            experience_id: "exp-m".to_string(),
+            revision: 3,
+            preconditions: vec!["repo matches".to_string()],
+            recommended_steps: vec!["step 1".to_string(), "step 2".to_string()],
+            forbidden_actions: vec![
+                "do not rm -rf".to_string(),
+                "do not force push".to_string(),
+            ],
+            validation_recipe: vec![
+                "cargo test".to_string(),
+                "cargo clippy".to_string(),
+            ],
+            evidence_summary: "5 successes".to_string(),
+        };
+        let prompt = ctx.to_prompt_injection();
+
+        // All mandatory items present
+        assert!(prompt.contains("do not rm -rf"));
+        assert!(prompt.contains("do not force push"));
+        assert!(prompt.contains("cargo test"));
+        assert!(prompt.contains("cargo clippy"));
+        // Mandatory appears before optional
+        let forbidden_pos = prompt.find("Do NOT").unwrap();
+        let steps_pos = prompt.find("Recommended steps");
+        if let Some(sp) = steps_pos {
+            assert!(
+                forbidden_pos < sp,
+                "forbidden_actions must appear before recommended_steps"
+            );
+        }
     }
 
     #[test]

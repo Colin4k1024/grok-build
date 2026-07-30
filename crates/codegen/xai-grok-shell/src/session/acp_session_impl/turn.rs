@@ -102,11 +102,18 @@ fn evolution_delta_from_turn(
         test_failures,
         timeouts,
         panics,
+        // TODO: Implement cross-turn correction detection. Currently relies on
+        // negative_feedback (thumbs-down) to capture the most critical "user
+        // disagrees" signal. Full correction detection requires comparing user's
+        // next message semantics against prior model action.
         user_corrections: Vec::new(),
         negative_feedback,
         performance_regressions: Vec::new(),
         retries_exhausted: Vec::new(),
         compilation_errors,
+        turn_step_count: snapshot.delta.delta_tool_calls.max(0) as usize,
+        tools_used: snapshot.delta.tools_this_turn.clone(),
+        injected_experiences: Vec::new(), // filled by caller when injection is present
     }
 }
 
@@ -1908,33 +1915,53 @@ impl SessionActor {
                 .persistence_tx
                 .send(PersistenceMsg::Signals(snap.current.clone()));
             if let Some(service) = self.evolution_service.read().clone() {
-                let delta =
+                let mut delta =
                     evolution_delta_from_turn(self.session_info.id.0.as_ref(), req_id, snap);
                 let signal_types = evolution_signal_types(&delta);
                 if let Some(injection) = self.evolution_injection.lock().take() {
-                    let outcome = if !delta.user_corrections.is_empty()
-                        || !delta.negative_feedback.is_empty()
-                    {
-                        xai_grok_evolution::ReuseOutcome::Hindered
-                    } else if delta.tool_failures.is_empty()
-                        && delta.test_failures.is_empty()
-                        && delta.timeouts.is_empty()
-                        && delta.panics.is_empty()
-                        && delta.performance_regressions.is_empty()
-                        && delta.retries_exhausted.is_empty()
-                        && delta.compilation_errors.is_empty()
-                    {
-                        xai_grok_evolution::ReuseOutcome::Helped
+                    // Record injection reference for skill observer
+                    delta.injected_experiences.push(
+                        xai_grok_evolution::signal::InjectedExperienceRef {
+                            experience_id: injection.experience_id.clone(),
+                            injection_id: injection.injection_id.clone(),
+                            skill_name: None,
+                        },
+                    );
+                    // Don't record attribution for cancelled turns
+                    if snap.delta.delta_cancellations > 0 {
+                        tracing::debug!("skipping evolution attribution for cancelled turn");
                     } else {
-                        xai_grok_evolution::ReuseOutcome::Neutral
-                    };
-                    if let Err(error) = service.record_reuse(
-                        &injection.experience_id,
-                        &injection.injection_id,
-                        outcome,
-                        injection.context_hash,
-                    ) {
-                        tracing::warn!(%error, "failed to record experience reuse observation");
+                        let has_user_corrections = !delta.user_corrections.is_empty();
+                        let has_negative_feedback = !delta.negative_feedback.is_empty();
+                        let has_any_failure = !delta.tool_failures.is_empty()
+                            || !delta.test_failures.is_empty()
+                            || !delta.timeouts.is_empty()
+                            || !delta.panics.is_empty()
+                            || !delta.performance_regressions.is_empty()
+                            || !delta.retries_exhausted.is_empty()
+                            || !delta.compilation_errors.is_empty();
+                        let has_substantive_completion =
+                            snap.delta.delta_successful_tool_uses > 0
+                                || snap.turn_output_tokens > 0;
+
+                        let outcome =
+                            xai_grok_evolution::reuse::attribution::determine_outcome(
+                                has_user_corrections,
+                                has_negative_feedback,
+                                has_any_failure,
+                                has_substantive_completion,
+                            );
+                        if let Err(error) = service.record_reuse(
+                            &injection.experience_id,
+                            &injection.injection_id,
+                            outcome,
+                            injection.context_hash,
+                        ) {
+                            tracing::warn!(
+                                %error,
+                                "failed to record experience reuse observation"
+                            );
+                        }
                     }
                 }
                 let _ = service.on_turn_end(&delta, self.evolution_selection_context(signal_types));
@@ -2107,12 +2134,10 @@ impl SessionActor {
                     "MEMORY_INJECT: first-turn memory context injected"
                 );
             }
-            let supplemental_context = match (memory_reminder, evolution_reminder) {
-                (Some(memory), Some(experience)) => Some(format!("{memory}\n\n{experience}")),
-                (Some(memory), None) => Some(memory),
-                (None, Some(experience)) => Some(experience),
-                (None, None) => None,
-            };
+            // memory_reminder goes into the system message (trusted);
+            // evolution_reminder goes as a low-priority user message (untrusted).
+            let memory_context = memory_reminder;
+            let experience_context = evolution_reminder;
             self.maybe_inject_mcp_reminder().await;
             if self.tool_context.task_output_token_budget.is_none()
                 && self.two_pass_active()
@@ -2157,8 +2182,9 @@ impl SessionActor {
                 .chat_state_handle
                 .build_request(
                     effective_tools,
-                    supplemental_context,
+                    memory_context,
                     self.memory.is_enabled(),
+                    experience_context,
                     trace_gcs_config
                         .clone()
                         .map(|cfg| -> Box<dyn crate::sampling::TraceContext> {

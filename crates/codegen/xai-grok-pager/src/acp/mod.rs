@@ -8,6 +8,7 @@ pub mod meta;
 pub mod model_state;
 pub mod spawn;
 pub mod tracker;
+mod xml_tool_call;
 
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;

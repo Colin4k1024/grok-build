@@ -138,10 +138,17 @@ pub fn cmd_inspect(
     })
 }
 
-/// `grok evolution run` (create isolated trial)
+/// `grok evolution run`
+///
+/// Requires an active EvolutionService with trial ports (executor, validator,
+/// evaluator). These are only available within a full session context where the
+/// workspace service is running in IsolatedAutonomous mode or above.
 pub fn cmd_run(_config: &EvolutionConfig) -> Result<RetryTrialResponse, EvolutionError> {
-    Err(EvolutionError::PreflightFailed(
-        "manual runs require EvolutionService and a workspace".to_string(),
+    Err(EvolutionError::SandboxUnavailable(
+        "isolated trials require an active workspace service with trial ports \
+         (executor, validator, evaluator). Run from within an active session \
+         where evolution is enabled in IsolatedAutonomous mode."
+            .to_string(),
     ))
 }
 

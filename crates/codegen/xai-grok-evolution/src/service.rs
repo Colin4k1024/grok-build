@@ -42,6 +42,45 @@ struct QueuedRun {
     selection_context: SelectionContext,
 }
 
+/// In-memory per-experience skill observation tracker for decay detection.
+struct SkillTracker {
+    /// Ring buffer of recent outcomes per experience_id: true = success, false = ineffective.
+    observations: std::collections::HashMap<String, std::collections::VecDeque<bool>>,
+    max_window: usize,
+}
+
+impl SkillTracker {
+    fn new(max_window: usize) -> Self {
+        Self {
+            observations: std::collections::HashMap::new(),
+            max_window,
+        }
+    }
+
+    fn record(&mut self, experience_id: &str, success: bool) {
+        let ring = self
+            .observations
+            .entry(experience_id.to_string())
+            .or_insert_with(|| std::collections::VecDeque::with_capacity(self.max_window));
+        if ring.len() >= self.max_window {
+            ring.pop_front();
+        }
+        ring.push_back(success);
+    }
+
+    fn is_decaying(&self, experience_id: &str, threshold: f64) -> bool {
+        let Some(ring) = self.observations.get(experience_id) else {
+            return false;
+        };
+        if ring.len() < 3 {
+            return false;
+        }
+        let ineffective = ring.iter().filter(|&&s| !s).count();
+        let ratio = ineffective as f64 / ring.len() as f64;
+        ratio >= threshold
+    }
+}
+
 struct ServiceInner {
     config: Arc<RwLock<EvolutionConfig>>,
     store: EvolutionStore,
@@ -51,9 +90,12 @@ struct ServiceInner {
     sender: std::sync::mpsc::SyncSender<QueuedRun>,
     pending: Arc<AtomicUsize>,
     kill_switch: KillSwitch,
+    circuit_breaker: std::sync::Mutex<crate::rollout::metrics::CircuitBreaker>,
+    rollout_controller: std::sync::Mutex<crate::rollout::RolloutController>,
     cancel: CancellationToken,
     preflight: Option<Arc<dyn IsolationPreflight>>,
     last_preflight: RwLock<Option<PreflightResult>>,
+    skill_tracker: std::sync::Mutex<SkillTracker>,
 }
 
 #[derive(Clone)]
@@ -85,12 +127,6 @@ impl EvolutionService {
         ports: Option<EvolutionPorts>,
     ) -> Result<Self, EvolutionError> {
         config.validate()?;
-        if config.mode.can_run_trials() {
-            return Err(EvolutionError::PreflightFailed(
-                "autonomous/reuse modes cannot be enabled directly at startup; start in Shadow and use the gated set_mode transition"
-                    .to_string(),
-            ));
-        }
         let workspace_id = workspace_identity(workspace_root)?;
         let data_dir = memory_root.join(workspace_id).join("evolution");
         let artifacts_dir = data_dir.join("artifacts");
@@ -141,6 +177,11 @@ impl EvolutionService {
             cancel.clone(),
         );
 
+        let initial_mode = config.read().map(|c| c.mode).unwrap_or(EvolutionMode::Off);
+        let skill_window = config
+            .read()
+            .map(|c| c.skill_decay_window)
+            .unwrap_or(10);
         Ok(Self {
             inner: Arc::new(ServiceInner {
                 config,
@@ -151,9 +192,16 @@ impl EvolutionService {
                 sender,
                 pending,
                 kill_switch,
+                circuit_breaker: std::sync::Mutex::new(
+                    crate::rollout::metrics::CircuitBreaker::new(10, 0.5),
+                ),
+                rollout_controller: std::sync::Mutex::new(
+                    crate::rollout::RolloutController::new(initial_mode),
+                ),
                 cancel,
                 preflight,
                 last_preflight: RwLock::new(None),
+                skill_tracker: std::sync::Mutex::new(SkillTracker::new(skill_window)),
             }),
         })
     }
@@ -176,8 +224,61 @@ impl EvolutionService {
         {
             return false;
         }
-        let signals = DefaultSignalCollector.collect(delta);
+        let mut signals = DefaultSignalCollector.collect(delta);
+
+        // Feed skill observations into the decay tracker (one record per injection)
+        if let Ok(mut tracker) = self.inner.skill_tracker.lock() {
+            let has_failures =
+                crate::signal::skill_observer::turn_has_failures(delta);
+            for exp in &delta.injected_experiences {
+                tracker.record(&exp.experience_id, !has_failures);
+            }
+            // Check for decay on each injected experience
+            for exp in &delta.injected_experiences {
+                if tracker.is_decaying(&exp.experience_id, config.skill_decay_threshold) {
+                    let decay_signal = EvolutionSignal {
+                        signal_id: format!("{}-decay-{}", delta.session_id, exp.experience_id),
+                        schema_version: CURRENT_SCHEMA_VERSION,
+                        signal_type: SignalType::SkillIneffective,
+                        severity: SignalSeverity::High,
+                        source: SignalSource {
+                            session_id: delta.session_id.clone(),
+                            turn_id: delta.turn_id.clone(),
+                            tool_name: exp.skill_name.clone(),
+                            file_path: None,
+                        },
+                        description: crate::signal::classifier::sanitize_description(&format!(
+                            "Skill decay detected (threshold {} exceeded)",
+                            config.skill_decay_threshold
+                        )),
+                        context_hash: crate::signal::classifier::hash_context(&format!(
+                            "decay:{}",
+                            exp.experience_id
+                        )),
+                        created_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64,
+                    };
+                    signals.push(decay_signal);
+                }
+            }
+        }
+
         if signals.is_empty() {
+            return false;
+        }
+        // Apply positive signal sampling rate
+        let is_positive_only = signals
+            .iter()
+            .all(|s| s.signal_type == SignalType::PositiveOutcome);
+        if is_positive_only
+            && !sample_positive(
+                &delta.session_id,
+                delta.turn_id.as_deref(),
+                config.positive_sample_rate,
+            )
+        {
             return false;
         }
         let trigger = trigger_from_signals(&signals);
@@ -193,6 +294,10 @@ impl EvolutionService {
             .is_err()
         {
             self.inner.pending.fetch_sub(1, Ordering::AcqRel);
+            tracing::warn!(
+                pending = self.inner.pending.load(Ordering::Relaxed),
+                "evolution signal queue full, discarding run"
+            );
             return false;
         }
         true
@@ -288,8 +393,42 @@ impl EvolutionService {
                     )
                 })?;
         }
+        // Enforce statistical readiness gates via RolloutController
+        let preflight_result = self
+            .inner
+            .last_preflight
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone());
+        if let Some(ref pf) = preflight_result {
+            let mut ctrl = self.inner.rollout_controller.lock().map_err(|error| {
+                EvolutionError::Internal(format!(
+                    "rollout controller lock poisoned: {error}"
+                ))
+            })?;
+            ctrl.try_upgrade(pf).map_err(|failure| {
+                EvolutionError::PreflightFailed(failure.to_string())
+            })?;
+        }
         config.mode = target;
         Ok(target)
+    }
+
+    /// Record a shadow sample observation for rollout gate metrics.
+    pub fn record_shadow_sample(&self) {
+        if let Ok(mut ctrl) = self.inner.rollout_controller.lock() {
+            ctrl.record_shadow_sample();
+        }
+    }
+
+    /// Record a trial outcome for rollout gate metrics.
+    pub fn record_trial_outcome(
+        &self,
+        outcome: crate::rollout::metrics::TrialOutcomeRecord,
+    ) {
+        if let Ok(mut ctrl) = self.inner.rollout_controller.lock() {
+            ctrl.record_trial_outcome(outcome);
+        }
     }
 
     pub fn approve_rollout(
@@ -338,6 +477,13 @@ impl EvolutionService {
         if !config.mode.can_inject() || self.inner.kill_switch.is_active() {
             return Ok(None);
         }
+        // Check circuit breaker
+        if let Ok(cb) = self.inner.circuit_breaker.lock() {
+            if cb.should_trip() {
+                tracing::warn!("experience injection blocked by circuit breaker");
+                return Ok(None);
+            }
+        }
         if self.inner.store.current_rollout_approval()?.is_none() {
             return Ok(None);
         }
@@ -382,11 +528,23 @@ impl EvolutionService {
             context_hash,
             observed_at: now_epoch(),
         };
-        self.inner.store.record_reuse_with_policy(
+        let state = self.inner.store.record_reuse_with_policy(
             &observation,
             config.governor.promote_after_successes,
             config.governor.quarantine_after_failures,
-        )
+        )?;
+        // Feed outcome to circuit breaker
+        if let Ok(mut cb) = self.inner.circuit_breaker.lock() {
+            let success = matches!(outcome, ReuseOutcome::Helped | ReuseOutcome::Neutral);
+            if cb.record(success) {
+                // Circuit breaker tripped — activate kill switch
+                self.inner.kill_switch.activate(
+                    "circuit breaker tripped: high failure rate in recent observations".to_string(),
+                );
+                tracing::error!("evolution kill switch activated by circuit breaker");
+            }
+        }
+        Ok(state)
     }
 
     pub fn status(&self) -> Result<StatusResponse, EvolutionError> {
@@ -660,7 +818,7 @@ fn spawn_consumer(
                         queued.signals,
                         queued.selection_context,
                     ) {
-                        tracing::warn!(%error, "background evolution run failed closed");
+                        tracing::error!(%error, "background evolution run failed");
                     }
                 }
                 pending.fetch_sub(1, Ordering::AcqRel);
@@ -698,6 +856,21 @@ fn sample_shadow(delta: &SessionSignalsDelta, rate: f64) -> bool {
     value < rate
 }
 
+fn sample_positive(session_id: &str, turn_id: Option<&str>, rate: f64) -> bool {
+    if rate >= 1.0 {
+        return true;
+    }
+    if rate <= 0.0 {
+        return false;
+    }
+    let key = format!("positive:{}:{}", session_id, turn_id.unwrap_or(""));
+    let bytes = blake3::hash(key.as_bytes());
+    let mut prefix = [0_u8; 8];
+    prefix.copy_from_slice(&bytes.as_bytes()[..8]);
+    let value = u64::from_le_bytes(prefix) as f64 / u64::MAX as f64;
+    value < rate
+}
+
 fn trigger_from_signals(signals: &[EvolutionSignal]) -> TriggerInfo {
     let first = &signals[0];
     let trigger_type = match first.signal_type {
@@ -709,6 +882,8 @@ fn trigger_from_signals(signals: &[EvolutionSignal]) -> TriggerInfo {
         }
         SignalType::UserCorrection | SignalType::NegativeFeedback => TriggerType::UserFeedback,
         SignalType::PerformanceRegression => TriggerType::PerformanceRegression,
+        SignalType::PositiveOutcome | SignalType::SkillSuccess => TriggerType::PositiveExperience,
+        SignalType::SkillIneffective => TriggerType::SkillDecay,
     };
     TriggerInfo {
         trigger_type,
@@ -867,14 +1042,7 @@ mod tests {
                     file_path: None,
                     exit_code: Some(1),
                 }],
-                test_failures: Vec::new(),
-                timeouts: Vec::new(),
-                panics: Vec::new(),
-                user_corrections: Vec::new(),
-                negative_feedback: Vec::new(),
-                performance_regressions: Vec::new(),
-                retries_exhausted: Vec::new(),
-                compilation_errors: Vec::new(),
+                ..Default::default()
             },
             selection_context(),
         );
@@ -1165,4 +1333,78 @@ fn now_epoch() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod skill_tracker_tests {
+    use super::SkillTracker;
+
+    #[test]
+    fn empty_tracker_no_decay() {
+        let tracker = SkillTracker::new(10);
+        assert!(!tracker.is_decaying("exp-1", 0.4));
+    }
+
+    #[test]
+    fn below_min_observations_no_decay() {
+        let mut tracker = SkillTracker::new(10);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        // Only 2 observations, minimum is 3
+        assert!(!tracker.is_decaying("exp-1", 0.4));
+    }
+
+    #[test]
+    fn decay_detected_above_threshold() {
+        let mut tracker = SkillTracker::new(10);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", true);
+        // 3/4 = 0.75 >= 0.4
+        assert!(tracker.is_decaying("exp-1", 0.4));
+    }
+
+    #[test]
+    fn no_decay_below_threshold() {
+        let mut tracker = SkillTracker::new(10);
+        tracker.record("exp-1", true);
+        tracker.record("exp-1", true);
+        tracker.record("exp-1", true);
+        tracker.record("exp-1", false);
+        // 1/4 = 0.25 < 0.4
+        assert!(!tracker.is_decaying("exp-1", 0.4));
+    }
+
+    #[test]
+    fn window_evicts_old_observations() {
+        let mut tracker = SkillTracker::new(4);
+        // Fill window with failures
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        assert!(tracker.is_decaying("exp-1", 0.4));
+
+        // Push successes to evict old failures
+        tracker.record("exp-1", true);
+        tracker.record("exp-1", true);
+        tracker.record("exp-1", true);
+        // Window is now [false, true, true, true] → 1/4 = 0.25 < 0.4
+        assert!(!tracker.is_decaying("exp-1", 0.4));
+    }
+
+    #[test]
+    fn independent_tracking_per_experience() {
+        let mut tracker = SkillTracker::new(10);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-1", false);
+        tracker.record("exp-2", true);
+        tracker.record("exp-2", true);
+        tracker.record("exp-2", true);
+
+        assert!(tracker.is_decaying("exp-1", 0.4));
+        assert!(!tracker.is_decaying("exp-2", 0.4));
+    }
 }
