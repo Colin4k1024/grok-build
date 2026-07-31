@@ -1052,6 +1052,7 @@ impl AgentBuilder {
                 auth_provider: None,
                 attribution_callback: self.attribution_callback,
                 system_reminder_tag: self.system_reminder_tag,
+                hunk_tracker_handle: None,
             },
         )
         .await

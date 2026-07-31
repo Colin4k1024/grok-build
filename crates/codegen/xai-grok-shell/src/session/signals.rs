@@ -136,6 +136,19 @@ pub struct TurnDeltaSnapshot {
     /// Per-turn summed cached input tokens. See `turn_input_tokens`.
     #[serde(skip)]
     pub turn_cached_input_tokens: u64,
+    /// Per-turn diff summary from the hunk tracker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_diff_summary: Option<TurnDiffSummary>,
+}
+
+/// Summary of file diffs produced during a single turn.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnDiffSummary {
+    pub files_modified: Vec<String>,
+    pub total_lines_added: usize,
+    pub total_lines_removed: usize,
+    pub hunk_count: usize,
 }
 
 /// Per-turn delta of counter fields.
@@ -1576,6 +1589,7 @@ impl SessionSignalsActor {
                         turn_input_tokens: 0,
                         turn_output_tokens: 0,
                         turn_cached_input_tokens: 0,
+                        turn_diff_summary: None,
                     };
 
                     // Store current as baseline for next delta

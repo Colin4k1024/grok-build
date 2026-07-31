@@ -312,12 +312,16 @@ pub struct PermissionConfig {
     /// What to do when no rule or pre-decision resolves a tool call.
     #[serde(default)]
     pub prompt_policy: PromptPolicy,
+    /// Fine-grained network access policy with per-domain allow/deny lists.
+    #[serde(default)]
+    pub network_policy: Option<super::network_policy::NetworkPolicy>,
 }
 impl PermissionConfig {
     pub fn new(rules: Vec<PermissionRule>) -> Self {
         Self {
             rules,
             prompt_policy: PromptPolicy::Ask,
+            network_policy: None,
         }
     }
 }

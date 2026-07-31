@@ -552,6 +552,7 @@ async fn resolve_permissions_with_provenance_inner(
         config: PermissionConfig {
             rules,
             prompt_policy,
+            network_policy: None,
         },
         sources,
         skipped,
@@ -702,6 +703,7 @@ fn resolve_claude_settings_inner(
         PermissionConfig {
             rules: all_rules,
             prompt_policy,
+            network_policy: None,
         },
         all_skipped,
         source_path,

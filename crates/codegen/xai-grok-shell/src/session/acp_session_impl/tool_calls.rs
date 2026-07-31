@@ -1127,6 +1127,16 @@ impl SessionActor {
                 return Ok(Err(denied));
             }
         }
+        // TODO: Guardian review integration point (see session/guardian/)
+        // if let Some(guardian) = &self.guardian_reviewer {
+        //     if guardian::classifier::needs_guardian_review(&resolved_tool_name, &raw_input) {
+        //         let verdict = guardian.review(&resolved_tool_name, &raw_input).await;
+        //         if verdict.outcome == GuardianOutcome::Deny {
+        //             return Ok(Err(/* tool denial */));
+        //         }
+        //     }
+        // }
+
         let plan_file_auto_approve = if let AccessKind::Edit(ref path) = access_kind {
             self.plan_mode
                 .lock()

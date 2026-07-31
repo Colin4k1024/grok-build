@@ -650,6 +650,9 @@ pub enum ToolOutput {
     SchedulerList(crate::implementations::grok_build::scheduler::list::SchedulerListOutput),
     UpdateGoal(crate::implementations::grok_build::update_goal::UpdateGoalOutput),
     Workflow(crate::implementations::grok_build::workflow::WorkflowToolOutput),
+    Sleep(crate::implementations::grok_build::sleep::SleepOutput),
+    TurnRollback(crate::implementations::grok_build::turn_rollback::TurnRollbackOutput),
+    TestSync(crate::implementations::grok_build::test_sync::types::TestSyncOutput),
     /// Dynamic output for runtime-registered tools (MCP, test tools, etc.)
     Dynamic(DynamicOutput),
     /// Generic text output for tools that produce simple formatted text
@@ -1004,6 +1007,11 @@ impl ToolOutput {
             ToolOutput::ImageToVideo(m) => m.prompt_text("Video generated"),
             ToolOutput::ReferenceToVideo(m) => m.prompt_text("Video generated"),
             ToolOutput::ImageEdit(m) => m.prompt_text("Image edited"),
+            ToolOutput::Sleep(o) => o.message.clone(),
+            ToolOutput::TurnRollback(o) => {
+                serde_json::to_string_pretty(o).unwrap_or_default()
+            }
+            ToolOutput::TestSync(o) => serde_json::to_string_pretty(o).unwrap_or_default(),
         }
     }
 }

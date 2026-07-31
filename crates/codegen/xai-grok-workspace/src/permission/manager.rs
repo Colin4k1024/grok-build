@@ -11,6 +11,10 @@ use crate::permission::auto_mode::{EnvRisk, KUBECTL_UNSAFE_FLAGS, script_env_ris
 use crate::permission::bash_command_splitting::{
     is_setup_command, try_parse_shell, try_parse_word_only_commands_sequence, unwrap_wrappers,
 };
+use crate::permission::command_canonicalization::canonicalize_for_cache;
+use crate::permission::network_policy::{
+    NetworkDecision, NetworkPolicy, NetworkPolicyState, extract_domain,
+};
 use crate::permission::exec_risk::{
     AmbientScanPlan, ambient_exec_risk_from_plan, ambient_scan_plan_from_segments,
     script_may_invoke_git, segment_exec_facts,
@@ -564,7 +568,10 @@ fn unparseable_exec_risk(cmd: &str) -> bool {
 /// Parse and classify one Bash request once, keeping ordinary segment outcome
 /// separate from the script-level real-file-write and unsafe-environment floors.
 fn evaluate_bash(cmd: &str, state: &PermissionState, honor_safe_lists: bool) -> BashEvaluation {
-    let exact_grant = state.allowed_bash_commands.contains(cmd);
+    let exact_grant = state.allowed_bash_commands.contains(cmd)
+        || canonicalize_for_cache(cmd)
+            .as_ref()
+            .is_some_and(|c| state.allowed_bash_commands.contains(&c.cache_key));
     let Some(tree) = try_parse_shell(cmd) else {
         return BashEvaluation {
             segments: SegmentEvaluation::Unparseable,
@@ -1343,6 +1350,13 @@ fn spawn_permission_manager_with_pin(
             .as_ref()
             .map(|c| c.prompt_policy)
             .unwrap_or_default();
+        // Initialize network policy state from config (if provided).
+        let mut network_policy_state = NetworkPolicyState::new(
+            permission_config
+                .as_ref()
+                .and_then(|c| c.network_policy.clone())
+                .unwrap_or_default(),
+        );
         // Compile permission policy once; reused for every access check.
         let compiled_policy = permission_config.map(CompiledPolicy::new);
         // Pre-built domain matcher for web_fetch allowlist (from resolved WebFetchConfig).
@@ -1621,6 +1635,29 @@ fn spawn_permission_manager_with_pin(
                         emit_event(&decision, true, false, None, Some(reasons::YOLO));
                         let _ = respond_to.send(decision);
                         continue;
+                    }
+
+                    // Network policy deny check (before session grants).
+                    if let AccessKind::WebFetch(url) = &access {
+                        if let Some(domain) = extract_domain(url) {
+                            match network_policy_state.evaluate(&domain) {
+                                NetworkDecision::Deny(reason) => {
+                                    let decision = Decision::Reject(reason);
+                                    emit_event(&decision, true, false, None, Some("network_policy_deny"));
+                                    let _ = respond_to.send(decision);
+                                    continue;
+                                }
+                                NetworkDecision::SessionDenied => {
+                                    let decision = Decision::Reject(
+                                        format!("domain {domain} was denied earlier this session"),
+                                    );
+                                    emit_event(&decision, true, false, None, Some("network_policy_session_deny"));
+                                    let _ = respond_to.send(decision);
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
 
                     // Session always-allow grants win before the auto classifier.
@@ -2127,6 +2164,9 @@ fn spawn_permission_manager_with_pin(
                                 PromptOutcome::AllowOnce => (Decision::Allow, "allow_once"),
                                 PromptOutcome::AllowAlways => {
                                     state.allowed_bash_commands.insert(cmd.clone());
+                                    if let Some(canonical) = canonicalize_for_cache(&cmd) {
+                                        state.allowed_bash_commands.insert(canonical.cache_key);
+                                    }
                                     persist_state(&cwd, &state, client_id_ref).await;
                                     (Decision::Allow, "allow_always")
                                 }
@@ -2205,6 +2245,7 @@ fn spawn_permission_manager_with_pin(
                                 PromptOutcome::AllowAlwaysDomain(domain) => {
                                     if let AccessKind::WebFetch(_) = &access {
                                         state.allowed_web_fetch_domains.insert(domain.clone());
+                                        network_policy_state.record_approval(domain.clone());
                                         persist_state(&cwd, &state, client_id_ref).await;
                                     }
                                     (Decision::Allow, "allow_always_domain")

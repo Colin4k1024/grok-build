@@ -602,6 +602,9 @@ pub fn consumed_completion_ids(output: &ToolOutput) -> Vec<&str> {
         | ToolOutput::ImageToVideo(_)
         | ToolOutput::ReferenceToVideo(_)
         | ToolOutput::ImageEdit(_)
+        | ToolOutput::Sleep(_)
+        | ToolOutput::TurnRollback(_)
+        | ToolOutput::TestSync(_)
         | ToolOutput::Dynamic(_) => {}
     }
     ids

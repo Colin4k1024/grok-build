@@ -14221,6 +14221,7 @@ dependencies = [
  "xai-grok-tools-api",
  "xai-grok-version",
  "xai-grok-workspace-types",
+ "xai-hunk-tracker",
  "xai-interjection-core",
  "xai-test-utils",
  "xai-token-estimation",

@@ -308,6 +308,10 @@ pub struct SessionContext {
     /// Defaults to [`crate::reminders::DEFAULT_REMINDER_TAG`] (hyphen).
     /// Hosts that expect a different tag name may override this.
     pub system_reminder_tag: &'static str,
+    /// Optional hunk tracker handle for turn-level diff tracking and rollback.
+    /// When `Some`, inserted into `Resources` so `TurnRollbackTool` can act
+    /// on per-turn hunks. When `None`, the tool returns a graceful error.
+    pub hunk_tracker_handle: Option<xai_hunk_tracker::HunkTrackerHandle>,
 }
 /// Default metadata for dynamically registered tools (e.g., MCP tools)
 /// that don't implement `ToolMetadata`.
@@ -709,6 +713,9 @@ impl ToolRegistryBuilder {
                 grok_build::ask_user_question::AskUserQuestionParams,
             >();
         b.register::<grok_build::MonitorTool>();
+        b.register::<grok_build::SleepTool>();
+        b.register::<grok_build::TurnRollbackTool>();
+        b.register::<grok_build::TestSyncTool>();
         b.register::<grok_build::SchedulerCreateTool>();
         b.register::<grok_build::SchedulerDeleteTool>();
         b.register::<grok_build::SchedulerListTool>();
@@ -1028,6 +1035,9 @@ impl ToolRegistryBuilder {
         }
         if let Some(memory_backend) = ctx.memory_backend {
             resources.insert(memory_backend);
+        }
+        if let Some(hunk_tracker) = ctx.hunk_tracker_handle {
+            resources.insert(hunk_tracker);
         }
         if let Some(auth_provider) = ctx.auth_provider.clone() {
             resources.insert(auth_provider);

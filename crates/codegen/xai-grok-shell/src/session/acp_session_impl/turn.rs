@@ -1986,6 +1986,32 @@ impl SessionActor {
             snap.turn_input_tokens = turn_span_totals.input_tokens.max(0) as u64;
             snap.turn_output_tokens = turn_span_totals.output_tokens.max(0) as u64;
             snap.turn_cached_input_tokens = turn_span_totals.cache_read_tokens.max(0) as u64;
+            // Populate turn diff summary from hunk tracker
+            {
+                let prompt_idx = snap.delta.turn_number as usize;
+                let hunks = self
+                    .tool_context
+                    .hunk_tracker_handle
+                    .get_turn_hunks(prompt_idx)
+                    .await;
+                if !hunks.is_empty() {
+                    let mut files_set = std::collections::HashSet::new();
+                    let mut lines_added = 0usize;
+                    let mut lines_removed = 0usize;
+                    for h in &hunks {
+                        files_set.insert(h.path.to_string_lossy().to_string());
+                        lines_added += h.line_info.new_count;
+                        lines_removed += h.line_info.old_count;
+                    }
+                    snap.turn_diff_summary =
+                        Some(crate::session::signals::TurnDiffSummary {
+                            files_modified: files_set.into_iter().collect(),
+                            total_lines_added: lines_added,
+                            total_lines_removed: lines_removed,
+                            hunk_count: hunks.len(),
+                        });
+                }
+            }
             for pr in &snap.delta.prs_created_this_turn {
                 xai_grok_telemetry::session_ctx::log_event(xai_grok_telemetry::events::PrCreated {
                     source: pr.source,

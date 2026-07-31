@@ -30,10 +30,13 @@ pub mod scheduler;
 pub mod schedule_wakeup;
 pub mod send_message;
 pub mod search_replace;
+pub mod sleep;
 pub(crate) mod storage;
 pub mod task;
 pub mod task_output;
+pub mod test_sync;
 pub mod todo;
+pub mod turn_rollback;
 pub mod update_goal;
 pub mod video_gen;
 pub mod web_fetch;
@@ -65,6 +68,7 @@ pub use search_replace::SearchReplaceTool;
 pub use task::TaskTool;
 pub use task_output::{GetTerminalCommandOutputTool, TaskOutputTool, WaitTasksTool};
 pub use todo::TodoWriteTool;
+pub use turn_rollback::TurnRollbackTool;
 pub use update_goal::{UPDATE_GOAL_TOOL_NAME, UpdateGoalTool};
 pub use video_gen::{
     IMAGE_TO_VIDEO_TOOL_NAME, IMAGINE_VIDEO_COMMAND_NAME, ImageToVideoTool,
@@ -72,5 +76,7 @@ pub use video_gen::{
     imagine_video_usage_message,
 };
 pub use web_fetch::{WebFetchClient, WebFetchConfig, WebFetchParams, WebFetchTool};
+pub use sleep::SleepTool;
+pub use test_sync::TestSyncTool;
 pub use web_search::WebSearchTool;
 pub use workflow::{WORKFLOW_TOOL_NAME, WorkflowTool};

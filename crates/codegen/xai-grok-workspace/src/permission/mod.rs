@@ -1,6 +1,8 @@
 pub mod auto_mode;
 pub mod bash_command_splitting;
 pub mod claude_settings;
+pub mod command_canonicalization;
+pub mod network_policy;
 mod exec_risk;
 mod gate_preflight;
 mod hub_permission;
