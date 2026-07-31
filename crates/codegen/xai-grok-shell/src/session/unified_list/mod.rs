@@ -4,6 +4,8 @@ mod facets;
 mod row;
 use crate::agent::session_registry_client::SessionRegistryClient;
 use crate::remote::{ConvError, ConvQuery, ConversationsClient};
+pub use crate::session::merge::CwdScope;
+use agent_client_protocol as acp;
 use cursor::{CompositeCursor, ConvLane, Paginated, merge_and_paginate};
 pub use envelope::{FacetMap, FacetValue, SessionKind, SessionMetaEnvelope};
 pub use facets::{
@@ -60,6 +62,16 @@ pub fn parse_list_req(raw: &str) -> Result<ListReq, serde_json::Error> {
     }
     Ok(req)
 }
+fn cwd_scope_from_allow_relax<'de, D>(deserializer: D) -> Result<CwdScope, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(if bool::deserialize(deserializer)? {
+        CwdScope::RelaxIfEmpty
+    } else {
+        CwdScope::WithSiblings
+    })
+}
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListReq {
@@ -71,12 +83,16 @@ pub struct ListReq {
     pub limit: Option<usize>,
     #[serde(default)]
     pub cursor: Option<String>,
-    /// Opt in to relaxing past the cwd when it has no session with messages:
-    /// include the repo's other directories, or all directories when the cwd is
-    /// not a git repo. Relaxed responses set `_meta["x.ai/listScope"]`.
-    /// Re-evaluated per page.
-    #[serde(default)]
-    pub allow_relax: bool,
+    /// Which directories the listing draws from. The wire carries the original
+    /// `allowRelax` boolean; `Only` is reachable only in code (ACP
+    /// `session/list`), so "exact" and "relax" cannot be requested together.
+    /// A relaxed response sets `_meta["x.ai/listScope"]`, re-evaluated per page.
+    #[serde(
+        default,
+        rename = "allowRelax",
+        deserialize_with = "cwd_scope_from_allow_relax"
+    )]
+    pub cwd_scope: CwdScope,
     #[serde(default, rename = "_meta")]
     pub meta: Option<serde_json::Value>,
 }
@@ -156,10 +172,12 @@ fn value_list(v: &serde_json::Value) -> Vec<serde_json::Value> {
 }
 /// Rewrite `req` so the `kind` facet filter is exactly `["chat"]`.
 ///
-/// REPLACES any client-sent `kind` allow-list (a union with `"build"` would
-/// re-enable the local lane); every other facet filter and `_meta` key is
-/// left untouched.
 pub fn force_kind_chat(req: &mut ListReq) {
+    force_kind(req, SessionKind::Chat);
+}
+/// REPLACES any client-sent `kind` allow-list (a union would re-enable the
+/// excluded lanes); every other facet filter and `_meta` key is untouched.
+pub fn force_kind(req: &mut ListReq, kind: SessionKind) {
     let mut meta = match req.meta.take() {
         Some(serde_json::Value::Object(map)) => map,
         _ => serde_json::Map::new(),
@@ -170,7 +188,7 @@ pub fn force_kind_chat(req: &mut ListReq) {
     };
     filters.insert(
         KIND_FACET_KEY.to_owned(),
-        serde_json::json!([SessionKind::Chat.as_str()]),
+        serde_json::json!([kind.as_str()]),
     );
     meta.insert(
         "x.ai/facetFilters".to_owned(),
@@ -181,8 +199,11 @@ pub fn force_kind_chat(req: &mut ListReq) {
 pub async fn build_unified_list(
     registry_client: Option<&SessionRegistryClient>,
     conversations_client: Option<&ConversationsClient>,
-    req: ListReq,
+    mut req: ListReq,
 ) -> UnifiedListResult {
+    if crate::agent::chat_modes::process_chat_mode_enabled() {
+        force_kind_chat(&mut req);
+    }
     let reg = facet_registry();
     let ParsedMeta {
         facet_filters,
@@ -197,8 +218,9 @@ pub async fn build_unified_list(
     let exclude_conversations = excludes_conversations(&facet_filters);
     let exclude_build = excludes_build(&facet_filters);
     let over = crate::session::merge::over_fetch(limit);
+    let cwd_scope = req.cwd_scope;
     let can_relax = relax_eligible(RelaxGate {
-        opted_in: req.allow_relax,
+        opted_in: matches!(req.cwd_scope, CwdScope::RelaxIfEmpty),
         no_facet_filters: facet_filters.is_empty(),
         has_cwd: req.cwd.is_some(),
         is_search: query.is_some(),
@@ -209,7 +231,9 @@ pub async fn build_unified_list(
         }
         let cwd = req.cwd.as_deref();
         if can_relax {
-            let lanes = crate::session::merge::fetch_lanes(registry_client, cwd, None, over).await;
+            let lanes =
+                crate::session::merge::fetch_lanes(registry_client, cwd, cwd_scope, None, over)
+                    .await;
             let rows = to_rows(
                 crate::session::merge::merge(
                     lanes.remote.clone(),
@@ -228,9 +252,14 @@ pub async fn build_unified_list(
                 }),
             }
         } else {
-            let merged =
-                crate::session::merge::fetch_merged(registry_client, cwd, query.as_deref(), over)
-                    .await;
+            let merged = crate::session::merge::fetch_merged(
+                registry_client,
+                cwd,
+                cwd_scope,
+                query.as_deref(),
+                over,
+            )
+            .await;
             LocalLane {
                 rows: to_rows(merged, reg),
                 relax: None,
@@ -454,28 +483,44 @@ pub struct PartialInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
 }
+fn list_response_meta(result: &UnifiedListResult) -> ExtListResponseMeta {
+    ExtListResponseMeta {
+        facets: result.facets.clone(),
+        partial: PartialInfo {
+            conversations: result.conversations_partial.is_some(),
+            reason: result.conversations_partial.map(PartialReason::as_str),
+        },
+        list_scope: result.scope.is_relaxed().then_some(result.scope.as_str()),
+    }
+}
 pub fn ext_list_response(result: UnifiedListResult) -> ExtListResponse {
-    let UnifiedListResult {
-        rows,
-        next_cursor,
-        facets,
-        conversations_partial,
-        scope,
-    } = result;
+    let meta = list_response_meta(&result);
     ExtListResponse {
-        sessions: rows
+        sessions: result
+            .rows
             .into_iter()
             .map(UnifiedRow::into_ext_superset)
             .collect(),
-        next_cursor,
-        meta: ExtListResponseMeta {
-            facets,
-            partial: PartialInfo {
-                conversations: conversations_partial.is_some(),
-                reason: conversations_partial.map(PartialReason::as_str),
-            },
-            list_scope: scope.is_relaxed().then_some(scope.as_str()),
-        },
+        next_cursor: result.next_cursor,
+        meta,
+    }
+}
+pub fn acp_response_meta(result: &UnifiedListResult) -> Option<acp::Meta> {
+    to_meta(serde_json::to_value(list_response_meta(result)))
+}
+pub(super) fn to_meta<E: std::fmt::Display>(
+    value: Result<serde_json::Value, E>,
+) -> Option<acp::Meta> {
+    match value {
+        Ok(serde_json::Value::Object(map)) => Some(map),
+        Ok(other) => {
+            tracing::warn!(kind = ?other, "session list _meta was not an object");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "session list _meta failed to serialize");
+            None
+        }
     }
 }
 #[cfg(test)]
@@ -542,10 +587,14 @@ mod tests {
     #[test]
     fn facets_carry_kind_and_cwd() {
         let r = row("s1", "2026-06-18T20:10:00Z");
-        assert!(matches!(r.facets.get(KIND_FACET_KEY),
-            Some(FacetValue::One(serde_json::Value::String(k))) if k == "build"));
-        assert!(matches!(r.facets.get(CWD_FACET_KEY),
-            Some(FacetValue::One(serde_json::Value::String(c))) if c == "/Users/me/xai"));
+        assert!(matches!(
+            r.facets.get(KIND_FACET_KEY),
+            Some(FacetValue::One(serde_json::Value::String(k))) if k == "build"
+        ));
+        assert!(matches!(
+            r.facets.get(CWD_FACET_KEY),
+            Some(FacetValue::One(serde_json::Value::String(c))) if c == "/Users/me/xai"
+        ));
     }
     #[test]
     fn bare_session_info_is_minimal_plus_meta() {
@@ -610,10 +659,11 @@ mod tests {
     }
     #[test]
     fn parsed_meta_reads_facet_filters_query_and_limit() {
-        let meta = serde_json::json!(
-            { "x.ai/facetFilters" : { "kind" : ["build"], "starred" : true },
-            "x.ai/query" : "antelope", "x.ai/limit" : 5, }
-        );
+        let meta = serde_json::json!({
+            "x.ai/facetFilters": { "kind": ["build"], "starred": true },
+            "x.ai/query": "antelope",
+            "x.ai/limit": 5,
+        });
         let parsed = ParsedMeta::parse(Some(&meta));
         assert_eq!(parsed.query.as_deref(), Some("antelope"));
         assert_eq!(parsed.limit, Some(5));
@@ -652,7 +702,9 @@ mod tests {
     #[test]
     fn forced_kind_replaces_client_build_filter() {
         let mut req = ListReq {
-            meta: Some(serde_json::json!({ "x.ai/facetFilters" : { "kind" : ["build"] }, })),
+            meta: Some(serde_json::json!({
+                "x.ai/facetFilters": { "kind": ["build"] },
+            })),
             ..ListReq::default()
         };
         force_kind_chat(&mut req);
@@ -668,11 +720,11 @@ mod tests {
     #[test]
     fn forced_kind_preserves_other_facets() {
         let mut req = ListReq {
-            meta: Some(serde_json::json!(
-                { "x.ai/facetFilters" : { "kind" : ["build"], "starred" : [true],
-                "workspace" : ["w1"] }, "x.ai/query" : "antelope", "x.ai/limit" : 5,
-                }
-            )),
+            meta: Some(serde_json::json!({
+                "x.ai/facetFilters": { "kind": ["build"], "starred": [true], "workspace": ["w1"] },
+                "x.ai/query": "antelope",
+                "x.ai/limit": 5,
+            })),
             ..ListReq::default()
         };
         force_kind_chat(&mut req);
@@ -745,14 +797,15 @@ mod tests {
     #[serial_test::serial]
     async fn forced_kind_serves_conversations_only() {
         let addr = spawn_conversations_stub(
-            serde_json::json!(
-                { "conversations" : [{ "conversationId" : "c1", "title" : "Hello",
-                "modifyTime" : "2026-07-01T00:00:00Z" }, { "conversationId" : "c2",
-                "title" : "", "modifyTime" : "2026-07-02T00:00:00Z" },], }
+                serde_json::json!({
+                "conversations": [
+                    { "conversationId": "c1", "title": "Hello", "modifyTime": "2026-07-01T00:00:00Z" },
+                    { "conversationId": "c2", "title": "", "modifyTime": "2026-07-02T00:00:00Z" },
+                ],
+            })
+                    .to_string(),
             )
-            .to_string(),
-        )
-        .await;
+            .await;
         let _env = xai_grok_test_support::EnvGuard::set(
             "GROK_CONVERSATIONS_BASE_URL",
             format!("http://{addr}"),
@@ -760,7 +813,9 @@ mod tests {
         let home = tempfile::tempdir().expect("tempdir");
         let client = ConversationsClient::new(xai_auth_manager(home.path()));
         let mut req = ListReq {
-            meta: Some(serde_json::json!({ "x.ai/facetFilters" : { "kind" : ["build"] }, })),
+            meta: Some(serde_json::json!({
+                "x.ai/facetFilters": { "kind": ["build"] },
+            })),
             ..ListReq::default()
         };
         force_kind_chat(&mut req);
@@ -863,10 +918,9 @@ mod tests {
     #[serial_test::serial]
     fn parse_list_req_forces_kind_under_process_chat_mode_only() {
         use crate::agent::chat_modes::GROK_CHAT_MODE_ENV;
-        let raw = serde_json::json!(
-            { "_meta" : { "x.ai/facetFilters" : { "kind" : ["build"], "starred" : [true]
-            } }, }
-        )
+        let raw = serde_json::json!({
+            "_meta": { "x.ai/facetFilters": { "kind": ["build"], "starred": [true] } },
+        })
         .to_string();
         {
             let _off = xai_grok_test_support::EnvGuard::unset(GROK_CHAT_MODE_ENV);
@@ -914,8 +968,7 @@ mod tests {
             .expect("serialize");
             assert_eq!(
                 value["_meta"]["x.ai/partial"],
-                serde_json::json!({ "conversations" :
-                true, "reason" : wire })
+                serde_json::json!({ "conversations": true, "reason": wire })
             );
         }
         let healthy = serde_json::to_value(ext_list_response(UnifiedListResult {
@@ -928,8 +981,7 @@ mod tests {
         .expect("serialize");
         assert_eq!(
             healthy["_meta"]["x.ai/partial"],
-            serde_json::json!({ "conversations" :
-            false })
+            serde_json::json!({ "conversations": false })
         );
     }
     /// Receive-side wire pin: a field rename would silently drop the pager's
@@ -937,9 +989,9 @@ mod tests {
     #[test]
     fn list_req_deserializes_allow_relax_key() {
         let req: ListReq = serde_json::from_str(r#"{"allowRelax": true}"#).expect("parse");
-        assert!(req.allow_relax);
+        assert_eq!(req.cwd_scope, CwdScope::RelaxIfEmpty);
         let req: ListReq = serde_json::from_str("{}").expect("parse");
-        assert!(!req.allow_relax);
+        assert_eq!(req.cwd_scope, CwdScope::WithSiblings);
     }
     /// relax_rows scopes to the cwd's repo and relaxes only on a messaged session.
     #[test]

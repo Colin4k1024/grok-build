@@ -56,6 +56,11 @@ pub enum Action {
     ExitSession,
     /// Exit session without double-press confirmation (e.g., from command palette).
     ExitSessionConfirmed,
+    /// `/delete`: confirm, then delete history and return home.
+    DeleteCurrentSession,
+    DeleteCurrentSessionAnswered {
+        confirmed: bool,
+    },
     /// Open grok.com in the browser for SuperGrok subscription upsell.
     OpenSupergrokUrl,
     /// Re-check subscription status via the shell's `x.ai/auth/check_subscription`.
@@ -509,6 +514,10 @@ pub enum Action {
     SetHunkTrackerMode(String),
     /// Set default screen mode (`fullscreen` | `minimal`); restart-required.
     SetScreenMode(String),
+    /// Enable/disable the Ctrl+Space / F8 voice-dictation shortcut. SHELL-owned;
+    /// persisted to `[ui].voice_keybind_enabled`. Takes effect on the next
+    /// keypress; `/voice` is unaffected.
+    SetVoiceKeybindEnabled(bool),
     /// Set the voice capture mode (`toggle` | `hold`). SHELL-owned; persisted to
     /// `[ui].voice_capture_mode`. Takes effect for the next Ctrl+Space press.
     SetVoiceCaptureMode(String),
@@ -608,12 +617,24 @@ pub enum Action {
     ExportEvolutionEvidence {
         run_id: String,
     },
+    /// Open settings on a registry key: its chooser, or the browse row when
+    /// the setting is locked.
+    OpenSettingsFocus {
+        key: &'static str,
+    },
+    /// Privacy banner `[Opt in]` (ack only after ACP success).
+    PrivacyBannerOptIn,
+    /// Privacy banner `[Opt out]` (ack now, then record the decline).
+    PrivacyBannerOptOut,
     /// Open the command palette (`/help`). The keybinding path (Ctrl+P) opens it
     /// directly in `handle_agent_action`; this lets a slash command reach the
     /// same modal through dispatch.
     OpenCommandPalette,
     /// Open the in-TUI How-to Guides doc picker (`/docs`, palette "How-to Guides").
     OpenHowtoGuides,
+    /// Open the onboarding tutorial overlay (`/tutorial` or the command
+    /// palette).
+    OpenTutorial,
     /// Open the reset-settings confirmation dialog for a specific key.
     /// Moves the Settings modal state into `ResetSettingsConfirm` so
     /// the underlying modal survives the confirm dialog.
@@ -661,7 +682,7 @@ pub enum Action {
     TaskComplete(TaskResult),
     /// Share the current session via URL.
     ShareSession,
-    /// Show session info (ID, cwd, model, context usage) instantly.
+    /// Show session info (auth, ID, cwd, model, context usage) instantly.
     ShowSessionInfo,
     /// Show release notes in a modal.
     ShowReleaseNotes {
@@ -737,8 +758,6 @@ pub enum Action {
     TriggerDeepSearch,
     /// Force an immediate deep content search, skipping the debounce.
     ForceDeepSearch,
-    /// Show privacy and data retention status.
-    ShowPrivacyInfo,
     SetCodingDataSharing {
         opted_in: bool,
     },
@@ -775,6 +794,11 @@ pub enum Action {
         model_id: acp::ModelId,
         effort: Option<ReasoningEffort>,
     },
+    DoctorFixConfirmed {
+        target: DoctorFixTarget,
+        plan: Box<crate::diagnostics::FixPlan>,
+    },
+    DoctorFixCancelled(DoctorFixTarget),
     /// User selected a project directory from the project picker.
     ProjectSelected {
         path: std::path::PathBuf,
@@ -1150,8 +1174,8 @@ impl PlanModeKind {
 /// variant needs no agent/schema change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CancelTrigger {
-    /// Wire value `"esc"` (set only by the Esc cancel-retry while
-    /// TurnCancelling; a bare Esc no longer starts a cancel).
+    /// Wire value `"esc"` (bare Esc mid-turn cancel in minimal / non-vim
+    /// mode, plus the Esc cancel-retry while TurnCancelling).
     Esc,
     /// `Ctrl+C` pressed (the default cancel keybinding).
     CtrlC,
@@ -1359,6 +1383,21 @@ pub enum ProbedAttachment {
     /// The attachment probe task failed or timed out.
     ProbeFailed,
 }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DoctorFixTarget {
+    pub agent_id: AgentId,
+    pub session_id: Option<acp::SessionId>,
+    pub session_binding_epoch: u32,
+    pub cwd: std::path::PathBuf,
+}
+/// Aftermath of a successful session delete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterSessionDelete {
+    /// Picker delete — stay put.
+    Stay,
+    /// `/delete` — return to welcome.
+    Welcome,
+}
 #[derive(Debug)]
 pub enum Effect {
     /// Create a new ACP session.
@@ -1562,6 +1601,8 @@ pub enum Effect {
     PersistAnnouncementsHidden {
         hidden_ids: std::collections::BTreeSet<String>,
     },
+    /// Persist `[privacy].privacy_banner_acked` (RFC 3339 dismiss time).
+    PersistPrivacyBannerAcked { acked_at: String },
     /// Persist memory modal fullscreen preference to `[hints]` in config.toml.
     PersistMemoryFullscreen { fullscreen: bool },
     /// Persist the project-picker opt-out to `[hints] project_picker_disabled`.
@@ -1894,6 +1935,7 @@ pub enum Effect {
         session_id: acp::SessionId,
     },
     /// Fetch and display session info via x.ai/session/info.
+    /// Auth lines are derived in the effect from SessionFlags + env (not Effect fields).
     ShowSessionInfo {
         agent_id: AgentId,
         session_id: acp::SessionId,
@@ -2011,6 +2053,11 @@ pub enum Effect {
         opted_in: bool,
         /// Pre-toggle value to revert to on failure.
         rollback_to_opted_in: bool,
+        /// Write generation, echoed back on the `TaskResult`. Writes to this
+        /// endpoint are concurrent, so a result that isn't the newest must
+        /// not touch state: its `rollback_to_opted_in` was captured against
+        /// a world that has since moved on.
+        seq: u64,
     },
     /// Rename the current session.
     RenameSession {
@@ -2025,6 +2072,7 @@ pub enum Effect {
         source: String,
         session_id: String,
         cwd: String,
+        after: AfterSessionDelete,
     },
     /// Deep-search sessions by content (FTS via ACP).
     DeepSearchSessions { query: String, seq: u64 },
@@ -2132,6 +2180,16 @@ pub enum Effect {
     PreparePromptImagePreview {
         preparation: crate::prompt_images::PromptImagePreviewPreparation,
     },
+    PlanDoctorFix {
+        target: DoctorFixTarget,
+        report: Box<crate::diagnostics::DiagnosticReport>,
+        terminal: crate::terminal::TerminalContext,
+        request: crate::slash::command::DoctorRequest,
+    },
+    ApplyDoctorFix {
+        target: DoctorFixTarget,
+        plan: Box<crate::diagnostics::FixPlan>,
+    },
 }
 /// Outcome of an `x.ai/subagent/cancel` request, telling dispatch whether the
 /// pager must finalize the subagent row itself.
@@ -2153,6 +2211,12 @@ pub enum McpAuthTriggerOutcome {
     Authenticated,
     SetupRequired(crate::views::mcps_modal::McpSetupConfig),
 }
+#[derive(Clone, Debug)]
+pub enum DoctorPlanningOutcome {
+    Listing(String),
+    Plan(Box<crate::diagnostics::FixPlan>),
+    RunLocally(String),
+}
 /// Result from a completed async [`Effect`].
 ///
 /// Wrapped in `Action::TaskComplete` and dispatched synchronously.
@@ -2164,6 +2228,12 @@ pub enum TaskResult {
         agent_id: AgentId,
         session_id: acp::SessionId,
         models: Option<acp::SessionModelState>,
+        /// Whether this session's scheduled fires run detached, as the shell
+        /// resolved it at spawn (response
+        /// `_meta["x.ai/schedulerBackgroundLoops"]`). `None` from a shell that
+        /// predates the key. See
+        /// [`crate::app::effects::parse_session_scheduler_background_loops`].
+        scheduler_background_loops: Option<bool>,
     },
     /// Session creation failed.
     SessionFailed {
@@ -2179,6 +2249,8 @@ pub enum TaskResult {
         /// Effective cwd inside the worktree (preserves subdirectory offset).
         session_cwd: std::path::PathBuf,
         models: Option<acp::SessionModelState>,
+        /// See [`TaskResult::SessionCreated::scheduler_background_loops`].
+        scheduler_background_loops: Option<bool>,
     },
     /// Worktree created and session forked, but not yet loaded.
     /// The dispatch handler sets session_id eagerly, then emits LoadSession.
@@ -2210,6 +2282,10 @@ pub enum TaskResult {
         /// pass the live `session/update` gate without re-rendering the user
         /// block (replay already rendered it).
         running_prompt_id: Option<String>,
+        /// See [`TaskResult::SessionCreated::scheduler_background_loops`]. A
+        /// resumed session re-spawns its actor, so the load response carries
+        /// the value that spawn just pinned.
+        scheduler_background_loops: Option<bool>,
     },
     /// Session load (resume) failed.
     SessionLoadFailed {
@@ -2570,12 +2646,14 @@ pub enum TaskResult {
     CodingDataSharingUpdated {
         agent_id: AgentId,
         opted_in: bool,
+        seq: u64,
     },
     /// Coding data sharing update failed.
     CodingDataSharingFailed {
         agent_id: AgentId,
         error: String,
         rollback_to_opted_in: bool,
+        seq: u64,
     },
     /// Session rename completed successfully.
     RenameSessionComplete {
@@ -2591,6 +2669,7 @@ pub enum TaskResult {
     DeleteSessionComplete {
         source: String,
         session_id: String,
+        after: AfterSessionDelete,
     },
     /// Session delete failed.
     DeleteSessionFailed {
@@ -2861,6 +2940,14 @@ pub enum TaskResult {
     },
     /// Shared prompt-image preview state was resolved off-thread.
     PromptImagePreviewPrepared,
+    DoctorFixPlanned {
+        target: DoctorFixTarget,
+        result: Result<DoctorPlanningOutcome, String>,
+    },
+    DoctorFixApplied {
+        target: DoctorFixTarget,
+        result: Result<crate::diagnostics::FixOutcome, String>,
+    },
 }
 #[cfg(test)]
 mod tests {
