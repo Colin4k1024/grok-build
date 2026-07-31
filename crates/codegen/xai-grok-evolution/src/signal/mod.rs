@@ -6,6 +6,7 @@
 
 pub mod classifier;
 pub mod queue;
+pub mod skill_observer;
 
 use crate::types::*;
 
@@ -38,6 +39,20 @@ pub struct SessionSignalsDelta {
     pub performance_regressions: Vec<PerformanceRegression>,
     pub retries_exhausted: Vec<RetryExhausted>,
     pub compilation_errors: Vec<CompilationError>,
+    #[serde(default)]
+    pub turn_step_count: usize,
+    #[serde(default)]
+    pub tools_used: Vec<String>,
+    #[serde(default)]
+    pub injected_experiences: Vec<InjectedExperienceRef>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InjectedExperienceRef {
+    pub experience_id: String,
+    pub injection_id: String,
+    #[serde(default)]
+    pub skill_name: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -294,6 +309,48 @@ impl SignalCollector for DefaultSignalCollector {
             });
         }
 
+        // Positive outcome: non-trivial successful turn with no failures
+        if delta.turn_step_count >= 3
+            && delta.tools_used.len() >= 2
+            && signals.iter().all(|s| {
+                !matches!(
+                    s.signal_type,
+                    SignalType::ToolFailure
+                        | SignalType::TestFailure
+                        | SignalType::Timeout
+                        | SignalType::Panic
+                        | SignalType::CompilationError
+                )
+            })
+        {
+            signals.push(EvolutionSignal {
+                signal_id: format!("{}-positive-0", delta.session_id),
+                schema_version: crate::types::CURRENT_SCHEMA_VERSION,
+                signal_type: SignalType::PositiveOutcome,
+                severity: SignalSeverity::Low,
+                source: SignalSource {
+                    session_id: delta.session_id.clone(),
+                    turn_id: delta.turn_id.clone(),
+                    tool_name: None,
+                    file_path: None,
+                },
+                description: classifier::sanitize_description(&format!(
+                    "Successful turn with {} steps using {} tools",
+                    delta.turn_step_count,
+                    delta.tools_used.len()
+                )),
+                context_hash: classifier::hash_context(&format!(
+                    "positive:{}:{}",
+                    delta.turn_step_count,
+                    delta.tools_used.join(",")
+                )),
+                created_at: now,
+            });
+        }
+
+        // Skill-level signals from injected experiences
+        signals.extend(skill_observer::observe_skill_signals(delta));
+
         // Dedup by context_hash
         classifier::dedup_signals(&mut signals);
 
@@ -316,6 +373,9 @@ impl Default for SessionSignalsDelta {
             performance_regressions: vec![],
             retries_exhausted: vec![],
             compilation_errors: vec![],
+            turn_step_count: 0,
+            tools_used: vec![],
+            injected_experiences: vec![],
         }
     }
 }

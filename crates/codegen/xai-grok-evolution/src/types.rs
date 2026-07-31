@@ -75,6 +75,10 @@ pub enum TriggerType {
     PerformanceRegression,
     /// Manual trigger via CLI/TUI.
     Manual,
+    /// Positive experience from successful turn.
+    PositiveExperience,
+    /// Skill quality decay detected.
+    SkillDecay,
 }
 
 /// Snapshot of the evolution config at run start.
@@ -115,6 +119,9 @@ pub enum SignalType {
     PerformanceRegression,
     RetryExhausted,
     CompilationError,
+    PositiveOutcome,
+    SkillSuccess,
+    SkillIneffective,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

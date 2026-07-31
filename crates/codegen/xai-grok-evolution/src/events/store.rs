@@ -53,7 +53,7 @@ impl EvolutionStore {
     }
 
     /// Open an in-memory database for testing.
-    #[cfg(feature = "test-support")]
+    #[cfg(any(feature = "test-support", test))]
     pub fn open_memory() -> Result<Self, EvolutionError> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA_SQL)?;

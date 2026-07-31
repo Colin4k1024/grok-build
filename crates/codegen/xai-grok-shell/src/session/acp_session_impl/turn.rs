@@ -112,6 +112,9 @@ fn evolution_delta_from_turn(
         performance_regressions: Vec::new(),
         retries_exhausted: Vec::new(),
         compilation_errors,
+        turn_step_count: snapshot.delta.delta_tool_calls.max(0) as usize,
+        tools_used: snapshot.delta.tools_this_turn.clone(),
+        injected_experiences: Vec::new(), // filled by caller when injection is present
     }
 }
 
@@ -1996,10 +1999,18 @@ impl SessionActor {
                 .persistence_tx
                 .send(PersistenceMsg::Signals(snap.current.clone()));
             if let Some(service) = self.evolution_service.read().clone() {
-                let delta =
+                let mut delta =
                     evolution_delta_from_turn(self.session_info.id.0.as_ref(), req_id, snap);
                 let signal_types = evolution_signal_types(&delta);
                 if let Some(injection) = self.evolution_injection.lock().take() {
+                    // Record injection reference for skill observer
+                    delta.injected_experiences.push(
+                        xai_grok_evolution::signal::InjectedExperienceRef {
+                            experience_id: injection.experience_id.clone(),
+                            injection_id: injection.injection_id.clone(),
+                            skill_name: None,
+                        },
+                    );
                     // Don't record attribution for cancelled turns
                     if snap.delta.delta_cancellations > 0 {
                         tracing::debug!("skipping evolution attribution for cancelled turn");
