@@ -10,6 +10,9 @@
 //! `AvailableSkills`, `BashParams`) and registers every built-in tool.
 pub mod ask_user_question;
 pub mod bash;
+pub mod codegraph_explore;
+pub mod computer_use;
+pub mod notebook_edit;
 #[path = "deploy_app_stub.rs"]
 pub mod deploy_app;
 pub mod enter_plan_mode;
@@ -22,7 +25,10 @@ pub mod list_dir;
 pub mod lsp;
 pub mod monitor;
 pub mod read_file;
+pub mod report_findings;
 pub mod scheduler;
+pub mod schedule_wakeup;
+pub mod send_message;
 pub mod search_replace;
 pub(crate) mod storage;
 pub mod task;
