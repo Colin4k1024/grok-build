@@ -91,9 +91,10 @@ pub fn stream_chat_completions<'a>(
         // timer but make no real progress -- some inference engines
         // do exactly that.
         let mut last_content_chunk_at = Instant::now();
+        let mut eos_leak_count: u32 = 0;
 
         let mut stream = raw_stream;
-        loop {
+        'stream: loop {
             let next = match tokio::time::timeout(idle_timeout, stream.next()).await {
                 Ok(Some(next)) => next,
                 Ok(None) => break, // stream ended normally
@@ -155,6 +156,22 @@ pub fn stream_chat_completions<'a>(
                 if let Some(text) = delta.content
                     && !text.is_empty()
                 {
+                    // Stop-sequence guard: detect degenerate </s> token loops
+                    // from model backends that leak EOS tokens as text.
+                    let trimmed = text.trim();
+                    if trimmed == "</s>" || trimmed == "<|endoftext|>" || trimmed == "<|end|>" {
+                        eos_leak_count += 1;
+                        if eos_leak_count >= 3 {
+                            tracing::warn!(
+                                count = eos_leak_count,
+                                "stopping: model is emitting repeated EOS tokens as text"
+                            );
+                            break 'stream;
+                        }
+                        continue;
+                    }
+                    eos_leak_count = 0;
+
                     if !first_token_emitted {
                         first_token_emitted = true;
                         yield SamplingEvent::FirstToken {
