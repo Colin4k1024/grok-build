@@ -13240,6 +13240,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "xai-grok-computer-use"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "xai-grok-config"
 version = "0.1.0"
 dependencies = [
