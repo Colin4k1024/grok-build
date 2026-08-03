@@ -859,6 +859,9 @@ pub(crate) fn execute(
         Effect::RestoreAndLoadSession { agent_id, session_id, session_cwd: _ } => {
             use xai_grok_shell::agent::session_registry_client::SessionRegistryClient;
             use xai_grok_shell::session::restore::restore_session_with_storage;
+            let capability_error = xai_grok_shell::session::restore::capability_status()
+                .ensure_available()
+                .err();
             let setup_started = std::time::Instant::now();
             let raw_config = xai_grok_shell::config::load_effective_config();
             let setup = raw_config
@@ -899,6 +902,9 @@ pub(crate) fn execute(
             let ptx = progress_tx.clone();
             tasks
                 .spawn(async move {
+                    if let Some(error) = capability_error {
+                        return TaskResult::SessionRestoreFailed { agent_id, error };
+                    }
                     let Some((auth_manager, registry_client, storage_client)) = setup
                     else {
                         return TaskResult::SessionRestoreFailed {

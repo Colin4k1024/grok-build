@@ -243,7 +243,7 @@ fn memory_config_cli_flag_overrides_env_disable() {
             let mem = MemoryConfig::resolve(true, false, &config, None);
             assert!(
                 mem.enabled,
-                "CLI --experimental-memory should override GROK_MEMORY=0"
+                "CLI --memory should override GROK_MEMORY=0"
             );
         },
     );
@@ -258,7 +258,7 @@ fn memory_config_no_memory_overrides_all() {
             let mem = MemoryConfig::resolve(true, true, &config, None);
             assert!(
                 !mem.enabled,
-                "--no-memory should override --experimental-memory, GROK_MEMORY=1, and TOML enabled=true"
+                "--no-memory should override --memory, GROK_MEMORY=1, and TOML enabled=true"
             );
         },
     );

@@ -41,6 +41,7 @@ fn evolution_delta_from_turn(
     session_id: &str,
     turn_id: &str,
     snapshot: &TurnDeltaSnapshot,
+    user_corrections: Vec<xai_grok_evolution::signal::UserCorrection>,
 ) -> xai_grok_evolution::SessionSignalsDelta {
     let tool_failures = snapshot
         .delta
@@ -103,11 +104,7 @@ fn evolution_delta_from_turn(
         test_failures,
         timeouts,
         panics,
-        // TODO: Implement cross-turn correction detection. Currently relies on
-        // negative_feedback (thumbs-down) to capture the most critical "user
-        // disagrees" signal. Full correction detection requires comparing user's
-        // next message semantics against prior model action.
-        user_corrections: Vec::new(),
+        user_corrections,
         negative_feedback,
         performance_regressions: Vec::new(),
         retries_exhausted: Vec::new(),
@@ -116,6 +113,43 @@ fn evolution_delta_from_turn(
         tools_used: snapshot.delta.tools_this_turn.clone(),
         injected_experiences: Vec::new(), // filled by caller when injection is present
     }
+}
+
+/// Compare the latest genuine user message with the assistant response that
+/// preceded it. Synthetic continuation/reminder messages are skipped so goal,
+/// scheduler and auto-recovery traffic cannot train Evolution as user feedback.
+fn latest_cross_turn_user_correction(
+    conversation: &[ConversationItem],
+) -> Option<xai_grok_evolution::signal::UserCorrection> {
+    let user_index = conversation.iter().rposition(
+        |item| matches!(item, ConversationItem::User(user) if user.synthetic_reason.is_none()),
+    )?;
+    let correction = conversation[user_index].text_content();
+    let previous_action = conversation[..user_index]
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            ConversationItem::Assistant(assistant) => {
+                let text = assistant.content.trim();
+                if !text.is_empty() {
+                    Some(text.to_string())
+                } else if !assistant.tool_calls.is_empty() {
+                    Some(format!(
+                        "tool calls: {}",
+                        assistant
+                            .tool_calls
+                            .iter()
+                            .map(|call| call.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })?;
+    xai_grok_evolution::signal::correction::detect_user_correction(&previous_action, &correction)
 }
 
 fn evolution_signal_types(
@@ -145,6 +179,12 @@ fn evolution_signal_types(
             .panics
             .iter()
             .map(|_| xai_grok_evolution::SignalType::Panic),
+    );
+    types.extend(
+        delta
+            .user_corrections
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::UserCorrection),
     );
     types.extend(
         delta
@@ -2003,13 +2043,12 @@ impl SessionActor {
                         lines_added += h.line_info.new_count;
                         lines_removed += h.line_info.old_count;
                     }
-                    snap.turn_diff_summary =
-                        Some(crate::session::signals::TurnDiffSummary {
-                            files_modified: files_set.into_iter().collect(),
-                            total_lines_added: lines_added,
-                            total_lines_removed: lines_removed,
-                            hunk_count: hunks.len(),
-                        });
+                    snap.turn_diff_summary = Some(crate::session::signals::TurnDiffSummary {
+                        files_modified: files_set.into_iter().collect(),
+                        total_lines_added: lines_added,
+                        total_lines_removed: lines_removed,
+                        hunk_count: hunks.len(),
+                    });
                 }
             }
             for pr in &snap.delta.prs_created_this_turn {
@@ -2025,8 +2064,16 @@ impl SessionActor {
                 .persistence_tx
                 .send(PersistenceMsg::Signals(snap.current.clone()));
             if let Some(service) = self.evolution_service.read().clone() {
-                let mut delta =
-                    evolution_delta_from_turn(self.session_info.id.0.as_ref(), req_id, snap);
+                let conversation = self.chat_state_handle.get_conversation().await;
+                let user_corrections = latest_cross_turn_user_correction(&conversation)
+                    .into_iter()
+                    .collect();
+                let mut delta = evolution_delta_from_turn(
+                    self.session_info.id.0.as_ref(),
+                    req_id,
+                    snap,
+                    user_corrections,
+                );
                 let signal_types = evolution_signal_types(&delta);
                 if let Some(injection) = self.evolution_injection.lock().take() {
                     // Record injection reference for skill observer
@@ -2050,17 +2097,15 @@ impl SessionActor {
                             || !delta.performance_regressions.is_empty()
                             || !delta.retries_exhausted.is_empty()
                             || !delta.compilation_errors.is_empty();
-                        let has_substantive_completion =
-                            snap.delta.delta_successful_tool_uses > 0
-                                || snap.turn_output_tokens > 0;
+                        let has_substantive_completion = snap.delta.delta_successful_tool_uses > 0
+                            || snap.turn_output_tokens > 0;
 
-                        let outcome =
-                            xai_grok_evolution::reuse::attribution::determine_outcome(
-                                has_user_corrections,
-                                has_negative_feedback,
-                                has_any_failure,
-                                has_substantive_completion,
-                            );
+                        let outcome = xai_grok_evolution::reuse::attribution::determine_outcome(
+                            has_user_corrections,
+                            has_negative_feedback,
+                            has_any_failure,
+                            has_substantive_completion,
+                        );
                         if let Err(error) = service.record_reuse(
                             &injection.experience_id,
                             &injection.injection_id,

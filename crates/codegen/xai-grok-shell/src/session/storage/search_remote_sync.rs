@@ -301,50 +301,38 @@ async fn download_index_inner(
     auth_manager: Option<std::sync::Arc<crate::auth::AuthManager>>,
 ) -> io::Result<bool> {
     let object_path = gcs_object_path(config);
-
-    // TODO: Implement GCS object metadata check (HEAD request) to get
-    // the remote object's last-modified timestamp. For now, use 0 which
-    // means "unknown" — `is_local_stale` will return false if we have a
-    // local bootstrap timestamp.
-    //
-    // When implemented, this should use the GCS JSON API:
-    // GET https://storage.googleapis.com/storage/v1/b/{bucket}/o/{object}
-    // to retrieve the `updated` field as the remote timestamp.
-    let remote_timestamp: i64 = 0;
-
-    if !is_local_stale(db_path, remote_timestamp) {
-        tracing::debug!("local search index is fresh, skipping remote download");
-        return Ok(false);
-    }
-
-    tracing::info!(
-        object_path = %object_path,
-        "local search index is stale, downloading from GCS"
-    );
-
-    // Download compressed index via GCS
-    // TODO: Use a proper GCS download API. For now, we attempt to
-    // construct a download URL and fetch via reqwest. This works for
-    // publicly readable buckets or when the user has ambient GCP
-    // credentials. For proxy-mode setups, a download-via-proxy helper
-    // would be needed (the existing upload helpers don't have a download
-    // counterpart).
     let Some(bucket) = SEARCH_INDEX_BUCKET else {
         tracing::debug!("no search index bucket compiled in, skipping remote download");
         return Ok(false);
     };
-    let download_url = format!(
-        "https://storage.googleapis.com/storage/v1/b/{}/o/{}?alt=media",
+    let object_url = format!(
+        "https://storage.googleapis.com/storage/v1/b/{}/o/{}",
         bucket,
         urlencoding::encode(&object_path),
     );
 
     let upload_config = crate::upload::gcs::WithAuth::with_auth(gcs_config, auth_manager);
-
-    // Try download via reqwest with proxy credentials if available.
-    // This is a best-effort path — if the bucket requires auth and
-    // we don't have the right credentials, it will fail gracefully.
     let client = upload_config.proxy_http_client().unwrap_or_default();
+
+    let Some(remote_timestamp) = fetch_remote_updated_at(&client, &object_url).await? else {
+        tracing::debug!(object_path = %object_path, "remote search index does not exist yet");
+        return Ok(false);
+    };
+    if !is_local_stale(db_path, remote_timestamp) {
+        tracing::debug!(
+            remote_timestamp,
+            "local search index is fresh, skipping remote download"
+        );
+        return Ok(false);
+    }
+
+    tracing::info!(
+        object_path = %object_path,
+        remote_timestamp,
+        "local search index is stale, downloading from GCS"
+    );
+
+    let download_url = format!("{object_url}?alt=media");
 
     let response = client
         .get(&download_url)
@@ -392,6 +380,46 @@ async fn download_index_inner(
     );
 
     Ok(true)
+}
+
+#[derive(serde::Deserialize)]
+struct GcsObjectMetadata {
+    updated: String,
+}
+
+/// Read the authoritative object update time from the GCS JSON API.
+/// `Ok(None)` means the bucket has not received an index yet; transport,
+/// authorization and malformed metadata errors remain distinguishable and
+/// leave the local index untouched.
+async fn fetch_remote_updated_at(
+    client: &reqwest::Client,
+    object_url: &str,
+) -> io::Result<Option<i64>> {
+    let response = client
+        .get(object_url)
+        .send()
+        .await
+        .map_err(|e| io::Error::other(format!("GCS metadata request failed: {e}")))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !response.status().is_success() {
+        return Err(io::Error::other(format!(
+            "GCS metadata returned HTTP {}",
+            response.status()
+        )));
+    }
+    let metadata: GcsObjectMetadata = response
+        .json()
+        .await
+        .map_err(|e| io::Error::other(format!("invalid GCS object metadata: {e}")))?;
+    parse_gcs_updated_at(&metadata.updated).map(Some)
+}
+
+fn parse_gcs_updated_at(updated: &str) -> io::Result<i64> {
+    chrono::DateTime::parse_from_rfc3339(updated)
+        .map(|value| value.timestamp())
+        .map_err(|e| io::Error::other(format!("invalid GCS updated timestamp {updated:?}: {e}")))
 }
 
 // Proxy helpers
@@ -558,6 +586,15 @@ mod tests {
 
         // Remote timestamp 0 (unknown) with local bootstrap → not stale
         assert!(!is_local_stale(&db_path, 0));
+    }
+
+    #[test]
+    fn test_parse_gcs_updated_at() {
+        assert_eq!(
+            parse_gcs_updated_at("2026-08-03T12:34:56.123Z").unwrap(),
+            1_785_760_496
+        );
+        assert!(parse_gcs_updated_at("not-a-time").is_err());
     }
 
     #[test]

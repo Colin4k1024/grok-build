@@ -71,7 +71,7 @@ impl xai_tool_runtime::Tool for MemorySearchImpl {
             .cloned()
         else {
             return Ok(ToolOutput::Text(
-                "Memory is not enabled. Use --experimental-memory to enable.".into(),
+                "Memory is not enabled. Use --memory to enable.".into(),
             ));
         };
         let max_results = input

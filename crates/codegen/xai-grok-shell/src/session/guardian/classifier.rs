@@ -1,15 +1,16 @@
 /// Classify whether a tool call needs guardian review.
 /// This is purely heuristic-based (no I/O).
 pub fn needs_guardian_review(tool_name: &str, args: &serde_json::Value) -> bool {
-    match tool_name {
-        "bash" | "Bash" => {
+    let normalized_name = tool_name.to_ascii_lowercase();
+    match normalized_name.as_str() {
+        name if name.contains("bash") => {
             if let Some(cmd) = extract_bash_command(args) {
                 is_dangerous_bash_command(cmd)
             } else {
                 false
             }
         }
-        "edit" | "Edit" | "write" | "Write" => {
+        "edit" | "write" | "write_file" | "search_replace" | "notebook_edit" => {
             if let Some(path) = extract_file_path(args) {
                 is_sensitive_path(path)
             } else {
@@ -196,5 +197,17 @@ mod tests {
     fn github_workflow_edit_triggers() {
         let args = json!({"file_path": "/repo/.github/workflows/ci.yml"});
         assert!(needs_guardian_review("edit", &args));
+    }
+
+    #[test]
+    fn actual_search_replace_name_triggers_for_sensitive_file() {
+        let args = json!({"file_path": "/repo/.env"});
+        assert!(needs_guardian_review("search_replace", &args));
+    }
+
+    #[test]
+    fn bash_variants_are_classified() {
+        let args = json!({"command": "git reset --hard HEAD"});
+        assert!(needs_guardian_review("bash_concise", &args));
     }
 }

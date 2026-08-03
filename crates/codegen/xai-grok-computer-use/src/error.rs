@@ -15,6 +15,12 @@ pub enum ComputerUseError {
     #[error("timeout after {0}ms")]
     Timeout(u64),
 
+    #[error("invalid navigation URL: {0}")]
+    InvalidUrl(String),
+
+    #[error("CDP protocol error: {0}")]
+    Protocol(String),
+
     #[error("coordinate out of bounds: ({x}, {y}) for screen {width}x{height}")]
     OutOfBounds {
         x: u32,

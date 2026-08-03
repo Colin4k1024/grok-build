@@ -88,9 +88,12 @@ impl GuardianReviewer {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        match tool_name {
-            "bash" | "Bash" => self.assess_bash_risk(cmd),
-            "edit" | "Edit" | "write" | "Write" => self.assess_file_risk(path),
+        let normalized_name = tool_name.to_ascii_lowercase();
+        match normalized_name.as_str() {
+            name if name.contains("bash") => self.assess_bash_risk(cmd),
+            "edit" | "write" | "write_file" | "search_replace" | "notebook_edit" => {
+                self.assess_file_risk(path)
+            }
             _ => {
                 if args
                     .get("dangerouslyDisableSandbox")

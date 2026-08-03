@@ -894,6 +894,7 @@ pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
         "vim_mode" => Some(Action::SetVimMode(new)),
         "voice_keybind_enabled" => Some(Action::SetVoiceKeybindEnabled(new)),
         "remember_tool_approvals" => Some(Action::SetRememberToolApprovals(new)),
+        "todo_gate" => Some(Action::SetTodoGate(new)),
         "toolset.ask_user_question.timeout_enabled" => {
             Some(Action::SetAskUserQuestionTimeoutEnabled(new))
         }

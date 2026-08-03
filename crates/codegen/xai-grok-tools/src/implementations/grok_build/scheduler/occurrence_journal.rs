@@ -105,6 +105,12 @@ pub(crate) struct OneShotOccurrence {
     versions: ScheduledOccurrenceVersions,
 }
 
+impl OneShotOccurrence {
+    pub(super) fn id(&self) -> &ScheduledOccurrenceId {
+        &self.occurrence_id
+    }
+}
+
 impl<'de> Deserialize<'de> for OneShotOccurrence {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -310,18 +316,10 @@ impl SchedulerLoadReconciliation {
         self.requires_resources_persistence
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
     pub(super) fn task_ids_to_remove(&self) -> &[String] {
         &self.task_ids_to_remove
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
     pub(super) fn blocked_task_ids(&self) -> &HashSet<String> {
         &self.blocked_task_ids
     }
@@ -334,10 +332,6 @@ impl SchedulerLoadReconciliation {
         self.block_all_one_shots
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
     pub(super) fn recovery_required(&self) -> bool {
         self.recovery_required
     }
@@ -360,10 +354,6 @@ impl SchedulerLoadReconciliation {
 }
 
 impl SchedulerState {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
     pub(super) fn prepare_one_shot_occurrence(
         &mut self,
         task_id: &str,
@@ -425,10 +415,6 @@ impl SchedulerState {
     }
 
     #[must_use = "the exact removal receipt must be durably cleared"]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
     pub(super) fn finish_one_shot_removal(
         &mut self,
         occurrence_id: &ScheduledOccurrenceId,
@@ -442,10 +428,28 @@ impl SchedulerState {
         Ok(self.occurrence_journal.entries.remove(index))
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "wired by durable one-shot actor layer")
-    )]
+    pub(super) fn rollback_one_shot_occurrence(
+        &mut self,
+        occurrence_id: &ScheduledOccurrenceId,
+    ) -> Result<(), OccurrenceJournalError> {
+        let occurrence = self.finish_one_shot_removal(occurrence_id)?;
+        self.tasks.push(occurrence.task);
+        Ok(())
+    }
+
+    /// Clear valid receipts after restart reconciliation has established that
+    /// their tasks are absent. Receipts are suppression records, not replay
+    /// requests: replaying an uncertain fire could wake the session twice.
+    pub(super) fn finish_reconciled_one_shots(&mut self) -> Result<usize, OccurrenceJournalError> {
+        let plan = self.reconcile_one_shot_occurrences();
+        if plan.recovery_required() || !plan.task_ids_to_remove().is_empty() {
+            return Err(OccurrenceJournalError::RecoveryRequired);
+        }
+        let count = self.occurrence_journal.entries.len();
+        self.occurrence_journal.entries.clear();
+        Ok(count)
+    }
+
     pub(super) fn reconcile_one_shot_occurrences(&self) -> SchedulerLoadReconciliation {
         let occurrence_counts = count_by(self.occurrence_journal.entries.iter(), |entry| {
             entry.occurrence_id.clone()

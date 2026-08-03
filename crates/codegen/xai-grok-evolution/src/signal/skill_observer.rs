@@ -201,7 +201,11 @@ mod tests {
         );
         let signals = observe_skill_signals(&delta);
         assert_eq!(signals.len(), 2);
-        assert!(signals.iter().all(|s| s.signal_type == SignalType::SkillSuccess));
+        assert!(
+            signals
+                .iter()
+                .all(|s| s.signal_type == SignalType::SkillSuccess)
+        );
     }
 
     #[test]

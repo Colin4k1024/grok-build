@@ -183,6 +183,9 @@ pub enum SchedulerError {
 
     #[error("scheduler removal timed out")]
     Timeout,
+
+    #[error("one-shot occurrence journal error: {0}")]
+    Occurrence(String),
 }
 
 pub fn scheduler_tool_error(error: SchedulerError) -> xai_tool_runtime::ToolError {
@@ -196,6 +199,7 @@ pub fn scheduler_tool_error(error: SchedulerError) -> xai_tool_runtime::ToolErro
         SchedulerError::RemovalPending(_) => "scheduler_removal_pending",
         SchedulerError::Cancelled => "scheduler_cancelled",
         SchedulerError::Timeout => "scheduler_timeout",
+        SchedulerError::Occurrence(_) => "scheduler_occurrence_journal",
     };
     xai_tool_runtime::ToolError::custom(code, error.to_string())
 }

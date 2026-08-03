@@ -11,7 +11,7 @@ pub use xai_grok_config_types::{
 ///
 /// Parsed from the `[memory]` section of `~/.grok/config.toml` or
 /// `.grok/config.toml`. Disabled by default; enabled via
-/// `--experimental-memory` CLI flag or `GROK_MEMORY=1` env var.
+/// `--memory` CLI flag or `GROK_MEMORY=1` env var.
 /// Force-disabled via `GROK_MEMORY=0` (overrides TOML and remote settings).
 ///
 /// All sub-configs are pre-populated with production-ready defaults so that
@@ -61,7 +61,7 @@ pub struct MemoryConfig {
 impl MemoryConfig {
     /// Resolve the final memory config from all sources (in priority order):
     /// 1. CLI flag `--no-memory` (absolute highest — always disables, overrides all)
-    /// 2. CLI flag `--experimental-memory` (enables, but overridden by --no-memory)
+    /// 2. CLI flag `--memory` (enables, but overridden by --no-memory)
     /// 3. `GROK_MEMORY` env var: `1`/`true` enables, `0`/`false` force-disables
     /// 4. Config file `[memory]` / `[compaction]` sections
     /// 5. Remote settings from `/v1/settings`

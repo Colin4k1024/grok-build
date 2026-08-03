@@ -5,6 +5,7 @@
 //! only used for summarization and task-type inference (not in this module).
 
 pub mod classifier;
+pub mod correction;
 pub mod queue;
 pub mod skill_observer;
 
@@ -174,7 +175,11 @@ impl SignalCollector for DefaultSignalCollector {
                 signal_id: format!("{}-timeout-{}", delta.session_id, i),
                 schema_version: crate::types::CURRENT_SCHEMA_VERSION,
                 signal_type: SignalType::Timeout,
-                severity: if info.timeout_secs > 300 { SignalSeverity::High } else { SignalSeverity::Medium },
+                severity: if info.timeout_secs > 300 {
+                    SignalSeverity::High
+                } else {
+                    SignalSeverity::Medium
+                },
                 source: SignalSource {
                     session_id: delta.session_id.clone(),
                     turn_id: delta.turn_id.clone(),
@@ -234,7 +239,11 @@ impl SignalCollector for DefaultSignalCollector {
                 signal_id: format!("{}-feedback-{}", delta.session_id, i),
                 schema_version: crate::types::CURRENT_SCHEMA_VERSION,
                 signal_type: SignalType::NegativeFeedback,
-                severity: if fb.rating <= -2 { SignalSeverity::High } else { SignalSeverity::Medium },
+                severity: if fb.rating <= -2 {
+                    SignalSeverity::High
+                } else {
+                    SignalSeverity::Medium
+                },
                 source: SignalSource {
                     session_id: delta.session_id.clone(),
                     turn_id: delta.turn_id.clone(),

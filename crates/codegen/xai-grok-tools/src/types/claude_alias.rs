@@ -71,11 +71,14 @@ const CLAUDE_TOOLS: &[ClaudeTool] = &[
     k("ToolSearch",      SearchTool,           &["search_tool"]),
     match_only("Agent",         &["spawn_subagent"]),                                 // canonical; Task is the legacy alias
     match_only("Task",          &["spawn_subagent"]),
+    match_only("SendMessage",   &["send_message"]),
     match_only("EnterPlanMode", &["enter_plan_mode"]),                                // kind=None: enter/exit must stay paired
     match_only("ExitPlanMode",  &["exit_plan_mode"]),
     match_only("CronCreate",    &["scheduler_create"]),
     match_only("CronDelete",    &["scheduler_delete"]),
     match_only("CronList",      &["scheduler_list"]),
+    match_only("ScheduleWakeup", &["schedule_wakeup"]),
+    match_only("Computer",      &["computer_use"]),                                  // hook matching only; never auto-enables the high-risk tool
     match_only("ListMcpResourcesTool", &["ListMcpResources"]),                        // cursor preset
 ];
 

@@ -994,6 +994,7 @@ pub(crate) async fn spawn_session_actor(
         } else {
             None
         },
+        hunk_tracker_handle: Some(hunk_tracker_handle.clone()),
     });
     let agent = rebuild_spec
         .build_agent_with_initial_overrides(
@@ -1553,39 +1554,40 @@ pub(crate) async fn spawn_session_actor(
     if let Err(error) = &evolution_config {
         tracing::error!(%error, "invalid evolution configuration; forcing Off");
     }
-    let evolution_service: Option<Arc<xai_grok_evolution::EvolutionService>> = match evolution_config.ok() {
-        Some(config) if config.mode != xai_grok_evolution::EvolutionMode::Off => {
-            let memory_root = crate::util::grok_home::grok_home().join("memory");
-            let ports = match crate::session::evolution::build_evolution_ports(
-                cmd_tx.clone(),
-                std::path::Path::new(&session_info.cwd),
-                &memory_root,
-                config.budget.max_duration_secs,
-            ) {
-                Ok(ports) => Some(ports),
-                Err(error) => {
-                    tracing::warn!(
-                        %error,
-                        "autonomous evolution ports unavailable; Shadow remains enabled"
-                    );
-                    None
-                }
-            };
-            match xai_grok_evolution::EvolutionService::open_at_with_ports(
-                std::path::Path::new(&session_info.cwd),
-                &memory_root,
-                config,
-                ports,
-            ) {
-                Ok(service) => Some(Arc::new(service)),
-                Err(error) => {
-                    tracing::error!(%error, "evolution service failed closed during session startup");
-                    None
+    let evolution_service: Option<Arc<xai_grok_evolution::EvolutionService>> =
+        match evolution_config.ok() {
+            Some(config) if config.mode != xai_grok_evolution::EvolutionMode::Off => {
+                let memory_root = crate::util::grok_home::grok_home().join("memory");
+                let ports = match crate::session::evolution::build_evolution_ports(
+                    cmd_tx.clone(),
+                    std::path::Path::new(&session_info.cwd),
+                    &memory_root,
+                    config.budget.max_duration_secs,
+                ) {
+                    Ok(ports) => Some(ports),
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "autonomous evolution ports unavailable; Shadow remains enabled"
+                        );
+                        None
+                    }
+                };
+                match xai_grok_evolution::EvolutionService::open_at_with_ports(
+                    std::path::Path::new(&session_info.cwd),
+                    &memory_root,
+                    config,
+                    ports,
+                ) {
+                    Ok(service) => Some(Arc::new(service)),
+                    Err(error) => {
+                        tracing::error!(%error, "evolution service failed closed during session startup");
+                        None
+                    }
                 }
             }
-        }
-        _ => None,
-    };
+            _ => None,
+        };
     let evolution_service: crate::session::handle::EvolutionServiceSlot =
         Arc::new(parking_lot::RwLock::new(evolution_service));
 
@@ -1776,6 +1778,7 @@ pub(crate) async fn spawn_session_actor(
         last_search_prompt_index: std::sync::atomic::AtomicI64::new(-1),
         last_api_request_at: std::sync::atomic::AtomicI64::new(0),
         hook_registry: std::cell::RefCell::new(built_hook_registry),
+        native_hooks: xai_grok_hooks::native::builtin_native_hooks(),
         client_hooks: std::cell::RefCell::new(client_hooks),
         hook_resolved_workspace_root: resolved_workspace_root,
         vcs_kind: {

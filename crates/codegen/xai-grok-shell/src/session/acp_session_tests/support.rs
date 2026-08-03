@@ -136,6 +136,7 @@ async fn test_agent_from_config(
         auth_provider: None,
         attribution_callback: None,
         system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+        hunk_tracker_handle: None,
     };
     let tool_bridge = crate::tools::bridge::ToolBridge::finalize_builder(builder, config, ctx)
         .await
@@ -387,6 +388,7 @@ pub(crate) async fn create_test_actor_ex(
         last_search_prompt_index: std::sync::atomic::AtomicI64::new(-1),
         last_api_request_at: std::sync::atomic::AtomicI64::new(0),
         hook_registry: std::cell::RefCell::new(None),
+        native_hooks: Vec::new(),
         client_hooks: Default::default(),
         hook_resolved_workspace_root: String::new(),
         vcs_kind: xai_grok_workspace::session::git::VcsKind::Git,

@@ -321,6 +321,15 @@ async fn list_skills_with_options(
         );
     }
 
+    // Prefer the dedicated TSP cache so stale TSP files left in the legacy
+    // shared bundle directory cannot shadow an updated embedded bundle.
+    let tsp_bundled_dir = global_dir.join("tsp-bundled");
+    collect_discovered_paths(
+        find_skill_paths(&tsp_bundled_dir),
+        SkillScope::Bundled,
+        &mut seen_canonical_paths,
+        &mut skill_files,
+    );
     let bundled_dir = global_dir.join("bundled");
     collect_discovered_paths(
         find_skill_paths(&bundled_dir),
@@ -2430,6 +2439,28 @@ mod tests {
             "Expected no bundled skills from empty bundled dir, got: {:?}",
             bundled.iter().map(|s| &s.name).collect::<Vec<_>>()
         );
+    }
+
+    #[tokio::test]
+    async fn tsp_bundled_skills_are_discovered_as_bundled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo_root = tmp.path().join("repo");
+        fs::create_dir_all(&repo_root).unwrap();
+        init_git_repo(&repo_root);
+        write_skill_md(
+            &tmp.path().join("tsp-bundled").join("skills").join("tsp-review"),
+            "tsp-review",
+        );
+
+        let skills = list_skills_with_options(
+            Some(repo_root.to_str().unwrap()),
+            None,
+            tmp.path(),
+            CompatConfig::default(),
+        )
+        .await;
+        let skill = skills.iter().find(|skill| skill.name == "tsp-review").unwrap();
+        assert_eq!(skill.scope, SkillScope::Bundled);
     }
 
     // ── collect_skill_config_dirs vendor gating ────────────

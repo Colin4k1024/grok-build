@@ -86,7 +86,7 @@ use super::settings::setters::{
     set_prompt_suggestions, set_remember_tool_approvals, set_render_mermaid,
     set_respect_manual_folds, set_screen_mode, set_scroll_lines, set_scroll_mode, set_scroll_speed,
     set_show_thinking_blocks, set_show_tips, set_simple_mode, set_theme, set_timeline,
-    set_timestamps, set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled,
+    set_timestamps, set_todo_gate, set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled,
     set_voice_stt_language,
 };
 use super::settings::ui::{
@@ -965,6 +965,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::ToggleVimMode => dispatch_toggle_vim_mode(app),
         Action::SetVimMode(v) => set_vim_mode(app, v),
         Action::SetRememberToolApprovals(v) => set_remember_tool_approvals(app, v),
+        Action::SetTodoGate(v) => set_todo_gate(app, v),
         Action::SetAskUserQuestionTimeoutEnabled(v) => {
             set_ask_user_question_timeout_enabled(app, v)
         }
@@ -1019,38 +1020,38 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::OpenSettings => dispatch_open_settings(app, None),
         Action::OpenEvolutionModal => dispatch_open_evolution(app),
         Action::SetEvolutionMode { target_mode } => dispatch_set_evolution_mode(app, target_mode),
-        Action::InspectEvolutionRun { run_id } => dispatch_evolution_run_action(
-            app,
-            |agent_id, session_id| Effect::InspectEvolutionRun {
+        Action::InspectEvolutionRun { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| Effect::InspectEvolutionRun {
                 agent_id,
                 session_id,
                 run_id,
-            },
-        ),
-        Action::LoadEvolutionLineage { experience_id } => dispatch_evolution_run_action(
-            app,
-            |agent_id, session_id| Effect::LoadEvolutionLineage {
-                agent_id,
-                session_id,
-                experience_id,
-            },
-        ),
-        Action::RetryEvolutionTrial { run_id } => dispatch_evolution_run_action(
-            app,
-            |agent_id, session_id| Effect::RetryEvolutionTrial {
-                agent_id,
-                session_id,
-                run_id,
-            },
-        ),
-        Action::ExportEvolutionEvidence { run_id } => dispatch_evolution_run_action(
-            app,
-            |agent_id, session_id| Effect::ExportEvolutionEvidence {
+            })
+        }
+        Action::LoadEvolutionLineage { experience_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| {
+                Effect::LoadEvolutionLineage {
+                    agent_id,
+                    session_id,
+                    experience_id,
+                }
+            })
+        }
+        Action::RetryEvolutionTrial { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| Effect::RetryEvolutionTrial {
                 agent_id,
                 session_id,
                 run_id,
-            },
-        ),
+            })
+        }
+        Action::ExportEvolutionEvidence { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| {
+                Effect::ExportEvolutionEvidence {
+                    agent_id,
+                    session_id,
+                    run_id,
+                }
+            })
+        }
         Action::OpenSettingsFocus { key } => dispatch_open_settings(app, Some(key)),
         Action::PrivacyBannerOptIn => dispatch_privacy_banner_opt_in(app),
         Action::PrivacyBannerOptOut => dispatch_privacy_banner_opt_out(app),
@@ -1601,10 +1602,7 @@ fn dispatch_set_evolution_mode(app: &mut AppView, target_mode: String) -> Vec<Ef
 
 fn dispatch_evolution_run_action(
     app: &AppView,
-    build: impl FnOnce(
-        crate::app::agent::AgentId,
-        agent_client_protocol::SessionId,
-    ) -> Effect,
+    build: impl FnOnce(crate::app::agent::AgentId, agent_client_protocol::SessionId) -> Effect,
 ) -> Vec<Effect> {
     let ActiveView::Agent(agent_id) = app.active_view else {
         return vec![];

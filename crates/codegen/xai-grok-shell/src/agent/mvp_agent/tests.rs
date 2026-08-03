@@ -1100,6 +1100,7 @@ async fn file_toolset_override_e2e_to_finalized_toolset() {
         auth_provider: None,
         attribution_callback: None,
         system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+        hunk_tracker_handle: None,
     };
     let toolset = builder
         .finalize(def.tool_config, ctx)

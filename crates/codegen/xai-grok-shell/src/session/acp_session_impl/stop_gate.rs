@@ -264,7 +264,11 @@ impl SessionActor {
             .as_ref()
             .is_some_and(|r| r.has_enabled_hooks_for_canonical(event));
         let has_client_hooks = self.client_hooks.borrow().contains_key(&event);
-        if !has_file_hooks && !has_client_hooks {
+        let has_native_hooks = self
+            .native_hooks
+            .iter()
+            .any(|hook| hook.event() == event.canonical());
+        if !has_file_hooks && !has_client_hooks && !has_native_hooks {
             return StopGateDecision::AllowStop;
         }
         // At the cap no hook is consulted or notified for this forced stop,
@@ -287,13 +291,23 @@ impl SessionActor {
         // below, not a fire-and-forget event.
         let envelope = self.make_hook_envelope(event, Some(prompt_id.to_string()), payload);
 
-        let mut result = dispatcher::StopDispatchResult::default();
+        let mut result =
+            xai_grok_hooks::dispatcher::dispatch_native_stop(&self.native_hooks, &envelope);
         // Clone out of the RefCell before the awaits so no `Ref` is held
         // across them.
         let registry = self.hook_registry.borrow().clone();
         if let Some(registry) = registry {
             let ctx = self.hook_run_ctx();
-            result = dispatcher::dispatch_stop(&registry, event, &envelope, &ctx).await;
+            let mut file_result =
+                dispatcher::dispatch_stop(&registry, event, &envelope, &ctx).await;
+            result.blocks.append(&mut file_result.blocks);
+            result
+                .additional_context
+                .append(&mut file_result.additional_context);
+            result.results.append(&mut file_result.results);
+            if result.prevent_continuation.is_none() {
+                result.prevent_continuation = file_result.prevent_continuation;
+            }
         }
 
         if let Some(prevent) = result.prevent_continuation.take() {

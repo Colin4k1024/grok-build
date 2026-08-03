@@ -249,8 +249,10 @@ impl SessionHandle {
         }
         rx.await.unwrap_or(Err("session actor died".to_string()))
     }
-    /// Returns `true` if the session has work in flight: a running turn or
-    /// queued inputs (`running_task.is_some() || !pending_inputs.is_empty()`).
+    /// Returns `true` if the session has work in flight. This is the aggregate
+    /// SessionActivity query used by idle-unload: actor-owned turns/queues and
+    /// notifications, buffered monitor events, live terminal tasks, child
+    /// subagents, and scheduled tasks.
     ///
     /// Used by the leader's idle-unload decision on client disconnect.
     /// Falls back to `true` (conservative: keep the session resident, never
@@ -264,7 +266,63 @@ impl SessionHandle {
         {
             return true;
         }
-        rx.await.unwrap_or(true)
+        if rx.await.unwrap_or(true) {
+            return true;
+        }
+
+        let session_id = self.info.id.0.as_ref();
+        if self
+            .tool_context
+            .monitor_event_buffer
+            .as_ref()
+            .is_some_and(|buffer| {
+                buffer
+                    .snapshot()
+                    .iter()
+                    .any(|event| event.owned_by_session(Some(session_id)))
+            })
+        {
+            return true;
+        }
+
+        if let Some(terminal) = &self.terminal_backend {
+            let tasks = terminal.list_tasks().await;
+            if tasks.iter().any(|task| {
+                !task.completed
+                    && task
+                        .owner_session_id
+                        .as_deref()
+                        .is_none_or(|owner| owner == session_id)
+            }) {
+                return true;
+            }
+        }
+
+        if let Some(event_tx) = &self.tool_context.subagent_event_tx {
+            let backend = xai_grok_tools::implementations::grok_build::task::backend::ChannelBackend::for_session(
+                event_tx.clone(),
+                session_id.to_string(),
+            );
+            if !backend.list_running(session_id).await.is_empty() {
+                return true;
+            }
+        }
+
+        if let Some(scheduler) = &self.scheduler_handle {
+            use xai_grok_tools::implementations::grok_build::scheduler::types::SchedulerCommand;
+            let (reply, response) = oneshot::channel();
+            if scheduler.0.send(SchedulerCommand::List { reply }).is_ok() {
+                // A dropped scheduler actor cannot own a future fire. A live
+                // actor with any task keeps the session resident.
+                if response
+                    .await
+                    .is_ok_and(|snapshot| !snapshot.tasks.is_empty())
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
     /// List all background tasks.
     /// Routes through the session actor to the ToolBridge's TerminalBackend.

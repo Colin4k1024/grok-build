@@ -1565,14 +1565,19 @@ pub fn default_settings() -> Vec<SettingMeta> {
             hidden_in_minimal: false,
         },
         // ── TodoGate (runtime turn-end backstop) ──────────────────────
-        //
-        // Only the CLI flag (`--todo-gate`) is wired. Settings-modal
-        // entries for `[reminder.todo_gate]` are deferred — the modal
-        // dispatcher requires per-key action arms in
-        // `settings_modal.rs` + `app/dispatch.rs` + `settings/registry.rs`
-        // that don't yet have a place to land.
-        // SHELL-owned. `restart_required: false` — the config-reloader
-        // rebroadcasts UI changes; mid-session forks pick up new values.
+        SettingMeta {
+            key: "todo_gate",
+            category: SettingCategory::Agent,
+            owner: SettingOwner::Shell,
+            label: "Todo completion gate",
+            description: "Before an autonomous goal turn stops, require pending todos to be completed or backed by live work. Applies to new sessions.",
+            keywords: &["todo", "task", "goal", "completion", "gate", "autonomous"],
+            kind: SettingKind::Bool {
+                default: ui_default.todo_gate.unwrap_or(false),
+            },
+            restart_required: true,
+            hidden_in_minimal: false,
+        },
         // Empty-string default = "no opinion" / use shell's resolution.
         SettingMeta {
             key: "fork_secondary_model",

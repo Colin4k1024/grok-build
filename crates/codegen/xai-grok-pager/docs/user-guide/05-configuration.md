@@ -263,7 +263,7 @@ Priority for `[mcp_servers]` and `[plugins]`: `.grok/config.toml` (current dir) 
 
 ### Memory
 
-Persist knowledge across sessions (requires `--experimental-memory` or `GROK_MEMORY=1`).
+Persist knowledge across sessions (requires `--memory` or `GROK_MEMORY=1`).
 
 ```toml
 [memory]

@@ -1,4 +1,4 @@
-use std::{future::Future, io, path::Path, time::Duration};
+use std::{future::Future, io, io::Write, path::Path, time::Duration};
 
 use tokio::{fs, time::sleep};
 
@@ -162,6 +162,36 @@ impl AsyncFileSystem for LocalFs {
             return Err(e.into());
         }
         Ok(())
+    }
+
+    #[tracing::instrument(name = "fs.write_file_atomic", skip_all)]
+    async fn write_file_atomic(&self, path: &Path, data: &[u8]) -> Result<(), ComputerError> {
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || -> Result<(), ComputerError> {
+            let parent = path.parent().ok_or_else(|| {
+                ComputerError::io(format!("cannot determine parent of {}", path.display()))
+            })?;
+            std::fs::create_dir_all(parent)?;
+
+            let mut replacement = tempfile::NamedTempFile::new_in(parent)?;
+            replacement.write_all(&data)?;
+            replacement.flush()?;
+            replacement.as_file().sync_all()?;
+
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                replacement
+                    .as_file()
+                    .set_permissions(metadata.permissions())?;
+            }
+
+            replacement.persist(&path).map_err(|error| {
+                ComputerError::io_with_kind(error.error.to_string(), error.error.kind())
+            })?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| ComputerError::io(format!("atomic write task failed: {error}")))?
     }
 
     #[tracing::instrument(name = "fs.delete_file", skip_all)]

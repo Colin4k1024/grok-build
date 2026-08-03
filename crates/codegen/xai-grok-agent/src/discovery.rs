@@ -186,7 +186,8 @@ fn merge_subagents(
 /// 1. `.grok/agents/` walking from `cwd` up to repo root
 /// 2. `~/.grok/agents/` (user-level)
 /// 3. `~/.claude/agents/` (compat user-level)
-/// 4. `~/.grok/bundled/agents/` (bundled, lowest priority)
+/// 4. `~/.grok/tsp-bundled/agents/` and `~/.grok/bundled/agents/`
+///    (bundled, lowest priority; the isolated TSP cache wins stale legacy copies)
 ///
 /// Deduplicates by name — higher-priority definitions win.
 /// User-level agent directories in priority order: user grok agents, `.claude`
@@ -215,6 +216,7 @@ pub(crate) fn user_agent_dirs(
         dirs.push((h.join(".claude").join("agents"), AgentScope::User));
     }
     if let Some(g) = grok_home {
+        dirs.push((g.join("tsp-bundled").join("agents"), AgentScope::Bundled));
         dirs.push((g.join("bundled").join("agents"), AgentScope::Bundled));
     }
     if let Some(l) = &legacy_grok {
@@ -788,6 +790,7 @@ mod tests {
         assert!(paths.contains(&home.join(".grok").join("agents")));
         assert!(paths.contains(&home.join(".claude").join("agents")));
         assert!(paths.contains(&grok.join("bundled").join("agents")));
+        assert!(paths.contains(&grok.join("tsp-bundled").join("agents")));
         assert!(paths.contains(&home.join(".grok").join("bundled").join("agents")));
     }
 
@@ -929,6 +932,21 @@ mod tests {
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "bundled-agent");
         assert_eq!(defs[0].scope, AgentScope::Bundled);
+    }
+
+    #[test]
+    fn test_discover_includes_tsp_bundled_agents() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("workspace");
+        let home = tmp.path().join("home");
+        let agents_dir = home.join(".grok").join("tsp-bundled").join("agents");
+        fs::create_dir_all(&cwd).unwrap();
+        fs::create_dir_all(&agents_dir).unwrap();
+        write_agent_file(&agents_dir, "tsp-agent.md", "tsp-agent", "TSP agent");
+
+        let defs = discover_with_home(&cwd, Some(&home), Some(&home.join(".grok")));
+        let def = defs.iter().find(|def| def.name == "tsp-agent").unwrap();
+        assert_eq!(def.scope, AgentScope::Bundled);
     }
 
     #[test]

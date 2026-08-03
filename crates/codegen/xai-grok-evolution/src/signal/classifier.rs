@@ -3,8 +3,8 @@
 //! All classification logic is rule-based. No LLM calls.
 //! Sensitive data is scrubbed before storage.
 
+use super::{PerformanceRegression, ToolFailure};
 use crate::types::*;
-use super::{ToolFailure, PerformanceRegression};
 
 /// Classify tool failure severity based on exit code and message patterns.
 pub fn classify_tool_failure_severity(failure: &ToolFailure) -> SignalSeverity {
@@ -87,8 +87,8 @@ pub fn dedup_signals(signals: &mut Vec<EvolutionSignal>) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{PerformanceRegression, ToolFailure};
     use super::*;
-    use super::super::{ToolFailure, PerformanceRegression};
 
     #[test]
     fn permission_denied_is_high() {

@@ -18,6 +18,7 @@ use crate::reminders::format_loop_iteration_prompt;
 use crate::types::resources::{SharedResources, State};
 
 use super::interval::interval_to_human;
+use super::occurrence_journal::ScheduledOccurrenceVersions;
 use super::types::{
     LOOP_COMPLETION_OUTPUT_CAP, LOOP_FRESH_CHAIN_EVERY, ScheduledTask, SchedulerClock,
     SchedulerCommand, SchedulerError, SchedulerSnapshot, SchedulerState, SchedulerVersion,
@@ -179,6 +180,7 @@ impl SchedulerActor {
     }
 
     pub async fn run(mut self) {
+        self.reconcile_restored_one_shots().await;
         self.await_subagent_wiring_for_due_tasks().await;
         self.announce_existing_tasks().await;
 
@@ -218,6 +220,68 @@ impl SchedulerActor {
             log_rollover("shutdown", None, commit.rollover);
             self.notification_handle
                 .send_scheduled_task_removed(task_removed_payload(task_id, commit.version));
+        }
+    }
+
+    /// Receipts loaded after a crash suppress their one-shot timers. Once any
+    /// resurrected task rows are removed and persisted, the receipts can be
+    /// cleared. We intentionally do not replay an uncertain fire: replay could
+    /// enqueue the same foreground wakeup twice.
+    async fn reconcile_restored_one_shots(&mut self) {
+        let (task_ids_to_remove, blocked_task_ids, recovery_required) = {
+            let resources = self.resources.lock().await;
+            let Some(state) = resources.get::<State<SchedulerState>>() else {
+                return;
+            };
+            let plan = state.reconcile_one_shot_occurrences();
+            (
+                plan.task_ids_to_remove().to_vec(),
+                plan.blocked_task_ids().clone(),
+                plan.recovery_required(),
+            )
+        };
+        self.blocked_expiries.extend(blocked_task_ids);
+        if recovery_required {
+            tracing::error!(
+                "Scheduler one-shot journal requires recovery; affected timers remain suppressed"
+            );
+            return;
+        }
+
+        if !task_ids_to_remove.is_empty() {
+            let task_ids: HashSet<_> = task_ids_to_remove.iter().collect();
+            let mut resources = self.resources.lock().await;
+            resources
+                .get_or_default::<State<SchedulerState>>()
+                .tasks
+                .retain(|task| !task_ids.contains(&task.id));
+            drop(resources);
+            if let Err(error) = self.persist_resources().await {
+                tracing::error!(%error, "Failed to persist restored one-shot suppression");
+                return;
+            }
+        }
+
+        let cleared = {
+            let mut resources = self.resources.lock().await;
+            resources
+                .get_or_default::<State<SchedulerState>>()
+                .finish_reconciled_one_shots()
+        };
+        match cleared {
+            Ok(0) => {}
+            Ok(count) => {
+                if let Err(error) = self.persist_resources().await {
+                    tracing::error!(
+                        %error,
+                        count,
+                        "Failed to persist reconciled one-shot receipt cleanup"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::error!(%error, "Failed to reconcile restored one-shot receipts");
+            }
         }
     }
 
@@ -307,6 +371,87 @@ impl SchedulerActor {
             1
         };
         let transition = if is_expired { "expiry" } else { "fire" };
+
+        if should_remove && is_durable {
+            if self.notification_handle.durable_targets() == DurableNotificationTargets::None {
+                tracing::error!(%task_id, "Durable one-shot fire has no acknowledging consumer");
+                self.blocked_expiries.insert(task_id);
+                return;
+            }
+            let mut reservation = self.clock.prepare_transition(2);
+            let versions = match ScheduledOccurrenceVersions::try_new(
+                reservation.version_at(0),
+                reservation.version_at(1),
+            ) {
+                Ok(versions) => versions,
+                Err(error) => {
+                    tracing::error!(%task_id, %error, "Invalid durable one-shot versions");
+                    self.blocked_expiries.insert(task_id);
+                    return;
+                }
+            };
+            let occurrence = match state.prepare_one_shot_occurrence(&task_id, versions) {
+                Ok(occurrence) => occurrence,
+                Err(error) => {
+                    tracing::error!(%task_id, %error, "Failed to prepare durable one-shot fire");
+                    self.blocked_expiries.insert(task_id);
+                    return;
+                }
+            };
+            drop(res);
+
+            if let Err(error) = self.persist_resources().await {
+                let mut resources = self.resources.lock().await;
+                let rollback = resources
+                    .get_or_default::<State<SchedulerState>>()
+                    .rollback_one_shot_occurrence(occurrence.id());
+                tracing::error!(%task_id, %error, ?rollback, "Durable one-shot prepare was not persisted");
+                self.blocked_expiries.insert(task_id);
+                return;
+            }
+
+            let fire = reservation.commit_next(&mut self.clock);
+            log_rollover(transition, Some(&task_id), fire.rollover);
+            self.notification_handle
+                .send_scheduled_task_fired(ScheduledTaskFired {
+                    task_id: task_id.clone(),
+                    prompt,
+                    human_schedule,
+                    next_fire_at: None,
+                    subagent_id: None,
+                    generation: fire.version.generation(),
+                    revision: fire.version.revision(),
+                });
+
+            let removal_version = reservation.version_at(0);
+            if let Err(error) = self
+                .publish_durable_removal(task_id.clone(), removal_version)
+                .await
+            {
+                tracing::error!(%task_id, %error, "Durable one-shot removal was not acknowledged");
+                self.blocked_expiries.insert(task_id);
+                return;
+            }
+            let removal = reservation.commit_next(&mut self.clock);
+            debug_assert!(removal.rollover.is_none());
+
+            let finish = {
+                let mut resources = self.resources.lock().await;
+                resources
+                    .get_or_default::<State<SchedulerState>>()
+                    .finish_one_shot_removal(occurrence.id())
+            };
+            if let Err(error) = finish {
+                tracing::error!(%task_id, %error, "Failed to finish durable one-shot receipt");
+                return;
+            }
+            if let Err(error) = self.persist_resources().await {
+                // The persisted receipt still suppresses this occurrence after
+                // restart, while in-memory state already has no runnable task.
+                tracing::error!(%task_id, %error, "Failed to persist durable one-shot receipt cleanup");
+            }
+            return;
+        }
 
         if is_expired && is_durable {
             if self.notification_handle.durable_targets() == DurableNotificationTargets::None {
@@ -2816,6 +2961,69 @@ mod tests {
         assert!(
             notif_rx.try_recv().is_err(),
             "no notifications expected when state is empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_receipt_suppresses_resurrected_one_shot_without_replay() {
+        let mut task = ScheduledTask::new(60, "resume once".into(), false, true);
+        task.id = "restored-wakeup".into();
+        task.foreground = true;
+        let mut clock = SchedulerClock::new();
+        let mut reservation = clock.prepare_transition(2);
+        let versions = ScheduledOccurrenceVersions::try_new(
+            reservation.version_at(0),
+            reservation.version_at(1),
+        )
+        .unwrap();
+
+        let mut state = SchedulerState {
+            tasks: vec![task.clone()],
+            ..Default::default()
+        };
+        state
+            .prepare_one_shot_occurrence(&task.id, versions)
+            .unwrap();
+        // Simulate a stale task row restored alongside the persisted receipt.
+        state.tasks.push(task);
+        let first = reservation.commit_next(&mut clock);
+        let second = reservation.commit_next(&mut clock);
+        assert_eq!(second.version.revision(), first.version.revision() + 1);
+
+        let mut resources = Resources::new();
+        resources.register_state::<SchedulerState>();
+        *resources.get_or_default::<State<SchedulerState>>() = State(state);
+        let resources = Arc::new(Mutex::new(resources));
+        let (notification_handle, mut notifications) = auto_acknowledged_notifications();
+        let (_command_tx, command_rx) = mpsc::unbounded_channel();
+        let mut actor = SchedulerActor {
+            resources: resources.clone(),
+            resources_persistence: Arc::new(crate::persistence::ResourcesPersistence::noop()),
+            notification_handle,
+            cmd_rx: command_rx,
+            cancel_token: CancellationToken::new(),
+            clock,
+            pending_removal: None,
+            blocked_expiries: HashSet::new(),
+        };
+
+        actor.reconcile_restored_one_shots().await;
+        let resources = resources.lock().await;
+        let state = resources.get::<State<SchedulerState>>().unwrap();
+        assert!(
+            state.tasks.is_empty(),
+            "receipt must suppress stale timer row"
+        );
+        assert!(
+            serde_json::to_value(&**state)
+                .unwrap()
+                .get("occurrenceJournal")
+                .is_none(),
+            "receipt is cleared after suppression is persisted"
+        );
+        assert!(
+            notifications.try_recv().is_err(),
+            "restart reconciliation must not replay an uncertain wakeup"
         );
     }
 }

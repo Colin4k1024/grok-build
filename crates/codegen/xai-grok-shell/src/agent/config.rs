@@ -639,7 +639,7 @@ pub struct RuntimeResolutionContext<'a> {
     pub cli_subagents: Option<bool>,
     pub cli_web_search_model: Option<&'a str>,
     pub cli_session_summary_model: Option<&'a str>,
-    /// CLI `--experimental-memory` flag. Enables cross-session memory.
+    /// CLI `--memory` flag. Enables cross-session memory.
     pub cli_experimental_memory: bool,
     /// CLI `--no-memory` flag. Overrides all other memory settings.
     pub cli_no_memory: bool,
@@ -1500,7 +1500,7 @@ pub struct Config {
     pub default_yolo_mode: bool,
     /// Start sessions in auto permission mode (classifier) when no per-session override.
     pub default_auto_mode: bool,
-    /// CLI `--experimental-memory` flag. Stored for `ConfigReloader` hot-reload re-resolution.
+    /// CLI `--memory` flag. Stored for `ConfigReloader` hot-reload re-resolution.
     #[serde(skip)]
     pub cli_experimental_memory: bool,
     /// CLI `--no-memory` flag. Stored for `ConfigReloader` hot-reload re-resolution.
@@ -2250,7 +2250,10 @@ impl Config {
         );
         self.memory_config = if mem.enabled { Some(mem) } else { None };
         self.disable_web_search = self.disable_web_search || ctx.disable_web_search;
-        self.todo_gate = ctx.todo_gate;
+        // CLI is a force-enable override; otherwise use the persisted user
+        // setting. Remote settings still resolve inside ReminderPolicy and
+        // remain below an explicit local enable.
+        self.todo_gate = ctx.todo_gate || self.ui.todo_gate.unwrap_or(false);
         self.laziness_debug_log = ctx.laziness_debug_log.map(std::path::Path::to_path_buf);
         self.storage_mode =
             crate::config::StorageMode::resolve(ctx.storage_mode, ctx.remote_settings);

@@ -370,7 +370,9 @@ pub(crate) fn is_session_idle_for_injection(state: &State) -> bool {
 /// it can be unit-tested directly against a `State` without spawning a full
 /// actor + leader.
 pub(crate) fn state_is_busy(state: &State) -> bool {
-    state.running_task.is_some() || !state.pending_inputs.is_empty()
+    state.running_task.is_some()
+        || !state.pending_inputs.is_empty()
+        || !state.pending_notifications.is_empty()
 }
 use crate::auth::AuthManager;
 #[derive(Clone)]
@@ -926,6 +928,9 @@ pub(crate) struct SessionActor {
     /// Safe: session actor is single-threaded (LocalSet), no concurrent access.
     pub(crate) hook_registry:
         std::cell::RefCell<Option<Arc<xai_grok_hooks::discovery::HookRegistry>>>,
+    /// Session-scoped in-process hooks. The contained counter state must not be
+    /// shared across sessions.
+    pub(crate) native_hooks: Vec<Box<dyn xai_grok_hooks::native::NativeHook>>,
     /// Client hooks from `session/new` `_meta["x.ai/hooks"]`; gated in
     /// [`crate::session::acp_session::hooks`]. `RefCell` so `load_session` reconnect can
     /// replace the set on the live actor (see `SessionCommand::SetClientHooks`).

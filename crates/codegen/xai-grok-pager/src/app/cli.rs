@@ -728,13 +728,21 @@ pub struct PagerArgs {
     #[arg(long = "no-ask-user", hide = true)]
     pub no_ask_user: bool,
     /// Enable cross-session memory.
-    #[arg(long = "experimental-memory", conflicts_with = "no_memory")]
+    #[arg(
+        long = "memory",
+        visible_alias = "experimental-memory",
+        conflicts_with = "no_memory"
+    )]
     pub experimental_memory: bool,
     /// Disable cross-session memory for this session.
     #[arg(long = "no-memory", conflicts_with = "experimental_memory")]
     pub no_memory: bool,
-    /// Enable experience evolution system.
-    #[arg(long = "experimental-evolution", conflicts_with = "no_evolution")]
+    /// Enable the experience evolution system in shadow mode.
+    #[arg(
+        long = "evolution",
+        visible_alias = "experimental-evolution",
+        conflicts_with = "no_evolution"
+    )]
     pub experimental_evolution: bool,
     /// Disable experience evolution for this session.
     #[arg(long = "no-evolution", conflicts_with = "experimental_evolution")]
@@ -831,7 +839,7 @@ pub struct PagerArgs {
     /// Run inline instead of using the terminal alternate screen.
     #[arg(long = "no-alt-screen")]
     pub no_alt_screen: bool,
-    /// Experimental: scrollback-native rendering. Finalized blocks are printed
+    /// Scrollback-native rendering. Finalized blocks are printed
     /// into the terminal's native scrollback (use the terminal's own scroll /
     /// selection); a small pinned region holds the prompt + running turn.
     /// Session-scoped only — does not write config. To default plain `grok` to
@@ -1239,6 +1247,22 @@ mod tests {
         let err = PagerArgs::try_parse_from(["grok", "--minimal", "--fullscreen"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
+
+    #[test]
+    fn stable_memory_and_evolution_flags_keep_legacy_aliases() {
+        let stable = PagerArgs::try_parse_from(["grok", "--memory", "--evolution"]).unwrap();
+        assert!(stable.experimental_memory);
+        assert!(stable.experimental_evolution);
+
+        let legacy = PagerArgs::try_parse_from([
+            "grok",
+            "--experimental-memory",
+            "--experimental-evolution",
+        ])
+        .unwrap();
+        assert!(legacy.experimental_memory);
+        assert!(legacy.experimental_evolution);
+    }
     #[test]
     fn agent_plugin_dir_repeatable_and_canonicalized() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1560,9 +1584,7 @@ mod tests {
                 command: EvolutionCommand::ApproveRollout { confirm: true, .. },
             }))
         ));
-        assert!(
-            PagerArgs::try_parse_from(["grok", "evolution", "approve-rollout"]).is_err()
-        );
+        assert!(PagerArgs::try_parse_from(["grok", "evolution", "approve-rollout"]).is_err());
     }
 
     #[test]

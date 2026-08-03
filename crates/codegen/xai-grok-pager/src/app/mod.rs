@@ -297,7 +297,7 @@ pub use crate::render::draw::PagerTerminal;
 pub(crate) enum ScreenMode {
     Fullscreen,
     Inline,
-    /// Scrollback-native (experimental, `--minimal`): finalized blocks are
+    /// Scrollback-native (`--minimal`): finalized blocks are
     /// printed into the terminal's native scrollback via `insert_before`, with
     /// a small pinned live region for the prompt, status, and running turn.
     ///
@@ -313,7 +313,7 @@ impl ScreenMode {
     pub(crate) fn is_fullscreen(self) -> bool {
         matches!(self, Self::Fullscreen)
     }
-    /// Whether this is the experimental scrollback-native minimal mode.
+    /// Whether this is the scrollback-native minimal mode.
     pub(crate) fn is_minimal(self) -> bool {
         matches!(self, Self::Minimal)
     }

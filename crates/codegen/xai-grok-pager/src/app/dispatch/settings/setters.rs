@@ -364,6 +364,32 @@ pub(in crate::app::dispatch) fn set_remember_tool_approvals(
     }]
 }
 
+pub(super) fn set_todo_gate_inner(app: &mut AppView, new: bool) {
+    app.current_ui.todo_gate = Some(new);
+}
+
+/// SHELL-owned setter for the runtime TodoGate. The running session keeps its
+/// spawn-time policy; newly-created sessions pick up the persisted value.
+pub(in crate::app::dispatch) fn set_todo_gate(app: &mut AppView, new: bool) -> Vec<Effect> {
+    let prev_state = app.current_ui.todo_gate;
+    let prev_effective = prev_state.unwrap_or(false);
+    if prev_effective == new && prev_state.is_some() {
+        return vec![];
+    }
+    set_todo_gate_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(target: "settings", key = "todo_gate", value = new, "setting changed");
+    app.show_toast(&format!(
+        "{} (new sessions)",
+        save_success_toast("Todo completion gate", new),
+    ));
+    vec![Effect::PersistSetting {
+        key: "todo_gate",
+        value: crate::settings::SettingValue::Bool(new),
+        rollback_value: crate::settings::SettingValue::Bool(prev_effective),
+    }]
+}
+
 /// Mirror the just-written TOML value in `app` so the modal reflects it (the
 /// effective timeout is re-resolved shell-side at agent build).
 pub(super) fn set_ask_user_question_timeout_enabled_inner(app: &mut AppView, new: bool) {

@@ -1248,9 +1248,8 @@ pub(super) async fn run_session(
                                 .send(PersistenceMsg::CopyFile { one_shot: respond_to });
                         }
                         SessionCommand::IsBusy { respond_to } => {
-                            // "Any work pending?" — a running turn or queued
-                            // inputs. Consulted by the leader's idle-unload
-                            // decision. Cheap: a single state lock.
+                            // Actor-owned slice of SessionActivity. The
+                            // SessionHandle adds autonomous resource sources.
                             let busy = {
                                 let state = session.state.lock().await;
                                 state_is_busy(&state)

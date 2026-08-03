@@ -644,10 +644,16 @@ pub enum ToolOutput {
     EnterPlanMode(EnterPlanModeOutput),
     ExitPlanMode(ExitPlanModeOutput),
     AskUserQuestion(AskUserQuestionOutput),
+    ReportFindings(crate::implementations::grok_build::report_findings::ReportFindingsOutput),
+    NotebookEdit(crate::implementations::grok_build::notebook_edit::NotebookEditOutput),
+    CodeGraphExplore(crate::implementations::grok_build::codegraph_explore::CodeGraphExploreOutput),
+    ComputerUse(crate::implementations::grok_build::computer_use::ComputerUseOutput),
+    SendMessage(crate::implementations::grok_build::send_message::SendMessageOutput),
     Monitor(crate::implementations::grok_build::monitor::types::MonitorOutput),
     SchedulerCreate(crate::implementations::grok_build::scheduler::create::SchedulerCreateOutput),
     SchedulerDelete(crate::implementations::grok_build::scheduler::delete::SchedulerDeleteOutput),
     SchedulerList(crate::implementations::grok_build::scheduler::list::SchedulerListOutput),
+    ScheduleWakeup(crate::implementations::grok_build::schedule_wakeup::ScheduleWakeupOutput),
     UpdateGoal(crate::implementations::grok_build::update_goal::UpdateGoalOutput),
     Workflow(crate::implementations::grok_build::workflow::WorkflowToolOutput),
     Sleep(crate::implementations::grok_build::sleep::SleepOutput),
@@ -967,6 +973,50 @@ impl ToolOutput {
                 AskUserQuestionOutput::QuestionsSent { message, .. }
                 | AskUserQuestionOutput::UserAnswered { message },
             ) => message.clone(),
+            ToolOutput::ReportFindings(output) => {
+                format!(
+                    "Accepted {} structured review finding(s) at {:?} review level.",
+                    output.findings_count, output.level
+                )
+            }
+            ToolOutput::NotebookEdit(output) => format!(
+                "Notebook {} updated: {:?} cell {} ({} cells total).",
+                output.notebook_path, output.edit_mode, output.cell_id, output.cells_count
+            ),
+            ToolOutput::CodeGraphExplore(output) => {
+                if output.results.is_empty() {
+                    format!(
+                        "No {:?} found for symbol `{}`.",
+                        output.operation, output.query
+                    )
+                } else {
+                    let mut lines = vec![format!(
+                        "Found {} {:?} for symbol `{}`{}:",
+                        output.total_results,
+                        output.operation,
+                        output.query,
+                        if output.truncated {
+                            " (results truncated)"
+                        } else {
+                            ""
+                        }
+                    )];
+                    lines.extend(output.results.iter().map(|location| {
+                        match location.matched_symbol.as_deref() {
+                            Some(symbol) => {
+                                format!("{}:{} ({symbol})", location.path, location.line)
+                            }
+                            None => format!("{}:{}", location.path, location.line),
+                        }
+                    }));
+                    lines.join("\n")
+                }
+            }
+            ToolOutput::ComputerUse(output) => output.message.clone(),
+            ToolOutput::SendMessage(output) => format!(
+                "Message queued for {} (delivery id {}).",
+                output.recipient, output.message_id
+            ),
             ToolOutput::Monitor(o) => {
                 if o.persistent {
                     format!(
@@ -997,6 +1047,20 @@ impl ToolOutput {
                     "No scheduled tasks.".into()
                 } else {
                     serde_json::to_string_pretty(&o.tasks).unwrap_or_default()
+                }
+            }
+            ToolOutput::ScheduleWakeup(o) => {
+                if o.stopped {
+                    format!(
+                        "Wakeup {} cancelled.",
+                        o.task_id.as_deref().unwrap_or("unknown")
+                    )
+                } else {
+                    format!(
+                        "Wakeup scheduled in {} seconds (ID: {}).",
+                        o.delay_seconds,
+                        o.task_id.as_deref().unwrap_or("unknown")
+                    )
                 }
             }
             ToolOutput::UpdateGoal(o) => o.summary.clone(),

@@ -390,7 +390,7 @@ fn warn_unsupported_leader_flags(flags: &ConnectFlags) {
 fn unsupported_leader_flags(flags: &ConnectFlags) -> Vec<&'static str> {
     let mut out = Vec::new();
     if flags.experimental_memory {
-        out.push("--experimental-memory");
+        out.push("--memory");
     }
     if flags.no_memory {
         out.push("--no-memory");
@@ -1044,7 +1044,7 @@ mod tests {
         };
         let detected = unsupported_leader_flags(&flags);
         assert_eq!(detected.len(), 5);
-        assert!(detected.contains(&"--experimental-memory"));
+        assert!(detected.contains(&"--memory"));
         assert!(detected.contains(&"--no-memory"));
         assert!(detected.contains(&"--disable-web-search"));
         assert!(detected.contains(&"--storage-mode"));

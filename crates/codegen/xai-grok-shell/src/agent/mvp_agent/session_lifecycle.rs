@@ -398,8 +398,8 @@ impl MvpAgent {
             }
         });
     }
-    /// Coarse "any work pending" check for the idle-unload stub.
-    /// Returns `true` while the session has work in flight.
+    /// Aggregate "any work pending" check for idle-unload.
+    /// Returns `true` while the session has foreground or autonomous work.
     ///
     /// Three layers:
     /// 1. **Fast path (sync):** the shared `current_prompt_id` slot, which the
@@ -410,20 +410,10 @@ impl MvpAgent {
     ///    slot. The parked plan-approval resume re-park is the one outstanding work with no
     ///    running turn, so it needs its own sync check (the same shared-`Arc`
     ///    idiom as `current_prompt_id`) rather than the async round-trip below.
-    /// 2. **Queue check (async):** when no turn is running, the actor is between
-    ///    turns and responsive, so we ask it whether `pending_inputs` is
-    ///    non-empty (a prompt queued at the turn boundary). This closes the
-    ///    sub-tick window where `current_prompt_id` is momentarily `None` but a
-    ///    queued input is about to be drained. On timeout we keep the session
-    ///    resident (conservative).
-    ///
-    /// TODO(PR-4): once the aggregate `SessionActivity` signal exists, also
-    /// consult the autonomous background sources so a detached session is never
-    /// idle-unloaded (→ `Shutdown` → `KillOnDrop`) while they are live:
-    /// `monitor_event_buffer`, pending scheduler fires,
-    /// `ToolContext.background_tasks`, and background subagent sessions. Until
-    /// then those background-only sessions rely on the keep-resident default and
-    /// the `current_prompt_id` auto-wake turn being active.
+    /// 2. **Aggregate query (async):** the handle asks the actor about queued
+    ///    inputs/pending notifications, then checks monitor events, terminal
+    ///    tasks, session-owned subagents and scheduler tasks. On timeout we keep
+    ///    the session resident (conservative).
     ///
     /// TODO(PR-4): this is also inherently a *check-then-act* across the
     /// actor-thread boundary — work can arrive (a new `Prompt`/auto-wake) in the

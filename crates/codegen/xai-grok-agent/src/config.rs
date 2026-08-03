@@ -210,6 +210,21 @@ fn grok_computer_toolset() -> ToolServerConfig {
         behavior_preset: None,
     }
 }
+
+/// High-risk local computer-use variants. These are separate named presets so
+/// neither backend can become reachable through the default Grok Build preset.
+fn computer_use_toolset(mode: &str) -> ToolServerConfig {
+    let mut tools = default_grok_build_toolset().tools;
+    tools.push(
+        ToolConfig::for_tool::<grok_build::ComputerUseTool>()
+            .with_param("enabled", true)
+            .with_param("mode", mode),
+    );
+    ToolServerConfig {
+        tools,
+        behavior_preset: None,
+    }
+}
 /// Every named toolset preset, as `(normalized_name, config)` pairs.
 ///
 /// Single source of truth: [`toolset_for_preset`] resolves through this
@@ -225,6 +240,14 @@ fn native_toolset_presets() -> Vec<(&'static str, ToolServerConfig)> {
         ("explore", explore_toolset()),
         ("plan", plan_toolset()),
         ("grok-computer", grok_computer_toolset()),
+        (
+            "grok-build-computer-browser",
+            computer_use_toolset("browser"),
+        ),
+        (
+            "grok-build-computer-desktop",
+            computer_use_toolset("desktop"),
+        ),
     ]
 }
 /// Every named **public** toolset preset (native + externally registered public
@@ -270,12 +293,17 @@ fn default_grok_build_toolset() -> ToolServerConfig {
             (&grok_build::GrepTool).into(),
             kill_task_tool_config(),
             (&grok_build::TodoWriteTool).into(),
+            (&grok_build::ReportFindingsTool).into(),
+            (&grok_build::NotebookEditTool).into(),
+            (&grok_build::CodeGraphExploreTool).into(),
             task_output_tool_config(),
             wait_tasks_tool_config(),
             task_tool_config(),
+            (&grok_build::SendMessageTool).into(),
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
@@ -295,10 +323,14 @@ fn grok_build_concise_toolset() -> ToolServerConfig {
             (&grok_build::GrepTool).into(),
             kill_task_tool_config(),
             (&grok_build::TodoWriteTool).into(),
+            (&grok_build::ReportFindingsTool).into(),
+            (&grok_build::NotebookEditTool).into(),
+            (&grok_build::CodeGraphExploreTool).into(),
             task_output_tool_config(),
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             (&grok_build::UpdateGoalTool).into(),
             (&grok_build::WorkflowTool).into(),
@@ -320,13 +352,18 @@ pub fn grok_build_hashline_toolset(
         (&grok_build::ListDirTool).into(),
         kill_task_tool_config(),
         (&grok_build::TodoWriteTool).into(),
+        (&grok_build::ReportFindingsTool).into(),
+        (&grok_build::NotebookEditTool).into(),
+        (&grok_build::CodeGraphExploreTool).into(),
         task_output_tool_config(),
         wait_tasks_tool_config(),
         task_tool_config(),
+        (&grok_build::SendMessageTool).into(),
         (&grok_build::WebSearchTool).into(),
         (&grok_build::SchedulerCreateTool).into(),
         (&grok_build::SchedulerDeleteTool).into(),
         (&grok_build::SchedulerListTool).into(),
+        (&grok_build::ScheduleWakeupTool).into(),
         (&grok_build::MonitorTool).into(),
         (&search_tool::SearchTool).into(),
         (&use_tool::UseTool).into(),
@@ -409,9 +446,11 @@ fn grok_build_plan_toolset() -> ToolServerConfig {
             (&grok_build::TodoWriteTool).into(),
             task_output_tool_config(),
             task_tool_config(),
+            (&grok_build::SendMessageTool).into(),
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
@@ -441,6 +480,7 @@ fn orchestrator_toolset() -> ToolServerConfig {
             (&grok_build::GrepTool).into(),
             // Subagent orchestration
             task_tool_config(),
+            (&grok_build::SendMessageTool).into(),
             task_output_tool_config(),
             wait_tasks_tool_config(),
             kill_task_tool_config(),
@@ -458,6 +498,7 @@ fn orchestrator_toolset() -> ToolServerConfig {
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             // Web tools
             (&grok_build::WebSearchTool).into(),
@@ -497,6 +538,7 @@ fn grok_build_plan_no_subagents_toolset() -> ToolServerConfig {
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
@@ -527,9 +569,11 @@ fn grok_build_ask_user_toolset() -> ToolServerConfig {
             task_output_tool_config(),
             wait_tasks_tool_config(),
             task_tool_config(),
+            (&grok_build::SendMessageTool).into(),
             (&grok_build::SchedulerCreateTool).into(),
             (&grok_build::SchedulerDeleteTool).into(),
             (&grok_build::SchedulerListTool).into(),
+            (&grok_build::ScheduleWakeupTool).into(),
             (&grok_build::MonitorTool).into(),
             (&search_tool::SearchTool).into(),
             (&use_tool::UseTool).into(),
@@ -1380,6 +1424,8 @@ impl AgentDefinition {
         }
         if path_str.contains(".grok/bundled/agents/")
             || path_str.contains(".grok\\bundled\\agents\\")
+            || path_str.contains(".grok/tsp-bundled/agents/")
+            || path_str.contains(".grok\\tsp-bundled\\agents\\")
         {
             return AgentScope::Bundled;
         }
@@ -1707,6 +1753,8 @@ mod tests {
             "plan",
             "grok-computer",
             "grok_computer",
+            "grok-build-computer-browser",
+            "grok-build-computer-desktop",
         ] {
             assert!(
                 toolset_for_preset(name).is_some(),
@@ -1722,6 +1770,32 @@ mod tests {
         let explore = toolset_for_preset("explore").unwrap();
         assert!(explore.tools.len() < plan.tools.len());
         assert!(plan.tools.len() < gb.tools.len());
+    }
+
+    #[test]
+    fn computer_use_is_only_in_explicit_presets() {
+        let computer_use_id = ToolConfig::for_tool::<grok_build::ComputerUseTool>().id;
+        for preset in ["grok-build", "grok-build-concise", "grok-computer"] {
+            let toolset = toolset_for_preset(preset).unwrap();
+            assert!(
+                toolset.tools.iter().all(|tool| tool.id != computer_use_id),
+                "{preset} must not expose high-risk computer use"
+            );
+        }
+        for (preset, expected_mode) in [
+            ("grok-build-computer-browser", "browser"),
+            ("grok-build-computer-desktop", "desktop"),
+        ] {
+            let toolset = toolset_for_preset(preset).unwrap();
+            let tool = toolset
+                .tools
+                .iter()
+                .find(|tool| tool.id == computer_use_id)
+                .expect("explicit preset contains computer_use");
+            let params = tool.params.as_ref().expect("explicit params");
+            assert_eq!(params.get("enabled"), Some(&serde_json::json!(true)));
+            assert_eq!(params.get("mode"), Some(&serde_json::json!(expected_mode)));
+        }
     }
     fn grok_computer_exclusive_ids() -> Vec<String> {
         #[allow(unused_mut)]

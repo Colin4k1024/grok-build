@@ -25,6 +25,7 @@ url = { workspace = true }
 # macOS `__mic-capture` self-exec helper) — workspace rule: never spawn a raw
 # `std::process::Command`.
 xai-tty-utils = { workspace = true }
+xai-grok-workspace-types = { path = "../xai-grok-workspace-types" }
 
 [features]
 # `audio` = "microphone capture is compiled in". It's enabled on every OS for

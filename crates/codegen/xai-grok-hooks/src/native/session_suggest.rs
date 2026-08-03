@@ -91,6 +91,11 @@ impl NativeHook for SessionSuggest {
 
         // Complexity gate
         let count = self.tool_call_counter.load(Ordering::Relaxed);
+        tracing::debug!(
+            tool_call_count = count,
+            min_required = MIN_TOOL_CALLS,
+            "session-suggest: evaluating complexity gate"
+        );
         if count < MIN_TOOL_CALLS {
             return HookRunnerResult::Success;
         }

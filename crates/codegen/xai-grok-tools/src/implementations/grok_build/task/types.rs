@@ -466,6 +466,34 @@ pub struct SubagentLoopUnitActiveRequest {
     pub respond_to: oneshot::Sender<bool>,
 }
 
+/// Inter-agent message request. `caller_session_id` is injected by the
+/// session-bound backend and is never accepted from model input.
+#[derive(Educe)]
+#[educe(Debug)]
+pub struct SubagentMessageRequest {
+    pub caller_session_id: Option<String>,
+    pub target: String,
+    pub message: String,
+    #[educe(Debug(ignore))]
+    pub respond_to: oneshot::Sender<SubagentMessageOutcome>,
+}
+
+/// Authoritative delivery result from the coordinator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubagentMessageOutcome {
+    Delivered {
+        recipient: String,
+        message_id: String,
+    },
+    NotReady,
+    AlreadyFinished {
+        status: String,
+    },
+    SelfTarget,
+    NotFound,
+    Unavailable,
+}
+
 /// Point-in-time snapshot of a subagent's state.
 /// Returned by the coordinator in response to a `SubagentQueryRequest`.
 #[derive(Debug, Clone)]
@@ -847,6 +875,7 @@ pub struct SubagentDescribeRequest {
 pub enum SubagentEvent {
     Spawn(SubagentSpawnRequest),
     Query(SubagentQueryRequest),
+    SendMessage(SubagentMessageRequest),
     Cancel(SubagentCancelRequest),
     ListActive(SubagentListActiveRequest),
     ListRunning(SubagentListRunningRequest),

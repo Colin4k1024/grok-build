@@ -2,10 +2,21 @@ use std::time::Duration;
 
 use anyhow::{Result, bail};
 use xai_file_utils::storage_client::StorageClient;
+use xai_grok_workspace_types::{RuntimeCapabilityState, RuntimeCapabilityStatus};
 
 use crate::agent::session_registry_client::{SessionRecord, SessionRegistryClient};
 
-const UNAVAILABLE: &str = "Remote session restore is not available in this build";
+const UNAVAILABLE: &str =
+    "remote session restore is not compiled into this source distribution; the registry archive adapter is absent";
+
+pub fn capability_status() -> RuntimeCapabilityStatus {
+    RuntimeCapabilityStatus::unavailable(
+        "remote_session_restore",
+        RuntimeCapabilityState::NotCompiled,
+        false,
+        UNAVAILABLE,
+    )
+}
 
 #[derive(Debug)]
 pub struct RestoreResult {
@@ -186,7 +197,7 @@ pub async fn apply_session_state_download(
     _session_id: &str,
     _target_cwd: &str,
 ) -> (SessionStateRestoreResult, String) {
-    (SessionStateRestoreResult::skipped(), String::new())
+    (SessionStateRestoreResult::skipped(), UNAVAILABLE.to_string())
 }
 
 pub fn format_session_line(r: &SessionRecord) -> String {
@@ -211,4 +222,17 @@ pub async fn apply_session_state_in_place(
     _target_cwd: &str,
 ) -> SessionStateRestoreResult {
     SessionStateRestoreResult::skipped()
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+
+    #[test]
+    fn restore_stub_reports_not_compiled() {
+        let status = capability_status();
+        assert_eq!(status.state, RuntimeCapabilityState::NotCompiled);
+        assert!(!status.compiled_in);
+        assert!(!status.available);
+    }
 }

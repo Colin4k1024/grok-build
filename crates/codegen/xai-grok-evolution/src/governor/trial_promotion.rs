@@ -198,7 +198,7 @@ fn now_epoch() -> i64 {
         .as_secs() as i64
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-support"))]
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -310,7 +310,6 @@ mod tests {
     // TrialExecution needs to be imported from engine
     use crate::engine::TrialExecution;
 
-    #[cfg(feature = "test-support")]
     #[test]
     fn promotion_after_required_successes() {
         let store = EvolutionStore::open_memory().unwrap();
@@ -371,7 +370,6 @@ mod tests {
         assert_eq!(exp.state, ExperienceState::Active);
     }
 
-    #[cfg(feature = "test-support")]
     #[test]
     fn executor_failure_aborts_and_does_not_promote() {
         let store = EvolutionStore::open_memory().unwrap();
@@ -433,7 +431,6 @@ mod tests {
         assert_eq!(exp.state, ExperienceState::Candidate);
     }
 
-    #[cfg(feature = "test-support")]
     #[test]
     fn validation_failure_records_neutral_not_helped() {
         let store = EvolutionStore::open_memory().unwrap();

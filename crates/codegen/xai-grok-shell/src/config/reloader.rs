@@ -92,7 +92,7 @@ pub struct ConfigReloader {
     auth_scope: String,
     remote_settings: Option<crate::util::config::RemoteSettings>,
     config_update_tx: mpsc::UnboundedSender<ConfigUpdate>,
-    /// Whether --experimental-memory was passed at startup. Persists across config reloads.
+    /// Whether --memory was passed at startup. Persists across config reloads.
     experimental_memory: bool,
     /// Whether --no-memory was passed at startup. Persists across config reloads.
     no_memory: bool,

@@ -762,7 +762,7 @@ pub struct MvpAgent {
     /// [`Self::sync_collection_config_gate`] on every mid-session
     /// `remote_settings` rewrite.
     pub(crate) trace_upload_live: Arc<std::sync::atomic::AtomicBool>,
-    /// Memory system configuration (None when --experimental-memory not set).
+    /// Memory system configuration (None when memory is disabled).
     memory_config: Option<crate::config::MemoryConfig>,
     /// Optional channel to the leader's `ConfigFileWatcher` for dynamic
     /// per-cwd registration as new sessions open. Each

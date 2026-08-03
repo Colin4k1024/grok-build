@@ -1087,6 +1087,22 @@ impl SessionActor {
                     subagent_type: self.subagent_type_label(),
                 },
             );
+            if let Some(xai_grok_hooks::result::HookDecision::Deny { reason, hook_name }) =
+                xai_grok_hooks::dispatcher::dispatch_native_pre_tool_use(
+                    &self.native_hooks,
+                    &envelope,
+                )
+            {
+                return Ok(Err(self
+                    .deny_tool(
+                        &call.id,
+                        &tool_call_id,
+                        resolved_tool_name.clone(),
+                        hook_name,
+                        reason,
+                    )
+                    .await?));
+            }
             let hook_registry_snapshot = self.hook_registry.borrow().clone();
             if let Some(registry) = hook_registry_snapshot {
                 let ctx = self.hook_run_ctx();
@@ -1127,15 +1143,24 @@ impl SessionActor {
                 return Ok(Err(denied));
             }
         }
-        // TODO: Guardian review integration point (see session/guardian/)
-        // if let Some(guardian) = &self.guardian_reviewer {
-        //     if guardian::classifier::needs_guardian_review(&resolved_tool_name, &raw_input) {
-        //         let verdict = guardian.review(&resolved_tool_name, &raw_input).await;
-        //         if verdict.outcome == GuardianOutcome::Deny {
-        //             return Ok(Err(/* tool denial */));
-        //         }
-        //     }
-        // }
+        if crate::session::guardian::needs_guardian_review(&resolved_tool_name, &raw_input) {
+            let config = crate::session::guardian::GuardianConfig::default();
+            if config.enabled {
+                let guardian = crate::session::guardian::GuardianReviewer::new(config);
+                let verdict = guardian.review(&resolved_tool_name, &raw_input).await;
+                if verdict.outcome == crate::session::guardian::GuardianOutcome::Deny {
+                    return Ok(Err(self
+                        .deny_tool(
+                            &call.id,
+                            &tool_call_id,
+                            resolved_tool_name.clone(),
+                            "guardian".to_string(),
+                            verdict.reasoning,
+                        )
+                        .await?));
+                }
+            }
+        }
 
         let plan_file_auto_approve = if let AccessKind::Edit(ref path) = access_kind {
             self.plan_mode

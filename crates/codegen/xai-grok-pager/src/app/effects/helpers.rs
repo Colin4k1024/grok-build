@@ -1064,6 +1064,14 @@ pub(crate) async fn persist_setting(
                 .await
                 .map_err(|e| e.to_string())
         }
+        "todo_gate" => {
+            let SettingValue::Bool(b) = value else {
+                return Err(kind_mismatch("todo_gate", "Bool", &value));
+            };
+            xai_grok_shell::util::config::set_todo_gate(b)
+                .await
+                .map_err(|e| e.to_string())
+        }
         "toolset.ask_user_question.timeout_enabled" => {
             let SettingValue::Bool(b) = value else {
                 return Err(

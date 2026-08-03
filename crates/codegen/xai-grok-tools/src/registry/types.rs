@@ -693,12 +693,22 @@ impl ToolRegistryBuilder {
         b.register::<grok_build::KillTaskTool>();
         b.register::<grok_build::KillTerminalCommandTool>();
         b.register::<grok_build::TodoWriteTool>();
+        b.register::<grok_build::ReportFindingsTool>();
+        b.register::<grok_build::NotebookEditTool>();
+        b.register::<grok_build::CodeGraphExploreTool>();
+        // Known to the registry for explicit tool configurations only. No
+        // built-in preset selects it, and its params default to disabled.
+        b.register_with_params::<
+            grok_build::ComputerUseTool,
+            grok_build::computer_use::ComputerUseParams,
+        >();
         b.register::<grok_build::UpdateGoalTool>();
         b.register::<grok_build::WorkflowTool>();
         b.register::<grok_build::TaskOutputTool>();
         b.register::<grok_build::GetTerminalCommandOutputTool>();
         b.register::<grok_build::WaitTasksTool>();
         b.register::<grok_build::TaskTool>();
+        b.register::<grok_build::SendMessageTool>();
         b.register::<grok_build::WebSearchTool>();
         b.register_with_params::<grok_build::WebFetchTool, grok_build::web_fetch::WebFetchParams>();
         b.register::<grok_build::LspTool>();
@@ -719,6 +729,7 @@ impl ToolRegistryBuilder {
         b.register::<grok_build::SchedulerCreateTool>();
         b.register::<grok_build::SchedulerDeleteTool>();
         b.register::<grok_build::SchedulerListTool>();
+        b.register::<grok_build::ScheduleWakeupTool>();
         b.register::<codex::apply_patch::ApplyPatchTool>();
         b.register::<codex::list_dir::CodexListDirTool>();
         b.register::<codex::grep_files::CodexGrepFilesTool>();
@@ -763,6 +774,7 @@ impl ToolRegistryBuilder {
                 grok_build_hashline::config::HashlineSchemeParams,
             >();
         b.register_reminder(crate::reminders::LspDiagnosticsReminder);
+        b.register_reminder(crate::reminders::ReadFileReminder);
         b.register_reminder(crate::reminders::TaskCompletionReminder);
         b.register_reminder(SkillDiscoveryReminder);
         for pack in tool_packs().lock().iter() {
@@ -2173,6 +2185,7 @@ mod tests {
             auth_provider: None,
             attribution_callback: None,
             system_reminder_tag: crate::reminders::DEFAULT_REMINDER_TAG,
+            hunk_tracker_handle: None,
         }
     }
     /// Regression test: `kind_params` must merge input params from ALL tools

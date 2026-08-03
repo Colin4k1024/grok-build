@@ -39,15 +39,11 @@ pub fn sanitize_command(command: &str) -> String {
     result
 }
 
-pub struct CommandLog {
-    tool_call_counter: std::sync::Arc<std::sync::atomic::AtomicU32>,
-}
+pub struct CommandLog;
 
 impl CommandLog {
-    pub fn new(counter: std::sync::Arc<std::sync::atomic::AtomicU32>) -> Self {
-        Self {
-            tool_call_counter: counter,
-        }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -65,10 +61,6 @@ impl NativeHook for CommandLog {
     }
 
     fn execute(&self, envelope: &HookEventEnvelope) -> HookRunnerResult {
-        // Increment shared tool call counter for session complexity tracking
-        self.tool_call_counter
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         let command = match &envelope.payload {
             HookPayload::PostToolUse { tool_input, .. } => {
                 tool_input.get("command").and_then(|v| v.as_str()).unwrap_or("?")

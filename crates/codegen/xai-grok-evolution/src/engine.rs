@@ -324,7 +324,7 @@ impl EvolutionEngine {
             .as_ref()
             .is_some_and(|p| !p.trim().is_empty());
         if !has_patch {
-            return self.solidify_observational(run_id, config, &candidate, &selection_context);
+            return self.solidify_observational(run_id, &candidate, &selection_context);
         }
 
         let spec = trial_spec(&candidate, config);
@@ -645,7 +645,6 @@ impl EvolutionEngine {
     fn solidify_observational(
         &self,
         run_id: &str,
-        config: &EvolutionConfig,
         candidate: &ExperienceCandidate,
         selection_context: &SelectionContext,
     ) -> Result<EngineRunResult, EvolutionError> {

@@ -655,6 +655,7 @@ pub fn current_value_for(
         "remember_tool_approvals" => Some(SettingValue::Bool(
             ui.remember_tool_approvals.unwrap_or(false),
         )),
+        "todo_gate" => Some(SettingValue::Bool(ui.todo_gate.unwrap_or(false))),
         // ask_user_question timeout: reflects the effective TOML merge; the
         // toggle writes the user layer, and env/remote settings tiers feed the
         // final gate at agent build. None → the resolver-shared default (ON).
@@ -961,6 +962,13 @@ mod tests {
                         *default,
                         ui.remember_tool_approvals.unwrap_or(false),
                         "remember_tool_approvals default drifts from UiConfig::default()"
+                    );
+                }
+                ("todo_gate", SettingKind::Bool { default }) => {
+                    assert_eq!(
+                        *default,
+                        ui.todo_gate.unwrap_or(false),
+                        "todo_gate default drifts from UiConfig::default()"
                     );
                 }
                 // ask_user_question timeout: no UiConfig mirror (lives under

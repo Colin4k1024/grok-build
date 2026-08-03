@@ -462,6 +462,16 @@ impl ChildControl for ShellChildRuntime {
         });
         let _ = self.child_handle.cmd_tx.send(SessionCommand::Shutdown);
     }
+    fn send_message(&self, message: String, message_id: String) -> bool {
+        self.child_handle
+            .cmd_tx
+            .send(SessionCommand::Interject {
+                text: message,
+                id: Some(message_id),
+                images: Vec::new(),
+            })
+            .is_ok()
+    }
 }
 #[derive(Default)]
 pub(crate) struct ShellCompletionData {

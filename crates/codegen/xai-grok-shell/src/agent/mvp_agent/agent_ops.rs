@@ -2026,8 +2026,8 @@ impl MvpAgent {
     ///   on reconnect — and crucially does **not** finalize the cloud replica
     ///   (the session remains resumable via `session/load`).
     ///
-    /// The "live work" check is the coarse PR-2 stub (`session_has_live_work`);
-    /// the full `SessionActivity` signal lands in PR-4.
+    /// The "live work" check uses the aggregate SessionActivity query; any
+    /// unavailable/slow source conservatively keeps the session resident.
     pub(super) async fn handle_evict_sessions(
         &self,
         params: &serde_json::value::RawValue,

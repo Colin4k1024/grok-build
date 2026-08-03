@@ -207,6 +207,9 @@ pub async fn resume_session_in_worktree(
             req.session_id,
         )
     })?;
+    crate::session::restore::capability_status()
+        .ensure_available()
+        .map_err(anyhow::Error::msg)?;
     tracing::info!(
         session_id = %req.session_id,
         "Restoring remote session: creating worktree first to keep source clean"
@@ -454,6 +457,9 @@ pub async fn rehydrate_session_in_worktree(
             warnings: vec![],
         });
     }
+    crate::session::restore::capability_status()
+        .ensure_available()
+        .map_err(anyhow::Error::msg)?;
     if !worktree_path.exists() {
         tracing::info!(session_id = %req.session_id, %worktree_path_str, "rehydrate: creating worktree");
         if let Some(parent) = worktree_path.parent() {

@@ -13,7 +13,7 @@ Without memory, each Grok session starts fresh: the model knows nothing about pr
 - Carry architectural decisions forward across sessions.
 - Avoid re-asking questions it already has answers to.
 
-Memory is experimental and disabled by default.
+Memory is opt-in and disabled by default.
 
 ---
 
@@ -22,7 +22,7 @@ Memory is experimental and disabled by default.
 ### Per-Session Flag
 
 ```bash
-grok --experimental-memory
+grok --memory
 ```
 
 ### Environment Variable
@@ -72,7 +72,7 @@ You can also toggle from inside the `/memory` modal by pressing `t`.
 ### Priority Order
 
 1. `--no-memory` CLI flag (always disables)
-2. `--experimental-memory` CLI flag (enables)
+2. `--memory` CLI flag (enables; `--experimental-memory` remains a compatibility alias)
 3. `GROK_MEMORY` env var: `1`/`true` enables, `0`/`false` disables
 4. `[memory]` section in config.toml
 5. Default: disabled
@@ -451,7 +451,7 @@ enabled = true    # default
 ### Memory Not Working
 
 1. Verify memory is enabled: check `grok inspect` output.
-2. Check the flag: `grok --experimental-memory` or `GROK_MEMORY=1`.
+2. Check the flag: `grok --memory` or `GROK_MEMORY=1`.
 3. Check for `--no-memory` or `GROK_MEMORY=0` overriding your config.
 
 ### Memory Not Appearing in Sessions

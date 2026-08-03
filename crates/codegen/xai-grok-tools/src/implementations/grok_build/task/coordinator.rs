@@ -26,9 +26,9 @@ use super::coordinator_state::{
 };
 use super::types::{
     SpawnedSubagentRef, SubagentCancelOutcome, SubagentCancelTarget, SubagentDescribeOutcome,
-    SubagentEvent, SubagentOutstandingReply, SubagentOwner, SubagentRegistryCounts,
-    SubagentRequest, SubagentResult, SubagentResumeLookup, SubagentResumeSource,
-    SubagentValidateTypeOutcome,
+    SubagentEvent, SubagentMessageOutcome, SubagentMessageRequest, SubagentOutstandingReply,
+    SubagentOwner, SubagentRegistryCounts, SubagentRequest, SubagentResult, SubagentResumeLookup,
+    SubagentResumeSource, SubagentValidateTypeOutcome,
 };
 
 pub use super::coordinator_state::{
@@ -283,6 +283,7 @@ impl<R: ChildRunner> SubagentCoordinator<R> {
                     query.respond_to,
                 );
             }
+            SubagentEvent::SendMessage(request) => self.handle_send_message(request),
             SubagentEvent::Cancel(request) => match request.target {
                 SubagentCancelTarget::SubagentId(id) => {
                     let outcome = self.cancel_one(&id, request.parent_session_id.as_deref(), true);
@@ -495,6 +496,91 @@ impl<R: ChildRunner> SubagentCoordinator<R> {
                 let _ = request.respond_to.send(is_active);
             }
         }
+    }
+
+    fn handle_send_message(&self, request: SubagentMessageRequest) {
+        let Some(caller_session_id) = request.caller_session_id.as_deref() else {
+            let _ = request.respond_to.send(SubagentMessageOutcome::Unavailable);
+            return;
+        };
+
+        // Child backends are bound to the child session id. Normalize that id
+        // to the root parent scope; a root session is already its own scope.
+        let caller_child = self.active.values().find(|child| {
+            child.child_session_id == caller_session_id || child.request.id == caller_session_id
+        });
+        let (root_parent_id, caller_subagent_id) = match caller_child {
+            Some(child) => (
+                child.request.parent_session_id.as_str(),
+                Some(child.request.id.as_str()),
+            ),
+            None => (caller_session_id, None),
+        };
+        let message_id = uuid::Uuid::now_v7().to_string();
+
+        if request.target.eq_ignore_ascii_case("main") {
+            let outcome = if caller_subagent_id.is_none() {
+                SubagentMessageOutcome::SelfTarget
+            } else if self.runner.send_to_parent(
+                root_parent_id,
+                request.message,
+                message_id.clone(),
+            ) {
+                SubagentMessageOutcome::Delivered {
+                    recipient: "main".to_owned(),
+                    message_id,
+                }
+            } else {
+                SubagentMessageOutcome::Unavailable
+            };
+            let _ = request.respond_to.send(outcome);
+            return;
+        }
+
+        let target = request.target.as_str();
+        if caller_subagent_id == Some(target) {
+            let _ = request.respond_to.send(SubagentMessageOutcome::SelfTarget);
+            return;
+        }
+        if let Some(child) = self.active.values().find(|child| {
+            child.request.parent_session_id == root_parent_id
+                && (child.request.id == target || child.child_session_id == target)
+        }) {
+            let outcome = if caller_subagent_id == Some(child.request.id.as_str()) {
+                SubagentMessageOutcome::SelfTarget
+            } else if child
+                .control
+                .send_message(request.message, message_id.clone())
+            {
+                SubagentMessageOutcome::Delivered {
+                    recipient: child.request.id.clone(),
+                    message_id,
+                }
+            } else {
+                SubagentMessageOutcome::Unavailable
+            };
+            let _ = request.respond_to.send(outcome);
+            return;
+        }
+        if self.pending.values().any(|child| {
+            child.request.parent_session_id == root_parent_id && child.request.id == target
+        }) {
+            let _ = request.respond_to.send(SubagentMessageOutcome::NotReady);
+            return;
+        }
+        if let Some(child) = self.completed.values().find(|child| {
+            child.request.parent_session_id == root_parent_id
+                && (child.request.id == target || child.child_session_id == target)
+        }) {
+            let _ = request
+                .respond_to
+                .send(SubagentMessageOutcome::AlreadyFinished {
+                    status: child.result.status().to_owned(),
+                });
+            return;
+        }
+        // Missing and foreign-session ids intentionally share one response.
+        let _ = request.respond_to.send(SubagentMessageOutcome::NotFound);
     }
 
     fn handle_internal(&mut self, event: InternalEvent<R::Control>) {

@@ -487,7 +487,7 @@ pub fn dispatch_native_pre_tool_use(
             continue;
         }
         if let Some(matcher) = hook.matcher() {
-            if match_value.map_or(true, |v| v != matcher) {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
                 continue;
             }
         }
@@ -507,13 +507,16 @@ pub fn dispatch_native_observers(
     envelope: &HookEventEnvelope,
 ) {
     let event = envelope.hook_event_name;
+    if matches!(event, HookEventName::PreToolUse | HookEventName::Stop) {
+        return;
+    }
     let match_value = envelope.payload.match_value();
     for hook in native_hooks {
         if hook.event() != event {
             continue;
         }
         if let Some(matcher) = hook.matcher() {
-            if match_value.map_or(true, |v| v != matcher) {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
                 continue;
             }
         }
@@ -534,7 +537,7 @@ pub fn dispatch_native_stop(
             continue;
         }
         if let Some(matcher) = hook.matcher() {
-            if match_value.map_or(true, |v| v != matcher) {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
                 continue;
             }
         }

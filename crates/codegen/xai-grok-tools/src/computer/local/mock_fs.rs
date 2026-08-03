@@ -70,6 +70,14 @@ impl AsyncFileSystem for MockFs {
         Ok(())
     }
 
+    async fn write_file_atomic(&self, path: &Path, data: &[u8]) -> Result<(), ComputerError> {
+        self.files
+            .write()
+            .await
+            .insert(path.to_path_buf(), data.to_vec());
+        Ok(())
+    }
+
     async fn delete_file(&self, path: &Path) -> Result<(), ComputerError> {
         self.files.write().await.remove(path);
         Ok(())

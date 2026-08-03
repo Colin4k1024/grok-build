@@ -54,6 +54,19 @@ pub trait AsyncFileSystem: Send + Sync {
 
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<(), ComputerError>;
 
+    /// Atomically replace `path` with `data`, leaving the original untouched
+    /// if preparing or committing the replacement fails.
+    ///
+    /// Remote adapters must opt in explicitly. The default fails closed so a
+    /// structured file such as a notebook is never exposed to a partial write.
+    async fn write_file_atomic(&self, path: &Path, data: &[u8]) -> Result<(), ComputerError> {
+        let _ = data;
+        Err(ComputerError::io(format!(
+            "atomic writes are not supported by this filesystem for {}",
+            path.display()
+        )))
+    }
+
     async fn delete_file(&self, path: &Path) -> Result<(), ComputerError>;
 }
 

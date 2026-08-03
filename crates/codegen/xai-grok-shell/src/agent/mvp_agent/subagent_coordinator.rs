@@ -127,6 +127,26 @@ impl xai_grok_tools::implementations::grok_build::task::coordinator::ChildRunner
         let gateway = self.agent_ref.get().gateway.clone();
         crate::agent::subagent::present_child_completion(completion, &gateway);
     }
+    fn send_to_parent(&self, parent_session_id: &str, message: String, message_id: String) -> bool {
+        let parent_sid = acp::SessionId::new(parent_session_id.to_owned());
+        let handle = self
+            .agent_ref
+            .get()
+            .sessions
+            .borrow()
+            .get(&parent_sid)
+            .cloned();
+        handle.is_some_and(|handle| {
+            handle
+                .cmd_tx
+                .send(crate::session::SessionCommand::Interject {
+                    text: message,
+                    id: Some(message_id),
+                    images: Vec::new(),
+                })
+                .is_ok()
+        })
+    }
     fn running_count_changed(&self, running: usize) {
         self.agent_ref
             .get()

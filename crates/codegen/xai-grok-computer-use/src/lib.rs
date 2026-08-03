@@ -12,4 +12,4 @@ pub mod error;
 pub mod types;
 
 pub use error::ComputerUseError;
-pub use types::{Action, Coordinate, Screenshot, ScreenSize};
+pub use types::{Action, Coordinate, ScreenSize, Screenshot};

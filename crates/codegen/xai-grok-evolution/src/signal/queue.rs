@@ -38,11 +38,9 @@ impl SignalQueue {
     ///
     /// Returns `Err(signals)` if the queue is full (backpressure).
     pub fn try_enqueue(&self, signals: Vec<EvolutionSignal>) -> Result<(), Vec<EvolutionSignal>> {
-        self.tx.try_send(signals).map_err(|e| {
-            match e {
-                mpsc::error::TrySendError::Full(signals) => signals,
-                mpsc::error::TrySendError::Closed(signals) => signals,
-            }
+        self.tx.try_send(signals).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(signals) => signals,
+            mpsc::error::TrySendError::Closed(signals) => signals,
         })
     }
 

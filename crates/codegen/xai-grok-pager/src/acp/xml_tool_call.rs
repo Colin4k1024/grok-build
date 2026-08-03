@@ -35,7 +35,11 @@ pub fn split_at_end(text: &str) -> (&str, Option<&str>) {
         let end = pos + END_TAG.len();
         let after = if end < text.len() {
             let tail = &text[end..];
-            if tail.trim().is_empty() { None } else { Some(tail) }
+            if tail.trim().is_empty() {
+                None
+            } else {
+                Some(tail)
+            }
         } else {
             None
         };
@@ -154,9 +158,18 @@ mod tests {
     fn parse_full_tool_call() {
         let parsed = parse(SAMPLE).unwrap();
         assert_eq!(parsed.function_name, "run_terminal_command");
-        assert_eq!(parsed.parameters.get("description").unwrap(), "Read all untracked new files for review");
+        assert_eq!(
+            parsed.parameters.get("description").unwrap(),
+            "Read all untracked new files for review"
+        );
         assert_eq!(parsed.parameters.get("timeout").unwrap(), "30000");
-        assert!(parsed.parameters.get("command").unwrap().contains("cd /Users/fanjia"));
+        assert!(
+            parsed
+                .parameters
+                .get("command")
+                .unwrap()
+                .contains("cd /Users/fanjia")
+        );
     }
 
     #[test]

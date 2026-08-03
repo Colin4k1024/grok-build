@@ -45,6 +45,40 @@ pub use probe::{
 /// on this so a no-audio build never advertises a mic it can't open.
 pub const AUDIO_SUPPORTED: bool = cfg!(feature = "audio");
 
+/// Runtime status for microphone capture. Unlike [`AUDIO_SUPPORTED`], this
+/// distinguishes a feature-disabled build from a missing Linux recorder or a
+/// platform/device failure.
+pub fn capture_capability_status() -> xai_grok_workspace_types::RuntimeCapabilityStatus {
+    use xai_grok_workspace_types::{RuntimeCapabilityState, RuntimeCapabilityStatus};
+
+    #[cfg(not(feature = "audio"))]
+    {
+        RuntimeCapabilityStatus::unavailable(
+            "voice_capture",
+            RuntimeCapabilityState::NotCompiled,
+            false,
+            "voice capture is not compiled into this binary (the `audio` feature is disabled)",
+        )
+    }
+    #[cfg(feature = "audio")]
+    {
+        match input_device_info() {
+            Ok(_) => RuntimeCapabilityStatus::available("voice_capture"),
+            Err(error) => {
+                let reason = error.to_string();
+                let state = if cfg!(target_os = "linux")
+                    && reason.contains("no microphone recorder found on PATH")
+                {
+                    RuntimeCapabilityState::DependencyMissing
+                } else {
+                    RuntimeCapabilityState::RuntimeUnavailable
+                };
+                RuntimeCapabilityStatus::unavailable("voice_capture", state, true, reason)
+            }
+        }
+    }
+}
+
 /// Hidden subcommand consumers re-exec themselves with to capture microphone
 /// audio in a short-lived helper process (macOS; see
 /// [`audio::capture_subprocess`](audio) for why capture is out of process).
@@ -117,5 +151,18 @@ mod intercept_tests {
             "chat",
             "__mic-capture"
         ])));
+    }
+
+    #[test]
+    fn capability_status_matches_compile_time_audio_flag() {
+        let status = capture_capability_status();
+        assert_eq!(status.compiled_in, AUDIO_SUPPORTED);
+        if !AUDIO_SUPPORTED {
+            assert!(!status.available);
+            assert_eq!(
+                status.state,
+                xai_grok_workspace_types::RuntimeCapabilityState::NotCompiled
+            );
+        }
     }
 }

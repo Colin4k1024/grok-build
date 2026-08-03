@@ -975,6 +975,7 @@ mod tests {
             turn_input_tokens: 0,
             turn_output_tokens: 0,
             turn_cached_input_tokens: 0,
+            turn_diff_summary: None,
         };
 
         let delta = snapshot_to_turn_delta(

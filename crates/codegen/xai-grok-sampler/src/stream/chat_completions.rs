@@ -332,9 +332,12 @@ pub fn stream_chat_completions<'a>(
     }
 }
 
-/// Deduplicate tool calls with the same name — keep the entry with the longest
-/// (most complete) arguments. Guards against models that emit a valid tool call
-/// followed by a trailing duplicate with empty or minimal arguments.
+/// Deduplicate retransmissions of the same provider call ID.
+///
+/// Tool name is deliberately not used as an identity: parallel tool calls are
+/// allowed to invoke the same function more than once with different inputs.
+/// Calls without an ID are preserved because there is no safe way to prove
+/// that they are duplicates.
 fn dedup_tool_calls(calls: Vec<ToolCall>) -> Vec<ToolCall> {
     if calls.len() <= 1 {
         return calls;
@@ -348,7 +351,7 @@ fn dedup_tool_calls(calls: Vec<ToolCall>) -> Vec<ToolCall> {
             if !keep[j] {
                 continue;
             }
-            if calls[i].name == calls[j].name {
+            if !calls[i].id.is_empty() && calls[i].id == calls[j].id {
                 if calls[i].arguments.len() > calls[j].arguments.len() {
                     keep[j] = false;
                 } else {
@@ -378,6 +381,47 @@ mod tests {
 
     fn rid() -> RequestId {
         RequestId::from("test-req")
+    }
+
+    fn tool_call(id: &str, name: &str, arguments: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.to_owned(),
+            arguments: arguments.into(),
+        }
+    }
+
+    #[test]
+    fn same_name_parallel_tool_calls_are_preserved() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("call_1", "read_file", r#"{"path":"a"}"#),
+            tool_call("call_2", "read_file", r#"{"path":"b"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id.as_ref(), "call_1");
+        assert_eq!(calls[1].id.as_ref(), "call_2");
+    }
+
+    #[test]
+    fn retransmitted_call_id_keeps_most_complete_arguments() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("call_1", "read_file", "{}"),
+            tool_call("call_1", "read_file", r#"{"path":"a"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].arguments.as_ref(), r#"{"path":"a"}"#);
+    }
+
+    #[test]
+    fn calls_without_ids_are_not_merged() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("", "read_file", r#"{"path":"a"}"#),
+            tool_call("", "read_file", r#"{"path":"b"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 2);
     }
 
     fn make_chunk(deltas: Vec<ChatChunkDelta>) -> ChatCompletionChunk {
