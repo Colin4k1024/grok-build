@@ -521,6 +521,34 @@ pub fn dispatch_native_observers(
     }
 }
 
+/// Run native Stop hooks and collect their outcomes.
+/// Returns accumulated stop signals (additional_context, block_reason, etc.).
+pub fn dispatch_native_stop(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) -> StopDispatchResult {
+    let mut out = StopDispatchResult::default();
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != HookEventName::Stop {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.map_or(true, |v| v != matcher) {
+                continue;
+            }
+        }
+        if let HookRunnerResult::Stop(outcome) = hook.execute(envelope) {
+            out.absorb(hook.name(), StopSignals {
+                block_reason: outcome.block_reason,
+                stop_reason: outcome.force_stop.map(|fs| fs.reason.unwrap_or_default()),
+                additional_context: outcome.additional_context,
+            });
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
