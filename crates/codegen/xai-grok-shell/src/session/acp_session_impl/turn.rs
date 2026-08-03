@@ -2584,6 +2584,13 @@ impl SessionActor {
                 );
             }
             let mut tool_calls = response.tool_calls().to_vec();
+            if tool_calls.len() > 1 {
+                tracing::warn!(
+                    count = tool_calls.len(),
+                    names = ?tool_calls.iter().map(|tc| tc.name.as_str()).collect::<Vec<_>>(),
+                    "Multiple tool calls in single response"
+                );
+            }
             metrics_drop_guard.record_model_response(tool_calls.len());
             if let Some(fp) = response
                 .assistant()

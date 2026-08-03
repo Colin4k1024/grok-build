@@ -279,6 +279,7 @@ pub fn stream_chat_completions<'a>(
                 arguments: std::sync::Arc::<str>::from(arguments),
             })
             .collect();
+        let tool_calls = dedup_tool_calls(tool_calls);
 
         // Honor tool calls by overriding the stop reason if the model
         // forgot to set it (mirrors the shell's behavior).
@@ -329,6 +330,40 @@ pub fn stream_chat_completions<'a>(
             metrics,
         };
     }
+}
+
+/// Deduplicate tool calls with the same name — keep the entry with the longest
+/// (most complete) arguments. Guards against models that emit a valid tool call
+/// followed by a trailing duplicate with empty or minimal arguments.
+fn dedup_tool_calls(calls: Vec<ToolCall>) -> Vec<ToolCall> {
+    if calls.len() <= 1 {
+        return calls;
+    }
+    let mut keep = vec![true; calls.len()];
+    for i in 1..calls.len() {
+        if !keep[i] {
+            continue;
+        }
+        for j in 0..i {
+            if !keep[j] {
+                continue;
+            }
+            if calls[i].name == calls[j].name {
+                if calls[i].arguments.len() > calls[j].arguments.len() {
+                    keep[j] = false;
+                } else {
+                    keep[i] = false;
+                }
+                break;
+            }
+        }
+    }
+    let deduped: Vec<ToolCall> = calls
+        .into_iter()
+        .zip(keep.iter())
+        .filter_map(|(call, &k)| k.then_some(call))
+        .collect();
+    deduped
 }
 
 #[cfg(test)]
