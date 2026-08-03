@@ -4,6 +4,7 @@
 //! being streamed to (agent message, thinking) and which tool calls are pending.
 //! Each `handle_update()` call processes one event and mutates the scrollback.
 use crate::acp::meta::{NotificationMeta, user_message_chunk_meta, user_prompt_meta};
+use crate::acp::xml_tool_call;
 use crate::scrollback::block::RenderBlock;
 use crate::scrollback::blocks::SessionEvent;
 use crate::scrollback::blocks::tool::list_dir::ListDirToolCallBlock;
@@ -261,6 +262,11 @@ pub struct AcpUpdateTracker {
     ///
     /// Value is the optional description from `raw_input.description`.
     pub(crate) bg_deferred_tools: std::collections::HashMap<String, Option<String>>,
+    /// Buffer for accumulating partial XML tool_call text across chunks.
+    /// When a `<tool_call>` start tag is detected in agent message text but
+    /// `</tool_call>` hasn't arrived yet, we buffer here until the full XML
+    /// is available, then parse and render as a ToolCallBlock card.
+    xml_tool_call_buf: Option<String>,
     /// Last seen `stream_start_ms` from notification meta.
     /// When this changes, a new LLM streaming response has started — we
     /// finish any in-flight thinking/agent-message entries so the next
@@ -861,6 +867,7 @@ impl AcpUpdateTracker {
         self.blocking_waits.clear();
         self.orphan_updates.clear();
         self.skip_next_skill_body = false;
+        self.xml_tool_call_buf = None;
     }
     /// Finish the current thinking block, passing elapsed time to the entry.
     ///
@@ -928,6 +935,53 @@ impl AcpUpdateTracker {
         if text.is_empty() {
             return false;
         }
+
+        // --- XML tool_call interception ---
+
+        // Case 1: Already buffering a partial XML tool call
+        if let Some(buf) = &mut self.xml_tool_call_buf {
+            buf.push_str(&text);
+            if xml_tool_call::has_tool_call_end(buf) {
+                let full = self.xml_tool_call_buf.take().unwrap();
+                let (tc_text, tail) = xml_tool_call::split_at_end(&full);
+                self.emit_xml_tool_call_block(tc_text, scrollback);
+                if let Some(trailing) = tail {
+                    self.push_text_to_agent(trailing, meta, scrollback);
+                }
+            }
+            return true;
+        }
+
+        // Case 2: Check if this chunk starts (or contains) a tool_call
+        if xml_tool_call::has_tool_call_start(&text) {
+            let (before, from_tag) = xml_tool_call::split_at_start(&text);
+            if let Some(prefix) = before {
+                self.push_text_to_agent(prefix, meta, scrollback);
+            }
+            let tag_text = from_tag.unwrap();
+            if xml_tool_call::has_tool_call_end(tag_text) {
+                let (tc_text, tail) = xml_tool_call::split_at_end(tag_text);
+                self.emit_xml_tool_call_block(tc_text, scrollback);
+                if let Some(trailing) = tail {
+                    self.push_text_to_agent(trailing, meta, scrollback);
+                }
+            } else {
+                self.xml_tool_call_buf = Some(tag_text.to_string());
+            }
+            return true;
+        }
+
+        // Case 3: Normal text
+        self.push_text_to_agent(&text, meta, scrollback)
+    }
+
+    /// Push normal text to the current agent message block.
+    fn push_text_to_agent(
+        &mut self,
+        text: &str,
+        meta: &NotificationMeta,
+        scrollback: &mut ScrollbackState,
+    ) -> bool {
         if self.current_agent_msg.is_none() && text.trim().is_empty() {
             tracing::warn!(
                 text = %text.escape_debug(),
@@ -948,9 +1002,30 @@ impl AcpUpdateTracker {
             entry.created_at = Some(utc_ms_to_local(ts_ms));
         }
         if meta.is_replay {
-            scrollback.push_chunk_to_agent_deferred(id, &text)
+            scrollback.push_chunk_to_agent_deferred(id, text)
         } else {
-            scrollback.push_chunk_to_agent(id, &text)
+            scrollback.push_chunk_to_agent(id, text)
+        }
+    }
+
+    /// Parse an XML tool_call and insert a styled ToolCallBlock into scrollback.
+    fn emit_xml_tool_call_block(&mut self, xml: &str, scrollback: &mut ScrollbackState) {
+        if let Some(parsed) = xml_tool_call::parse(xml) {
+            let summary = parsed
+                .parameters
+                .get("command")
+                .or_else(|| parsed.parameters.get("file_path"))
+                .or_else(|| parsed.parameters.get("pattern"))
+                .or_else(|| parsed.parameters.get("query"))
+                .or_else(|| parsed.parameters.values().next())
+                .map(|v| v.chars().take(120).collect::<String>())
+                .unwrap_or_default();
+            let block = ToolCallBlock::from_name(&parsed.function_name, summary);
+            // Finish any open agent message before inserting the tool block
+            if let Some(agent_id) = self.current_agent_msg.take() {
+                scrollback.finish_running(agent_id);
+            }
+            scrollback.push_block(RenderBlock::ToolCall(block));
         }
     }
     /// Handle an agent thought chunk (streaming thinking).

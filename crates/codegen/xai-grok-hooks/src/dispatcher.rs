@@ -1,6 +1,7 @@
 use crate::config::HookSpec;
 use crate::discovery::HookRegistry;
 use crate::event::{HookEventEnvelope, HookEventName};
+use crate::native::NativeHook;
 use crate::result::{HookDecision, HookRunResult};
 use crate::runner::{self, GateKind, HookRunnerResult, RunContext};
 
@@ -471,6 +472,53 @@ fn record_dispatch_counts(span: &tracing::Span, results: &[HookRunResult]) {
 /// local-only events (`PreToolUse`).
 pub fn hub_hook_kind(event: HookEventName) -> Option<String> {
     event.traits().hub_forward.then(|| format!("hook.{event}"))
+}
+
+// --- Native hook dispatch ---
+
+/// Run native PreToolUse hooks. Returns `Deny` on first match, `Allow` otherwise.
+pub fn dispatch_native_pre_tool_use(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) -> Option<HookDecision> {
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != HookEventName::PreToolUse {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.map_or(true, |v| v != matcher) {
+                continue;
+            }
+        }
+        if let HookRunnerResult::Decision(decision @ HookDecision::Deny { .. }) =
+            hook.execute(envelope)
+        {
+            return Some(decision);
+        }
+    }
+    None
+}
+
+/// Run native observer hooks (PostToolUse, SessionStart, SessionEnd, etc.).
+/// All run unconditionally; results are ignored (observers).
+pub fn dispatch_native_observers(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) {
+    let event = envelope.hook_event_name;
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != event {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.map_or(true, |v| v != matcher) {
+                continue;
+            }
+        }
+        let _ = hook.execute(envelope);
+    }
 }
 
 #[cfg(test)]

@@ -10,28 +10,31 @@ pub fn extract_builtin_files(grok_home: &std::path::Path) {
     let version = xai_grok_version::VERSION;
     let marker = grok_home.join(".metadata_version");
 
-    if let Ok(existing) = std::fs::read_to_string(&marker)
-        && existing.trim() == version
-    {
-        return;
-    }
+    let grok_version_changed = match std::fs::read_to_string(&marker) {
+        Ok(existing) if existing.trim() == version => false,
+        _ => true,
+    };
 
-    let _ = std::fs::create_dir_all(grok_home);
+    if grok_version_changed {
+        let _ = std::fs::create_dir_all(grok_home);
 
-    // Clean up cached changelog files from previous version so
-    // /release-notes fetches fresh content for the new version.
-    for stale in &["CHANGELOG.json", "CHANGELOG.md"] {
-        let _ = std::fs::remove_file(grok_home.join(stale));
-    }
-
-    for &(filename, content) in BUILTIN_FILES {
-        if let Err(e) = std::fs::write(grok_home.join(filename), content) {
-            tracing::debug!(error = %e, filename, "Failed to extract built-in file");
+        for stale in &["CHANGELOG.json", "CHANGELOG.md"] {
+            let _ = std::fs::remove_file(grok_home.join(stale));
         }
+
+        for &(filename, content) in BUILTIN_FILES {
+            if let Err(e) = std::fs::write(grok_home.join(filename), content) {
+                tracing::debug!(error = %e, filename, "Failed to extract built-in file");
+            }
+        }
+
+        let _ = std::fs::write(&marker, version);
+        tracing::debug!(version, "Extracted built-in files");
     }
 
-    let _ = std::fs::write(&marker, version);
-    tracing::debug!(version, "Extracted built-in files");
+    // TSP bundle has its own version tracking — always check regardless of
+    // whether grok's version changed, so TSP updates take effect independently.
+    crate::tsp_bundle::extract_tsp_bundle_if_needed();
 }
 
 #[cfg(test)]

@@ -42,5 +42,6 @@ pub(crate) mod test_support;
 pub mod tier;
 pub mod tools;
 pub mod trace_classifier;
+pub mod tsp_bundle;
 pub mod upload;
 pub mod util;
