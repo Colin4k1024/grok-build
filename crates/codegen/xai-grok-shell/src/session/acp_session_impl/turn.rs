@@ -2591,6 +2591,31 @@ impl SessionActor {
                     "Multiple tool calls in single response"
                 );
             }
+            // Fix: when the model emits tool calls with empty arguments but
+            // puts the actual parameters in the content as XML <tool_call>,
+            // extract arguments from the XML and fill them in.
+            let assistant_content = response.assistant_text();
+            if !assistant_content.is_empty() {
+                for tc in &mut tool_calls {
+                    let args_empty = tc.arguments.is_empty()
+                        || tc.arguments.as_ref().trim() == "{}"
+                        || tc.arguments.as_ref().trim().is_empty();
+                    if args_empty {
+                        if let Some(parsed) =
+                            crate::session::helpers::xml_tool_call_recovery::extract_args_for_tool(
+                                &assistant_content,
+                                &tc.name,
+                            )
+                        {
+                            tracing::info!(
+                                tool = %tc.name,
+                                "Recovered tool arguments from XML content"
+                            );
+                            tc.arguments = std::sync::Arc::from(parsed);
+                        }
+                    }
+                }
+            }
             metrics_drop_guard.record_model_response(tool_calls.len());
             if let Some(fp) = response
                 .assistant()
