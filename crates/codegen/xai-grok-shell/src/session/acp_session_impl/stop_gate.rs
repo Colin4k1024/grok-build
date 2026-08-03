@@ -368,10 +368,15 @@ impl SessionActor {
         }
         if blocks.is_empty() {
             for context in additional_context {
-                self.send_hook_annotation(&format!(
-                    "\u{21a9} Stop hook feedback, continuing: {context}"
-                ))
-                .await;
+                if context.starts_with("[internal:") {
+                    self.send_hook_annotation("\u{21a9} Continuing (session analysis)")
+                        .await;
+                } else {
+                    self.send_hook_annotation(&format!(
+                        "\u{21a9} Stop hook feedback, continuing: {context}"
+                    ))
+                    .await;
+                }
             }
         }
     }

@@ -16,20 +16,12 @@ use super::NativeHook;
 const MIN_TOOL_CALLS: u32 = 3;
 const MAX_DAILY_SUGGESTS: u32 = 3;
 
-const SUGGEST_PROMPT: &str = "\
-回顾本次对话，如果存在以下任何一种可复用模式，请在回复末尾用简短分隔区域提示用户：
-
-1. 重复的多步骤工作流 → 可提取为 Skill（建议运行 /learn）
-2. 特定领域的角色+工具组合 → 可提取为独立 Agent（~/.grok/agents/name.md）
-3. 频繁使用的命令序列 → 可提取为 Hook 或自定义命令
-
-格式：
----
-💡 本次对话发现可复用模式：
-- [模式描述] → /learn 提取为 skill
-- [角色描述] → 创建为 agent
-
-如果没有明显可提取的模式，不要输出此区域。";
+const SUGGEST_PROMPT: &str = "[internal:session-suggest] Before finishing, analyze this \
+conversation for reusable patterns. If you find: (1) multi-step workflows repeated or \
+generalizable, (2) domain-specific role+tool combinations, (3) command sequences that could \
+be automated — append a brief suggestion starting with '---' and 💡, listing each pattern \
+and whether to use /learn (skill) or create an agent file (~/.grok/agents/name.md). \
+Keep it under 4 lines. If nothing is extractable, output nothing extra.";
 
 pub struct SessionSuggest {
     tool_call_counter: Arc<AtomicU32>,
