@@ -237,13 +237,21 @@ pub fn stream_chat_completions<'a>(
                         }
                     }
 
-                    yield SamplingEvent::ToolCallDelta {
-                        request_id: request_id.clone(),
-                        tool_index: tc_delta.index,
-                        id: id_for_event,
-                        name: name_for_event,
-                        arguments_delta: args_for_event,
-                    };
+                    // Skip empty deltas (no id, no name, no args) — some models
+                    // emit spurious empty tool_call entries that would create
+                    // ghost tool calls downstream.
+                    if id_for_event.is_some()
+                        || name_for_event.is_some()
+                        || args_for_event.is_some()
+                    {
+                        yield SamplingEvent::ToolCallDelta {
+                            request_id: request_id.clone(),
+                            tool_index: tc_delta.index,
+                            id: id_for_event,
+                            name: name_for_event,
+                            arguments_delta: args_for_event,
+                        };
+                    }
                 }
             }
 
@@ -264,6 +272,7 @@ pub fn stream_chat_completions<'a>(
         // ── Build the final response ─────────────────────────────────
         let tool_calls: Vec<ToolCall> = tool_call_acc
             .into_values()
+            .filter(|(_, name, _)| !name.is_empty())
             .map(|(id, name, arguments)| ToolCall {
                 id: std::sync::Arc::<str>::from(id),
                 name,
