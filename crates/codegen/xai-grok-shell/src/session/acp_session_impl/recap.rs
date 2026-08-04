@@ -691,17 +691,93 @@ impl SessionActor {
 
     /// Generate a suggested follow-up question based on the conversation
     /// context and emit it as a notification to the pager.
+    /// Tries LLM-powered suggestion first, falls back to heuristics.
     pub(super) async fn emit_suggested_question(&self) {
+        use crate::session::helpers::prompt_suggest;
+
         let conversation = self.chat_state_handle.get_conversation().await;
-        if let Some(question) =
-            crate::session::helpers::prompt_suggest::suggested_question(&conversation)
-        {
-            self.send_xai_notification(
-                crate::extensions::notification::SessionUpdate::SuggestedQuestions {
-                    questions: vec![question],
-                },
-            )
-            .await;
+
+        // Try LLM-powered suggestion (same model as ghost text)
+        let llm_suggestion = self.generate_llm_suggested_question(&conversation).await;
+
+        let question = if let Some(q) = llm_suggestion {
+            q
+        } else {
+            // Fallback to heuristic
+            match prompt_suggest::suggested_question(&conversation) {
+                Some(q) => q,
+                None => return,
+            }
+        };
+
+        self.send_xai_notification(
+            crate::extensions::notification::SessionUpdate::SuggestedQuestions {
+                questions: vec![question],
+            },
+        )
+        .await;
+    }
+
+    /// LLM-powered next-step suggestion. Returns None if model unavailable or fails.
+    async fn generate_llm_suggested_question(
+        &self,
+        conversation: &[ConversationItem],
+    ) -> Option<String> {
+        use crate::session::helpers::prompt_suggest;
+
+        let pin = self.models_manager.prompt_suggest_model_pin();
+        let model = prompt_suggest::effective_suggest_model(&pin, None, |m| {
+            self.models_manager.model_in_catalog(m)
+        })?;
+
+        let transcript = prompt_suggest::build_transcript(conversation)?;
+
+        let sampling_client = self.prepare_chat_completion(false).await.ok()?;
+
+        let items = vec![
+            ConversationItem::system(prompt_suggest::SUGGESTED_QUESTION_SYSTEM.to_owned()),
+            ConversationItem::user(prompt_suggest::suggest_question_user_message(&transcript)),
+        ];
+
+        let request = ConversationRequest {
+            items,
+            tools: vec![],
+            model: Some(model),
+            temperature: None,
+            x_grok_conv_id: Some(format!("suggestq-{}", uuid::Uuid::new_v4())),
+            x_grok_req_id: Some(format!("xai-suggestq-{}", uuid::Uuid::new_v4())),
+            x_grok_session_id: Some(self.session_info.id.to_string()),
+            x_grok_agent_id: Some(xai_grok_telemetry::id::agent_id()),
+            ..Default::default()
+        };
+
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            sampling_client.conversation_collect(request),
+        )
+        .await
+        .ok()?
+        .ok()?;
+
+        let raw = response.assistant_text();
+        let line = raw.trim().lines().next()?.trim();
+
+        // Reject meta/none responses
+        let lowered = line.to_ascii_lowercase();
+        if lowered == "none" || lowered == "n/a" || line.is_empty() || line.len() > 50 {
+            return None;
         }
+
+        // Strip quotes
+        let cleaned = line
+            .trim_start_matches(['"', '\'', '`'])
+            .trim_end_matches(['"', '\'', '`'])
+            .trim();
+
+        if cleaned.is_empty() {
+            return None;
+        }
+
+        Some(cleaned.to_owned())
     }
 }

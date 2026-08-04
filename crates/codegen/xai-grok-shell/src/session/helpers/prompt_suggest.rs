@@ -584,21 +584,57 @@ mod tests {
     }
 }
 
-/// Generate a follow-up question suggestion from the conversation.
-/// Extracts the last assistant message and user query to create a
-/// natural follow-up question.
+/// System prompt for generating coding-agent follow-up suggestions.
+/// Unlike ghost-text prediction (what user WILL type), this generates
+/// what the user SHOULD consider doing next — actionable next steps.
+pub(crate) const SUGGESTED_QUESTION_SYSTEM: &str = "\
+You are a coding agent assistant. After each turn, suggest ONE actionable next step the user might want to take.
+
+CONTEXT: You see the last few exchanges between a user and a coding agent (which can read/write files, run bash, search code, etc).
+
+RULES:
+1. Suggest a concrete, actionable next step — not a vague question
+2. Match the workflow stage:
+   - After writing code → suggest testing, linting, or committing
+   - After fixing a bug → suggest verifying the fix or running regression tests
+   - After reading/searching code → suggest a specific action based on findings
+   - After running tests with failures → suggest fixing the specific failure
+   - After a successful task completion → suggest the logical next task
+   - After an error → suggest a specific debugging step
+3. Keep it under 50 characters, imperative voice
+4. Use the user's language (Chinese if they write Chinese, English if English)
+5. Be specific: \"run cargo test\" beats \"run tests\"; \"commit these changes\" beats \"continue\"
+6. NEVER suggest what was just done — always the NEXT step
+7. If the agent asked a yes/no question, suggest the likely answer
+
+Reply with ONLY the suggestion text. No quotes, no explanation.
+Reply NONE if no obvious next step exists.";
+
+/// Build the user message for suggested-question LLM call.
+pub(crate) fn suggest_question_user_message(transcript: &str) -> String {
+    format!(
+        "Recent conversation:\n\n{transcript}\n\n\
+         What should the user do next? Reply with ONE short actionable suggestion."
+    )
+}
+
+/// Generate a follow-up suggestion from the conversation using context-aware heuristics.
+/// This is the fast path (no LLM call) — produces decent suggestions for common patterns.
 pub fn suggested_question(
     conversation: &[xai_grok_sampling_types::ConversationItem],
 ) -> Option<String> {
     let mut last_user = String::new();
     let mut last_assistant = String::new();
-    let mut last_tool = String::new();
+    let mut tools_used: Vec<String> = Vec::new();
+    let mut had_error = false;
+    let mut user_lang_chinese = false;
 
     for item in conversation.iter().rev() {
         match item {
             xai_grok_sampling_types::ConversationItem::User(_) => {
                 if last_user.is_empty() {
                     last_user = item.text_content();
+                    user_lang_chinese = last_user.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
                 }
             }
             xai_grok_sampling_types::ConversationItem::Assistant(a) => {
@@ -608,8 +644,10 @@ pub fn suggested_question(
                         last_assistant = text.to_string();
                     }
                 }
-                if last_tool.is_empty() && !a.tool_calls.is_empty() {
-                    last_tool = a.tool_calls[0].name.clone();
+                for tc in &a.tool_calls {
+                    if tools_used.len() < 5 {
+                        tools_used.push(tc.name.clone());
+                    }
                 }
             }
             _ => {}
@@ -623,36 +661,62 @@ pub fn suggested_question(
         return None;
     }
 
-    // Generate a contextual follow-up question
-    let q = if !last_tool.is_empty() {
-        match last_tool.as_str() {
-            "run_terminal_command" | "Bash" => "检查刚才执行的命令结果是否正确？",
-            "grep" | "search" => "需要进一步分析搜索结果吗？",
-            "read_file" | "Read" => "需要对读取的文件进行修改吗？",
-            "search_replace" | "edit" | "Write" => "修改完成，需要验证或测试吗？",
-            "spawn_subagent" | "task" => "子任务完成了吗，需要查看结果吗？",
-            "web_search" => "需要进一步搜索相关信息吗？",
-            "web_fetch" => "需要对获取的内容做进一步处理吗？",
-            _ => "需要继续完善这个任务吗？",
-        }
-        .to_string()
-    } else if last_assistant.contains("?") || last_assistant.contains("吗") || last_assistant.contains("？") {
-        // Assistant asked a question - suggest a response
-        last_assistant
-            .lines()
-            .filter(|l| l.contains("?"))
-            .last()
-            .map(|l| l.trim().trim_start_matches(|c: char| c == '-' || c == '*').trim().to_string())
-            .unwrap_or_else(|| "继续对话".to_string())
-    } else {
-        // Extract a topic from the last user message
-        let topic = last_user.chars().take(60).collect::<String>();
-        if topic.len() > 10 {
-            format!("关于「{}」还有其他问题吗？", topic)
+    // Detect error signals
+    let assistant_lower = last_assistant.to_lowercase();
+    had_error = assistant_lower.contains("error")
+        || assistant_lower.contains("failed")
+        || assistant_lower.contains("panic")
+        || assistant_lower.contains("cannot")
+        || assistant_lower.contains("失败")
+        || assistant_lower.contains("错误");
+
+    // Detect completion signals
+    let is_completed = assistant_lower.contains("completed")
+        || assistant_lower.contains("done")
+        || assistant_lower.contains("finished")
+        || assistant_lower.contains("完成")
+        || assistant_lower.contains("已创建")
+        || assistant_lower.contains("已修复");
+
+    // Detect the agent asking a question
+    let agent_asks = last_assistant.ends_with('?')
+        || last_assistant.ends_with('？')
+        || last_assistant.contains("是否")
+        || last_assistant.contains("需要我");
+
+    // Context-aware suggestion generation
+    let suggestion = if agent_asks {
+        // Agent asked something — suggest the likely positive response
+        if user_lang_chinese { "是的，继续" } else { "yes, proceed" }
+    } else if had_error {
+        // Error occurred — suggest debugging
+        if tools_used.iter().any(|t| t == "Bash" || t == "run_terminal_command") {
+            if user_lang_chinese { "查看完整错误日志" } else { "show the full error log" }
         } else {
-            "还有其他需要帮助的吗？".to_string()
+            if user_lang_chinese { "分析并修复这个错误" } else { "fix this error" }
         }
+    } else if is_completed {
+        // Task completed — suggest next logical step based on what was done
+        let wrote_code = tools_used.iter().any(|t| {
+            t == "Write" || t == "Edit" || t == "search_replace" || t == "write_file"
+        });
+        let ran_tests = tools_used.iter().any(|t| t == "Bash" || t == "run_terminal_command")
+            && (last_user.contains("test") || assistant_lower.contains("test"));
+
+        if wrote_code && !ran_tests {
+            if user_lang_chinese { "运行测试验证修改" } else { "run tests to verify" }
+        } else if ran_tests {
+            if user_lang_chinese { "提交这些更改" } else { "commit these changes" }
+        } else {
+            if user_lang_chinese { "继续下一个任务" } else { "continue to next task" }
+        }
+    } else if tools_used.iter().any(|t| t == "Read" || t == "read_file" || t == "Grep" || t == "grep") {
+        // Just read/searched — suggest action based on findings
+        if user_lang_chinese { "根据分析结果进行修改" } else { "make changes based on findings" }
+    } else {
+        // Generic fallback — but still actionable
+        if user_lang_chinese { "继续" } else { "continue" }
     };
 
-    Some(q)
+    Some(suggestion.to_string())
 }
