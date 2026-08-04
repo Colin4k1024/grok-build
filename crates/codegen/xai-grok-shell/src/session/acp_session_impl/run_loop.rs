@@ -527,6 +527,10 @@ pub(super) async fn run_session(
                         }
                         // Dream: attempt consolidation at session end
                         session.maybe_run_dream().await;
+                        // Auto-skillify: attempt to extract replayable skills
+                        if !session.startup_hints.is_subagent {
+                            session.maybe_auto_skillify().await;
+                        }
                         // Structured telemetry after dream so counters are populated
                         let telem = session.memory.telemetry_snapshot();
                         session.emit_memory_session_summary(&telem, total_chunks_at_end, session_end_result);

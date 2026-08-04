@@ -162,6 +162,43 @@ impl SessionActor {
             .await;
     }
 
+    /// Run auto-skillify at session end: analyze the completed session
+    /// and automatically extract replayable skills without user intervention.
+    /// High-confidence extractions are written directly to ~/.grok/skills/auto/;
+    /// medium-confidence drafts go to ~/.grok/skills/draft/ for review.
+    pub(super) async fn maybe_auto_skillify(&self) {
+        let signals = match self.signals_handle().snapshot().await {
+            Some(s) => s,
+            None => return,
+        };
+        if signals.tool_call_count < 3 {
+            return;
+        }
+
+        let conversation = self.chat_state_handle.get_conversation().await;
+        let (tool_calls, user_messages) =
+            crate::session::auto_skillify::build_tool_summary(&conversation);
+        let output_dir = xai_grok_config::grok_home().join("skills");
+
+        match crate::session::auto_skillify::run_pipeline(
+            &tool_calls,
+            &user_messages,
+            &output_dir,
+        ) {
+            Some(skill) => {
+                tracing::info!(
+                    name = %skill.name,
+                    confidence = %skill.confidence,
+                    auto_approved = skill.auto_approved,
+                    "auto-skillify: skill extracted"
+                );
+            }
+            None => {
+                tracing::debug!("auto-skillify: no skill extracted");
+            }
+        }
+    }
+
     /// Run dream from `/dream` slash command, bypassing time/session gates.
     pub(super) async fn run_dream_slash_command(&self) {
         use crate::session::memory::dream_lock::sessions_since;
