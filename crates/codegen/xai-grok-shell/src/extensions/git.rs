@@ -337,10 +337,13 @@ pub async fn handle(
             super::to_raw_response(&response)
         }
         "x.ai/git/serialize_changes" => {
-            let _ = (args, ops);
-            to_ext_response::<()>(Err(anyhow::anyhow!(
-                "git serialize_changes is unavailable in this build"
-            )))
+            let req =
+                parse_params::<xai_grok_workspace::workspace_ops::GitCollectChangesReq>(args)?;
+            let response = ops
+                .dispatch(&req, None)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()));
+            to_ext_response(response)
         }
         "x.ai/git/status" => {
             let req = parse_params::<GitStatusRequest>(args)?;

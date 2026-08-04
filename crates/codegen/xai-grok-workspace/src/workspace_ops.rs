@@ -471,11 +471,13 @@ impl WorkspaceOp for GitCollectChangesReq {
         _ws: &WorkspaceHandle,
         _session_id: Option<&str>,
     ) -> WorkspaceResult<Self::Response> {
-        {
-            return Err(WorkspaceError::HubError(
-                "git collect changes is unavailable in this build".to_string(),
-            ));
-        }
+        let req = self.clone();
+        tokio::task::spawn_blocking(move || crate::git_collect::collect(&req))
+            .await
+            .map_err(|error| {
+                WorkspaceError::HubError(format!("git collector task failed: {error}"))
+            })?
+            .map_err(|error| WorkspaceError::HubError(error.to_string()))
     }
 }
 #[async_trait]

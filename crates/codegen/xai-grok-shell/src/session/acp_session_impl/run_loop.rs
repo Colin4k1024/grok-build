@@ -412,6 +412,7 @@ pub(super) async fn run_session(
                     }
                     let (turn_succeeded, suppress_goal_continuation, infra_pause_message) =
                         SessionActor::post_turn_goal_degradation_plan(&result);
+                    let completed_prompt_id = prompt_id.clone();
                     session.handle_completion(prompt_id, result).await;
                     // Drain any monitor events that were routed to the mid-turn buffer
                     // but arrived after the turn ended (race between is_turn_active and buffer push).
@@ -455,7 +456,7 @@ pub(super) async fn run_session(
                     {
                         let s = session.clone();
                         tokio::task::spawn_local(async move {
-                            s.maybe_fire_laziness_check().await;
+                            s.maybe_fire_laziness_check_for_prompt(Some(completed_prompt_id)).await;
                         });
                     }
                 }

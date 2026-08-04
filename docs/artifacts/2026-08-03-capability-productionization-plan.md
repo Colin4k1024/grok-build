@@ -22,8 +22,8 @@
 - **已完成：P2 两项。** SendMessage 已接入 session-bound coordinator 与 shell interjection；ScheduleWakeup 已复用 scheduler actor，并接入 durable one-shot occurrence receipt。
 - **已完成：稳定入口。** Memory 使用 `--memory`，Evolution 使用 `--evolution`，旧 experimental 参数保留为兼容别名；Minimal 已移除实验文案。
 - **已完成：P3 ComputerUse。** 浏览器使用真实 CDP WebSocket，桌面后端有严格 capability probe；工具默认关闭，仅由显式 browser/desktop 预设启用，并进入现有高风险权限与审计链路。
-- **保持隔离：P3 外部服务空壳。** DeployApp、remote restore、Devbox login、git change serialization 和 voice platform stub 在具备真实 adapter/capability status 前不进入可执行入口。
-- **待后续阶段：Laziness diagnostics。** 当前仍是 observation-only 的调试路径，需完成脱敏、轮转和受控配置后才算稳定诊断能力。
+- **已完成：P3 外部依赖矩阵。** Git change serialization 已接入本地 libgit2 adapter；Voice 可报告编译与设备/依赖状态；DeployApp、remote restore、Devbox login 因当前源码不含私有 adapter，保持 fail-fast 隔离并返回明确 `not_compiled` 原因。`grok capabilities [--json]` 提供统一检查入口。
+- **已完成：Laziness diagnostics。** 默认关闭；可通过 `[diagnostics.laziness]` 显式启用，兼容 `--laziness-debug-log`。版本化 JSONL 只保留分类、计数、耗时、长度和进程加盐的域分离指纹，不落盘原始会话/Todo/模型/证据/输出/错误文本；日志限制为 4 MiB 并保留 3 份归档。
 
 ## 能力清单与优先级
 
@@ -40,7 +40,8 @@
 | P2（完成） | SendMessage | 只校验和格式化 | session-bound backend 发往单写 coordinator；精确解析 subagent id/`main`，Shell 统一进入 Interject 队列并返回 message ID | 不存在、初始化中、已完成、自投递分别明确失败；入队可追踪；外国 session 与不存在目标同形失败 |
 | P2（完成） | ScheduleWakeup | 只计算 delay | 作为现有 scheduler actor 的 durable one-shot 前台任务；支持 task ID 删除，并在 fire 前持久化 occurrence receipt | 到点只产生一次真实 wake；删除后不触发；正常 fire 清 receipt；恢复时抑制旧任务且不重放不确定 wake |
 | P3（完成） | ComputerUse | 工具只校验；browser CDP 返回空数据；crate 未接线 | 已完成真实 CDP transport、隔离 Chrome profile、平台 capability probe、typed I/O、权限/审计与显式预设 | 本机真实 Chrome CDP 截图通过；高风险动作进入权限判定；默认预设不暴露；不支持平台返回明确原因 |
-| P3 | DeployApp / remote restore / Devbox login / git change serialization / voice platform stub | 构建裁剪或依赖私有服务 | 为每项定义 feature/build matrix；能本地替代的接 adapter，必须依赖服务的提供 capability status | 二进制能准确报告 compiled-in/available/reason；任何 stub 不返回假成功 |
+| P3（完成） | DeployApp / remote restore / Devbox login / git change serialization / voice platform | 构建裁剪或依赖私有服务 | 统一 `RuntimeCapabilityStatus`；Git 使用本地 libgit2 收集 commit/dirty/untracked/binary 数据；Voice 做运行时输入探测；三个私有 adapter fail-fast | `grok capabilities --json` 准确报告 compiled-in/available/reason；Git extension 可真实序列化；任何 stub 不返回假成功 |
+| P3（完成） | Laziness diagnostics | 一次性 debug path 未接 CLI、明文记录敏感上下文、文件无限增长 | 默认关闭的 `[diagnostics.laziness]`、兼容 CLI、版本化脱敏 schema、串行有界轮转与私有文件权限 | 配置与 CLI 优先级可测；敏感源文本不出现在 JSONL；父目录自动创建；4 MiB/3 归档；保持 observation-only |
 
 ## 实验接口稳定化
 
@@ -49,7 +50,7 @@
 | Cross-session Memory | 提供稳定 `--memory` / config 入口，保留关闭开关 | `--experimental-memory` 保留一段版本周期并标记 deprecated |
 | Evolution | 完成 P0 信号闭环后提供稳定 `--evolution`，shadow ORIS adapter 不作为生产执行器 | 旧 flag 作为别名；autonomous 模式无 worker 时失败关闭 |
 | Minimal TUI | 移除“实验”文案，固定渲染/输入/恢复测试矩阵 | `--minimal` 名称不变 |
-| Laziness diagnostics | 从一次性 debug path 升级为受控 diagnostics 配置，日志轮转并脱敏 | 旧 CLI path 保留，默认仍 observation-only |
+| Laziness diagnostics | **已完成。** `[diagnostics.laziness] enabled = true`，可选 `path`；默认写入 `~/.grok/logs/laziness.jsonl` | 旧 `--laziness-debug-log <path>` 保留并优先于配置；能力默认关闭，启用后仍 observation-only |
 
 ## 分阶段实施
 
@@ -79,15 +80,19 @@
 - **ComputerUse 已完成。** 浏览器后端通过页面级 CDP WebSocket 执行并校验 protocol response，不再返回空数据；每个进程使用临时独立 profile，保持 Chromium sandbox，不读取用户 profile。桌面后端只在 macOS `screencapture + cliclick` 或 Linux/X11 `scrot + xdotool` 和真实屏幕尺寸探测均通过时可用，不再假设 `1920×1080`。
 - ComputerUse 进入 typed registry，但 params 默认 `enabled=false`，且不在默认工具集；只有 `grok-build-computer-browser` / `grok-build-computer-desktop` 显式预设设置 `enabled=true`。除 capability probe 外的动作映射到高风险权限路径，审批/审计摘要只记录动作名和目标 host，不记录 typed text 或 key 内容。
 - 验证：mock CDP request/response 与错误传播 3 项通过；本机真实 Chrome CDP PNG 截图通过；ComputerUse 工具测试 5 项、权限映射 2 项、显式预设隔离 1 项通过；`xai-grok-tools` 全量 2889 passed、7 ignored；`cargo check -p xai-grok-shell` 无新增 warning。
-- 构建裁剪能力输出统一 capability status，区分 `not_compiled`、`not_configured`、`temporarily_unavailable`。
-- 私有服务不可用时保留 adapter 接口和契约测试，不在开源构建中伪造成功路径。
+- **外部依赖矩阵已完成。** 构建裁剪能力统一输出 `RuntimeCapabilityStatus`，区分 `not_compiled`、`not_configured`、`unsupported_platform`、`dependency_missing` 与 `runtime_unavailable`；`grok capabilities` 同时支持人类表格与 JSON。
+- Git `serialize_changes` 已从 ACP extension 贯通 `workspace.git_collect_changes`，本地 adapter 收集提交序列、staged/unstaged patch、二进制 blob、未跟踪文件、force-include 文件、repo/upstream 元数据和大小告警。DeployApp、remote restore、Devbox login 的私有实现不在当前源码中，因此在认证、网络或 worktree 副作用前失败关闭；Voice 根据 audio feature 与真实输入设备/系统 recorder 报告状态。
+- 验证：`cargo check -p xai-grok-pager-bin` 通过；git collector 2 项、capability 跨 crate 23 项、DeployApp/Devbox 隔离 2 项通过；`grok capabilities --json` 端到端输出五项准确状态。
 
 ### 阶段 E：稳定化与发布
 
-- 为实验 flag 增加稳定别名、迁移告警和文档。
-- 运行相关 crate tests、shell/pager/tools 全量测试和 workspace `cargo check`。
+- **Laziness diagnostics 已完成。** 配置入口为 `[diagnostics.laziness] enabled = true` 与可选 `path`；未显式启用时不启动 classifier diagnostics。隐藏 CLI 兼容入口继续可用且优先级最高。
+- JSONL schema 固定 `schema_version = 1`。会话、模型、Todo、证据、分类器输出和错误仅记录进程加盐、域分离的 SHA-256 截断指纹与必要长度；分类、置信度、决策、计数和耗时保留用于聚合诊断。
+- writer 在进程内串行写入，自动创建父目录，Unix 文件权限收紧为 `0600`；active log 超过 4 MiB 前轮转，保留 `.1`～`.3`。
+- 验证：Laziness diagnostics 34 项（含刚结束 prompt 的前台/后台子代理计数）、配置解析/优先级 2 项、兼容 CLI 1 项通过；`cargo check -p xai-grok-shell -p xai-grok-pager` 通过。
+- 发布前仍需按常规门禁运行 shell/pager/tools 全量测试和 workspace `cargo check`；这属于发布验证，不再是能力实现缺口。
 - 发布门槛：无 unused warning、无 pending/stub 成功响应、无被默认 registry 暴露但不可执行的工具。
 
 ## 本轮交付边界
 
-本轮已完成五项 P0、稳定 CLI 入口、三项 P1 本地安全工具、两项 P2 协调/定时能力和 P3 ComputerUse。下一项是 P3 外部依赖 capability matrix；相关空壳继续保持隔离，不以占位成功响应充当完成。
+本轮计划内的工程化任务已全部完成：五项 P0、稳定 CLI 入口、三项 P1 本地安全工具、两项 P2 协调/定时能力、P3 ComputerUse、P3 外部依赖 capability matrix 与 Laziness diagnostics。当前没有剩余的本地能力实现缺口；三个缺少私有源码/服务契约的 adapter 继续保持明确不可执行，而不是用占位成功响应冒充完成，后续只有在获得对应外部契约后才能继续。

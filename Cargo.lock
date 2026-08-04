@@ -13588,6 +13588,7 @@ dependencies = [
  "xai-grok-version",
  "xai-grok-voice",
  "xai-grok-workspace",
+ "xai-grok-workspace-types",
  "xai-hooks-plugins-types",
  "xai-prompt-queue",
  "xai-ratatui-inline",
@@ -13993,6 +13994,7 @@ dependencies = [
  "xai-grok-tools",
  "xai-grok-version",
  "xai-grok-workspace",
+ "xai-grok-workspace-types",
  "xai-hooks-plugins-types",
  "xai-hunk-tracker",
  "xai-interjection-core",
@@ -14299,6 +14301,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "xai-grok-workspace-types",
  "xai-tty-utils",
 ]
 

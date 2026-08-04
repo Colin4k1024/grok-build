@@ -146,6 +146,7 @@ xai-tty-utils = { workspace = true }
 xai-workflow = { path = "../xai-workflow" }
 xai-system-power = { workspace = true }
 xai-grok-workspace = { workspace = true }
+xai-grok-workspace-types = { workspace = true }
 xai-grok-subagent-resolution = { path = "../xai-grok-subagent-resolution" }
 xai-grok-agent = { path = "../xai-grok-agent" }
 xai-grok-config = { workspace = true }
