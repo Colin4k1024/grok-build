@@ -584,74 +584,75 @@ mod tests {
     }
 }
 
-/// Generate 2-3 follow-up question suggestions from the conversation
-/// context using heuristics (no model call). Extracts the last user
-/// message and recent tool calls to craft natural follow-up questions.
-pub fn suggested_questions(
+/// Generate a follow-up question suggestion from the conversation.
+/// Extracts the last assistant message and user query to create a
+/// natural follow-up question.
+pub fn suggested_question(
     conversation: &[xai_grok_sampling_types::ConversationItem],
-) -> Vec<String> {
-    let mut questions = Vec::new();
-    let mut last_user_msg = String::new();
-    let mut tool_names = Vec::new();
-    let mut assistant_summary = String::new();
+) -> Option<String> {
+    let mut last_user = String::new();
+    let mut last_assistant = String::new();
+    let mut last_tool = String::new();
 
     for item in conversation.iter().rev() {
         match item {
             xai_grok_sampling_types::ConversationItem::User(_) => {
-                if last_user_msg.is_empty() {
-                    last_user_msg = item.text_content();
+                if last_user.is_empty() {
+                    last_user = item.text_content();
                 }
             }
             xai_grok_sampling_types::ConversationItem::Assistant(a) => {
-                if !a.tool_calls.is_empty() && tool_names.len() < 5 {
-                    for tc in a.tool_calls.iter().rev() {
-                        tool_names.push(tc.name.clone());
-                    }
-                }
-                if assistant_summary.is_empty() {
+                if last_assistant.is_empty() {
                     let text = a.content.as_ref();
                     if !text.is_empty() {
-                        assistant_summary = text.chars().take(200).collect();
+                        last_assistant = text.to_string();
                     }
+                }
+                if last_tool.is_empty() && !a.tool_calls.is_empty() {
+                    last_tool = a.tool_calls[0].name.clone();
                 }
             }
             _ => {}
         }
-        if !last_user_msg.is_empty() && !tool_names.is_empty() {
+        if !last_user.is_empty() && !last_assistant.is_empty() {
             break;
         }
     }
 
-    // Generate questions based on context
-    if !last_user_msg.is_empty() {
-        let msg = last_user_msg.chars().take(100).collect::<String>();
-        if !tool_names.is_empty() {
-            let tool = &tool_names[0];
-            questions.push(match tool.as_str() {
-                "run_terminal_command" | "Bash" => {
-                    format!("检查刚才执行的命令结果是否正确？")
-                }
-                "grep" | "search" => {
-                    format!("需要进一步过滤或分析搜索结果吗？")
-                }
-                "read_file" | "Read" => {
-                    format!("需要对读取的文件做修改吗？")
-                }
-                "search_replace" | "edit" | "Write" => {
-                    format!("修改完成，需要验证结果吗？")
-                }
-                "spawn_subagent" | "task" => {
-                    format!("子任务完成了吗？需要查看结果吗？")
-                }
-                _ => {
-                    format!("继续完善这个任务？")
-                }
-            });
-        }
-        questions.push(format!("总结一下刚才做了什么？"));
-        questions.push(format!("还有什么需要优化的吗？"));
+    if last_user.is_empty() && last_assistant.is_empty() {
+        return None;
     }
 
-    questions.truncate(3);
-    questions
+    // Generate a contextual follow-up question
+    let q = if !last_tool.is_empty() {
+        match last_tool.as_str() {
+            "run_terminal_command" | "Bash" => "检查刚才执行的命令结果是否正确？",
+            "grep" | "search" => "需要进一步分析搜索结果吗？",
+            "read_file" | "Read" => "需要对读取的文件进行修改吗？",
+            "search_replace" | "edit" | "Write" => "修改完成，需要验证或测试吗？",
+            "spawn_subagent" | "task" => "子任务完成了吗，需要查看结果吗？",
+            "web_search" => "需要进一步搜索相关信息吗？",
+            "web_fetch" => "需要对获取的内容做进一步处理吗？",
+            _ => "需要继续完善这个任务吗？",
+        }
+        .to_string()
+    } else if last_assistant.contains("?") || last_assistant.contains("吗") || last_assistant.contains("？") {
+        // Assistant asked a question - suggest a response
+        last_assistant
+            .lines()
+            .filter(|l| l.contains("?"))
+            .last()
+            .map(|l| l.trim().trim_start_matches(|c: char| c == '-' || c == '*').trim().to_string())
+            .unwrap_or_else(|| "继续对话".to_string())
+    } else {
+        // Extract a topic from the last user message
+        let topic = last_user.chars().take(60).collect::<String>();
+        if topic.len() > 10 {
+            format!("关于「{}」还有其他问题吗？", topic)
+        } else {
+            "还有其他需要帮助的吗？".to_string()
+        }
+    };
+
+    Some(q)
 }

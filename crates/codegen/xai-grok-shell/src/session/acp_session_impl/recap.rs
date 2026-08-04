@@ -689,16 +689,16 @@ impl SessionActor {
         suggestion
     }
 
-    /// Generate 2-3 suggested follow-up questions based on the conversation
-    /// context. Uses heuristics from the last user message and tool calls
-    /// rather than a model call for reliability.
-    pub(super) async fn generate_suggested_questions(&self) {
+    /// Generate a suggested follow-up question based on the conversation
+    /// context and emit it as a notification to the pager.
+    pub(super) async fn emit_suggested_question(&self) {
         let conversation = self.chat_state_handle.get_conversation().await;
-        let questions = crate::session::helpers::prompt_suggest::suggested_questions(&conversation);
-        if !questions.is_empty() {
+        if let Some(question) =
+            crate::session::helpers::prompt_suggest::suggested_question(&conversation)
+        {
             self.send_xai_notification(
                 crate::extensions::notification::SessionUpdate::SuggestedQuestions {
-                    questions,
+                    questions: vec![question],
                 },
             )
             .await;
