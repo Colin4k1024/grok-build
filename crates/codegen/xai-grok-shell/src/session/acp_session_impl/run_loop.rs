@@ -1915,7 +1915,7 @@ pub(super) async fn run_session(
                             // Also generate suggested follow-up questions
                             let s2 = session.clone();
                             tokio::task::spawn_local(async move {
-                                s2.handle_suggested_questions().await;
+                                s2.generate_suggested_questions().await;
                             });
                         }
                         SessionCommand::RewriteMemoryNote { raw_text, context_summary, respond_to } => {

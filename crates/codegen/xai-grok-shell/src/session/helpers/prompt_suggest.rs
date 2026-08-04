@@ -583,3 +583,75 @@ mod tests {
         assert!(t.ends_with("Agent: newest answer"));
     }
 }
+
+/// Generate 2-3 follow-up question suggestions from the conversation
+/// context using heuristics (no model call). Extracts the last user
+/// message and recent tool calls to craft natural follow-up questions.
+pub fn suggested_questions(
+    conversation: &[xai_grok_sampling_types::ConversationItem],
+) -> Vec<String> {
+    let mut questions = Vec::new();
+    let mut last_user_msg = String::new();
+    let mut tool_names = Vec::new();
+    let mut assistant_summary = String::new();
+
+    for item in conversation.iter().rev() {
+        match item {
+            xai_grok_sampling_types::ConversationItem::User(_) => {
+                if last_user_msg.is_empty() {
+                    last_user_msg = item.text_content();
+                }
+            }
+            xai_grok_sampling_types::ConversationItem::Assistant(a) => {
+                if !a.tool_calls.is_empty() && tool_names.len() < 5 {
+                    for tc in a.tool_calls.iter().rev() {
+                        tool_names.push(tc.name.clone());
+                    }
+                }
+                if assistant_summary.is_empty() {
+                    let text = a.content.as_ref();
+                    if !text.is_empty() {
+                        assistant_summary = text.chars().take(200).collect();
+                    }
+                }
+            }
+            _ => {}
+        }
+        if !last_user_msg.is_empty() && !tool_names.is_empty() {
+            break;
+        }
+    }
+
+    // Generate questions based on context
+    if !last_user_msg.is_empty() {
+        let msg = last_user_msg.chars().take(100).collect::<String>();
+        if !tool_names.is_empty() {
+            let tool = &tool_names[0];
+            questions.push(match tool.as_str() {
+                "run_terminal_command" | "Bash" => {
+                    format!("检查刚才执行的命令结果是否正确？")
+                }
+                "grep" | "search" => {
+                    format!("需要进一步过滤或分析搜索结果吗？")
+                }
+                "read_file" | "Read" => {
+                    format!("需要对读取的文件做修改吗？")
+                }
+                "search_replace" | "edit" | "Write" => {
+                    format!("修改完成，需要验证结果吗？")
+                }
+                "spawn_subagent" | "task" => {
+                    format!("子任务完成了吗？需要查看结果吗？")
+                }
+                _ => {
+                    format!("继续完善这个任务？")
+                }
+            });
+        }
+        questions.push(format!("总结一下刚才做了什么？"));
+        questions.push(format!("还有什么需要优化的吗？"));
+    }
+
+    questions.truncate(3);
+    questions
+}
