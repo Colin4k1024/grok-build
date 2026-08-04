@@ -1955,6 +1955,9 @@ async fn async_main(args: PagerArgs) -> Result<()> {
                 }
                 return Ok(());
             }
+            Command::Capabilities { json } => {
+                return xai_grok_pager::capabilities_cmd::run(json);
+            }
             Command::Agent(agent_args) => {
                 if args.leader || args.no_leader {
                     let flag = if args.leader {
@@ -2630,7 +2633,10 @@ async fn run_evolution_command(args: xai_grok_pager::app::cli::EvolutionArgs) ->
             }
             let revoked = service.revoke_rollout_approval(&reason)?;
             if json {
-                println!("{}", serde_json::json!({ "revoked": revoked, "reason": reason }));
+                println!(
+                    "{}",
+                    serde_json::json!({ "revoked": revoked, "reason": reason })
+                );
             } else if revoked {
                 println!("Reuse rollout approval revoked: {reason}");
             } else {
@@ -2646,8 +2652,9 @@ fn hash_rollout_report(path: &std::path::Path) -> Result<String> {
     use std::io::Read as _;
 
     const MAX_REPORT_BYTES: u64 = 16 * 1024 * 1024;
-    let metadata = std::fs::metadata(path)
-        .map_err(|error| anyhow::anyhow!("Cannot read rollout report {}: {error}", path.display()))?;
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        anyhow::anyhow!("Cannot read rollout report {}: {error}", path.display())
+    })?;
     if !metadata.is_file() {
         anyhow::bail!("Rollout report is not a file: {}", path.display());
     }

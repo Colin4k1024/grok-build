@@ -15,6 +15,12 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Report optional integration availability for this binary and machine
+    Capabilities {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Check terminal, clipboard, color, and input support without starting Grok
     Doctor(crate::doctor_cmd::DoctorArgs),
     /// Manage running leader processes
@@ -833,6 +839,15 @@ pub struct PagerArgs {
     /// default (which is `false`).
     #[arg(long = "todo-gate", hide = true)]
     pub todo_gate: bool,
+    /// Write privacy-redacted, observation-only laziness classifier diagnostics.
+    /// Prefer `[diagnostics.laziness]` for persistent configuration.
+    #[arg(
+        long = "laziness-debug-log",
+        value_name = "PATH",
+        value_hint = ValueHint::FilePath,
+        hide = true
+    )]
+    pub laziness_debug_log: Option<PathBuf>,
     /// Set the installer field in config.toml.
     #[arg(long = "installer", value_name = "VALUE", hide = true)]
     pub installer: Option<String>,
@@ -1120,6 +1135,26 @@ mod tests {
             assert!(args.version, "{flag} must set the early version intent");
             assert!(args.command.is_none());
         }
+    }
+
+    #[test]
+    fn capabilities_accepts_json_output() {
+        let args = PagerArgs::try_parse_from(["grok", "capabilities", "--json"]).unwrap();
+        assert!(matches!(
+            args.command,
+            Some(Command::Capabilities { json: true })
+        ));
+    }
+
+    #[test]
+    fn laziness_debug_log_compatibility_flag_accepts_path() {
+        let args =
+            PagerArgs::try_parse_from(["grok", "--laziness-debug-log", "/tmp/laziness.jsonl"])
+                .unwrap();
+        assert_eq!(
+            args.laziness_debug_log,
+            Some(PathBuf::from("/tmp/laziness.jsonl"))
+        );
     }
     #[test]
     fn ordinary_and_doctor_parsing_do_not_set_version_intent() {

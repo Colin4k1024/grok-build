@@ -1025,6 +1025,34 @@ pub struct CliConfig {
 pub struct DiagnosticsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crash_handler: Option<bool>,
+    #[serde(skip_serializing_if = "LazinessDiagnosticsConfig::is_default")]
+    pub laziness: LazinessDiagnosticsConfig,
+}
+
+/// Opt-in, observation-only diagnostics for the Layer-3 laziness classifier.
+///
+/// The emitted JSONL is privacy-redacted and size-bounded by the writer. This
+/// remains disabled unless the user explicitly enables it or supplies the
+/// session-scoped `--laziness-debug-log` compatibility flag.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LazinessDiagnosticsConfig {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
+}
+
+impl LazinessDiagnosticsConfig {
+    fn is_default(&self) -> bool {
+        !self.enabled && self.path.is_none()
+    }
+}
+
+fn default_laziness_diagnostics_path() -> std::path::PathBuf {
+    xai_grok_config::grok_home()
+        .join("logs")
+        .join("laziness.jsonl")
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -1573,14 +1601,20 @@ pub struct Config {
     /// do not activate it.
     #[serde(skip)]
     pub todo_gate: bool,
-    /// Path for the Layer-3 LazinessDetector debug log
-    /// (`--laziness-debug-log`). When `Some`, the classifier fires
+    /// Effective path for the Layer-3 LazinessDetector diagnostics log.
+    /// When `Some`, the classifier fires
     /// after every turn (bypassing the idle wait, the per-model
     /// enable gate, and the nudge cap) and appends a JSONL line per
     /// fire to this file. Observation-only — no nudges are injected
-    /// in this mode. Session-scoped, not persisted.
+    /// in this mode. Resolved from the compatibility CLI flag first,
+    /// then `[diagnostics.laziness]`.
     #[serde(skip)]
     pub laziness_debug_log: Option<std::path::PathBuf>,
+    /// Original session-scoped CLI override, kept separately so a live config
+    /// refresh can re-resolve `[diagnostics.laziness]` without mistaking the
+    /// previous effective config path for a CLI value.
+    #[serde(skip)]
+    pub(crate) laziness_debug_log_cli: Option<std::path::PathBuf>,
     /// Whether tools should respect `.gitignore` patterns.
     /// When `true`, all tools including `read_file` block gitignored files.
     /// When `false` (default), each tool applies its own default
@@ -1870,6 +1904,7 @@ impl Default for Config {
             disable_web_search: false,
             todo_gate: false,
             laziness_debug_log: None,
+            laziness_debug_log_cli: None,
             respect_gitignore: false,
             disable_zdr_incompatible_tools: false,
             zdr_video_output_s3: None,
@@ -2254,7 +2289,16 @@ impl Config {
         // setting. Remote settings still resolve inside ReminderPolicy and
         // remain below an explicit local enable.
         self.todo_gate = ctx.todo_gate || self.ui.todo_gate.unwrap_or(false);
-        self.laziness_debug_log = ctx.laziness_debug_log.map(std::path::Path::to_path_buf);
+        self.laziness_debug_log_cli = ctx.laziness_debug_log.map(std::path::Path::to_path_buf);
+        self.laziness_debug_log = self.laziness_debug_log_cli.clone().or_else(|| {
+            self.diagnostics.laziness.enabled.then(|| {
+                self.diagnostics
+                    .laziness
+                    .path
+                    .clone()
+                    .unwrap_or_else(default_laziness_diagnostics_path)
+            })
+        });
         self.storage_mode =
             crate::config::StorageMode::resolve(ctx.storage_mode, ctx.remote_settings);
         if let Some(v) = ctx.remote_settings.and_then(|s| s.path_not_found_hints) {
@@ -2277,7 +2321,7 @@ impl Config {
         let remote_settings = self.remote_settings.clone();
         let cli_web_search_model = self.web_search_model_override.clone();
         let cli_session_summary_model = self.session_summary_model_override.clone();
-        let laziness_debug_log = self.laziness_debug_log.clone();
+        let laziness_debug_log = self.laziness_debug_log_cli.clone();
         let ctx = RuntimeResolutionContext {
             raw_config,
             remote_settings: remote_settings.as_ref(),
@@ -5801,6 +5845,87 @@ reasoning_effort = "low"
         let mut cfg = Config::new_from_toml_cfg(&toml_on).unwrap();
         cfg.resolve_runtime_fields(&ctx(&toml_on, false));
         assert!(cfg.disable_web_search);
+    }
+
+    #[test]
+    fn laziness_diagnostics_is_default_off_and_requires_explicit_enable() {
+        fn resolve(raw: &toml::Value, cli: Option<&std::path::Path>) -> Config {
+            let mut cfg = Config::new_from_toml_cfg(raw).unwrap();
+            cfg.resolve_runtime_fields(&RuntimeResolutionContext {
+                raw_config: raw,
+                remote_settings: None,
+                is_headless: false,
+                cli_subagents: None,
+                cli_web_search_model: None,
+                cli_session_summary_model: None,
+                cli_experimental_memory: false,
+                cli_no_memory: false,
+                disable_web_search: false,
+                todo_gate: false,
+                laziness_debug_log: cli,
+                storage_mode: None,
+            });
+            cfg
+        }
+
+        let empty: toml::Value = toml::from_str("").unwrap();
+        assert!(resolve(&empty, None).laziness_debug_log.is_none());
+
+        let path_without_enable: toml::Value = toml::from_str(
+            r#"
+            [diagnostics.laziness]
+            path = "/tmp/ignored-laziness.jsonl"
+            "#,
+        )
+        .unwrap();
+        assert!(
+            resolve(&path_without_enable, None)
+                .laziness_debug_log
+                .is_none()
+        );
+
+        let enabled: toml::Value = toml::from_str(
+            r#"
+            [diagnostics.laziness]
+            enabled = true
+            "#,
+        )
+        .unwrap();
+        assert!(
+            resolve(&enabled, None)
+                .laziness_debug_log
+                .unwrap()
+                .ends_with(std::path::Path::new("logs/laziness.jsonl"))
+        );
+    }
+
+    #[test]
+    fn laziness_diagnostics_explicit_path_and_cli_precedence() {
+        let raw: toml::Value = toml::from_str(
+            r#"
+            [diagnostics.laziness]
+            enabled = true
+            path = "/configured/laziness.jsonl"
+            "#,
+        )
+        .unwrap();
+        let cli = std::path::Path::new("/session/laziness.jsonl");
+        let mut cfg = Config::new_from_toml_cfg(&raw).unwrap();
+        cfg.resolve_runtime_fields(&RuntimeResolutionContext {
+            raw_config: &raw,
+            remote_settings: None,
+            is_headless: false,
+            cli_subagents: None,
+            cli_web_search_model: None,
+            cli_session_summary_model: None,
+            cli_experimental_memory: false,
+            cli_no_memory: false,
+            disable_web_search: false,
+            todo_gate: false,
+            laziness_debug_log: Some(cli),
+            storage_mode: None,
+        });
+        assert_eq!(cfg.laziness_debug_log.as_deref(), Some(cli));
     }
     #[test]
     fn new_from_toml_cfg_restores_web_search_and_session_summary_models() {

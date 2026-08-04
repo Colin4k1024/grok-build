@@ -1,15 +1,15 @@
-//! Tests for the `--laziness-debug-log` prototype: pure-function
+//! Tests for the Laziness diagnostics interface: pure-function
 //! coverage of `classify_debug_decision`, the JSONL line shape,
 //! and the file-append behaviour. End-to-end exercise of the
-//! debug-mode branch inside `maybe_fire_laziness_check` is out
+//! observation-mode branch inside `maybe_fire_laziness_check` is out
 //! of scope here — it requires a live sampler responder and is
 //! covered indirectly by the `laziness_integration_tests` module
 //! (which drives the production path with the dev flag off).
 use super::{
     ClassifierOutput, DebugClassifierOutput, DebugDecision, DebugTodoSnapshot,
     LazinessDebugLogLine, LazinessFireMeta, LazinessFireOutcome, LazinessSuppressReason,
-    append_laziness_debug_log_line, build_laziness_debug_line, classify_debug_decision,
-    flatten_transcript_for_classifier,
+    append_laziness_debug_log_line, append_laziness_debug_log_line_with_limits,
+    build_laziness_debug_line, classify_debug_decision, flatten_transcript_for_classifier,
 };
 use crate::session::events::{LAZINESS_ABORT_USER_INPUT, LazinessCategory};
 use xai_grok_sampling_types::{
@@ -620,27 +620,28 @@ fn classify_debug_decision_all_stalled_variants_route_to_would_nudge() {
 
 fn sample_line() -> LazinessDebugLogLine {
     LazinessDebugLogLine {
+        schema_version: 1,
         timestamp: "2026-05-21T22:14:01.123Z".to_string(),
-        session_id: "019e4c65-434b-7d62-9d4b-8137d1d413e4".to_string(),
-        model_id: "grok-4.5".to_string(),
+        session_fingerprint: "sha256:1111111111111111".to_string(),
+        model_fingerprint: "sha256:2222222222222222".to_string(),
         items_sent: 28,
         todo_snapshot: vec![DebugTodoSnapshot {
-            id: "turn-finish-test-1".to_string(),
+            id_fingerprint: "sha256:3333333333333333".to_string(),
             status: "pending",
         }],
         backing_task_count: 0,
-        classifier_raw_output: Some(
-            "{\"category\":\"stalled_narration\",\"confidence\":0.87,\"evidence\":\"...\"}"
-                .to_string(),
-        ),
+        classifier_output_fingerprint: Some("sha256:4444444444444444".to_string()),
+        classifier_output_bytes: Some(78),
         parsed: Some(DebugClassifierOutput {
             category: "stalled_narration".to_string(),
             confidence: 0.87,
-            evidence: "...".to_string(),
+            evidence_fingerprint: "sha256:5555555555555555".to_string(),
+            evidence_bytes: 3,
         }),
         decision: DebugDecision::WouldNudge,
         abort_reason: None,
-        error_detail: None,
+        error_fingerprint: None,
+        error_bytes: None,
         classifier_elapsed_ms: 1834,
     }
 }
@@ -652,13 +653,15 @@ fn log_line_serializes_to_expected_jsonl_shape() {
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("re-parse");
     // Top-level keys present.
     for key in [
+        "schema_version",
         "timestamp",
-        "session_id",
-        "model_id",
+        "session_fingerprint",
+        "model_fingerprint",
         "items_sent",
         "todo_snapshot",
         "backing_task_count",
-        "classifier_raw_output",
+        "classifier_output_fingerprint",
+        "classifier_output_bytes",
         "parsed",
         "decision",
         "abort_reason",
@@ -670,6 +673,7 @@ fn log_line_serializes_to_expected_jsonl_shape() {
     // serde rename_all. Catches a typo or rename without forcing
     // a match-arm update across consumers.
     assert_eq!(parsed["decision"], "would_nudge");
+    assert_eq!(parsed["schema_version"], 1);
     assert_eq!(parsed["parsed"]["category"], "stalled_narration");
     assert_eq!(parsed["items_sent"], 28);
     assert!(parsed["abort_reason"].is_null());
@@ -680,14 +684,15 @@ fn log_line_aborted_decision_serializes_with_reason() {
     let mut line = sample_line();
     line.decision = DebugDecision::Aborted;
     line.abort_reason = Some(LAZINESS_ABORT_USER_INPUT);
-    line.classifier_raw_output = None;
+    line.classifier_output_fingerprint = None;
+    line.classifier_output_bytes = None;
     line.parsed = None;
     let json = serde_json::to_string(&line).expect("serialize");
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("re-parse");
     assert_eq!(parsed["decision"], "aborted");
     assert_eq!(parsed["abort_reason"], "user_input");
     assert!(parsed["parsed"].is_null());
-    assert!(parsed["classifier_raw_output"].is_null());
+    assert!(parsed["classifier_output_fingerprint"].is_null());
 }
 
 #[test]
@@ -712,10 +717,8 @@ fn build_laziness_debug_line_suppressed_not_goal_mode_includes_parsed_verdict() 
         },
     );
     assert_eq!(line.decision, DebugDecision::SuppressedNotGoalMode);
-    assert_eq!(
-        line.classifier_raw_output.as_deref(),
-        Some(raw_text.as_str())
-    );
+    assert!(line.classifier_output_fingerprint.is_some());
+    assert_eq!(line.classifier_output_bytes, Some(raw_text.len()));
     assert_eq!(
         line.parsed.as_ref().map(|p| p.category.as_str()),
         Some("stalled_narration")
@@ -724,7 +727,75 @@ fn build_laziness_debug_line_suppressed_not_goal_mode_includes_parsed_verdict() 
     let v: serde_json::Value = serde_json::from_str(&json).expect("re-parse");
     assert_eq!(v["decision"], "suppressed_not_goal_mode");
     assert_eq!(v["parsed"]["category"], "stalled_narration");
-    assert!(v["classifier_raw_output"].is_string());
+    assert!(v["classifier_output_fingerprint"].is_string());
+    assert!(!json.contains(&raw_text));
+}
+
+#[test]
+fn diagnostics_line_never_serializes_sensitive_source_text() {
+    let session = "private-session-id";
+    let model = "private-model-id";
+    let todo = "private-todo-id";
+    let evidence = "private user evidence";
+    let raw = "private classifier output";
+    let line = build_laziness_debug_line(
+        LazinessFireMeta {
+            session_id: session.to_string(),
+            todo_snapshot: vec![DebugTodoSnapshot {
+                id_fingerprint: super::diagnostic_fingerprint("todo", todo),
+                status: "pending",
+            }],
+            backing_task_count: 1,
+        },
+        model,
+        4,
+        12,
+        LazinessFireOutcome::Verdict {
+            parsed: ClassifierOutput {
+                category: LazinessCategory::StalledNarration,
+                confidence: 0.9,
+                evidence: evidence.to_string(),
+            },
+            raw_text: raw.to_string(),
+        },
+    );
+    let json = serde_json::to_string(&line).expect("serialize");
+    for secret in [session, model, todo, evidence, raw] {
+        assert!(!json.contains(secret), "diagnostics leaked {secret:?}");
+    }
+    for forbidden_key in [
+        "session_id",
+        "model_id",
+        "classifier_raw_output",
+        "error_detail",
+        "evidence\"",
+        "\"id\"",
+    ] {
+        assert!(
+            !json.contains(forbidden_key),
+            "legacy raw key leaked: {json}"
+        );
+    }
+
+    let parse_error = "private backend parse error";
+    let error_json = serde_json::to_string(&build_laziness_debug_line(
+        LazinessFireMeta {
+            session_id: session.to_string(),
+            todo_snapshot: vec![],
+            backing_task_count: 0,
+        },
+        model,
+        1,
+        7,
+        LazinessFireOutcome::ParseError {
+            raw_text: raw.to_string(),
+            parse_error_detail: parse_error.to_string(),
+        },
+    ))
+    .expect("serialize parse error");
+    assert!(!error_json.contains(raw));
+    assert!(!error_json.contains(parse_error));
+    assert!(error_json.contains("error_fingerprint"));
 }
 
 /// Smoke test: write two lines, parse them back from disk, and
@@ -761,4 +832,34 @@ async fn append_writes_two_lines_each_parseable() {
     assert_eq!(parsed1["decision"], "would_nudge");
     assert_eq!(parsed2["decision"], "no_nudge_not_stalled");
     assert_eq!(parsed2["classifier_elapsed_ms"], 921);
+}
+
+#[tokio::test]
+async fn append_creates_parent_and_rotates_before_exceeding_limit() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("nested").join("laziness.jsonl");
+    let handle: std::sync::Arc<std::path::Path> = std::sync::Arc::from(path.as_path());
+    let line1 = sample_line();
+    let mut line2 = sample_line();
+    line2.classifier_elapsed_ms = 99;
+
+    append_laziness_debug_log_line_with_limits(&handle, &line1, 1, 2)
+        .await
+        .expect("first append");
+    append_laziness_debug_log_line_with_limits(&handle, &line2, 1, 2)
+        .await
+        .expect("second append rotates");
+
+    let active = std::fs::read_to_string(&path).expect("active log");
+    let archive = std::fs::read_to_string(path.with_extension("jsonl.1")).expect("archive");
+    assert!(active.contains("\"classifier_elapsed_ms\":99"));
+    assert!(archive.contains("\"classifier_elapsed_ms\":1834"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
 }

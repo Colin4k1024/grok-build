@@ -562,6 +562,42 @@ async fn make_debug_actor(
     (Arc::new(actor), tmp, log_path)
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn diagnostics_backing_count_includes_completed_prompt_subagents() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            use xai_grok_tools::implementations::grok_build::task::types::{
+                SubagentEvent, SubagentOutstandingReply,
+            };
+            let (gateway_tx, _gateway_rx) =
+                tokio::sync::mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, _persistence_rx) =
+                tokio::sync::mpsc::unbounded_channel::<PersistenceMsg>();
+            let mut actor =
+                create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx).await;
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<SubagentEvent>();
+            actor.tool_context.subagent_event_tx = Some(tx);
+            tokio::task::spawn_local(async move {
+                if let Some(SubagentEvent::Outstanding(request)) = rx.recv().await {
+                    assert_eq!(request.prompt_id, "completed-prompt");
+                    let _ = request.respond_to.send(SubagentOutstandingReply {
+                        live_ids: vec!["foreground-1".into(), "foreground-2".into()],
+                        background_live: true,
+                        subagent_usage_not_applied: false,
+                    });
+                }
+            });
+
+            assert_eq!(
+                actor
+                    .snapshot_backing_task_count_for_debug_log(Some("completed-prompt"))
+                    .await,
+                3,
+            );
+        })
+        .await;
+}
+
 /// Dev-flag contract gate 1: `cfg.enabled = false` MUST NOT
 /// short-circuit when `laziness_debug_log = Some(_)`. The
 /// classifier must reach the sampler (which fails in the test

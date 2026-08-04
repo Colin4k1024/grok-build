@@ -736,7 +736,7 @@ pub async fn run(
         no_memory: args.no_memory,
         disable_web_search: args.disable_web_search,
         todo_gate: args.todo_gate,
-        laziness_debug_log: None,
+        laziness_debug_log: args.laziness_debug_log.clone(),
         storage_mode: args.storage_mode.clone(),
         client_identifier: args.client_identifier.clone(),
         hunk_tracker_mode,

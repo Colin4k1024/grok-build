@@ -1080,11 +1080,10 @@ pub(crate) struct SessionActor {
     /// Session-scoped `--laziness-debug-log <path>`. When `Some`, the
     /// Layer-3 classifier fires after every turn end (bypassing the
     /// idle wait, the per-model enable gate, and the nudge cap), and
-    /// the full outcome is appended as a JSONL line to this file.
+    /// a privacy-redacted outcome is appended as a JSONL line to this file.
     /// Observation-only — no nudges are ever injected when this is
     /// `Some`. `Arc<Path>` because the path is immutable after
-    /// session spawn; concurrent appends rely on `O_APPEND`'s atomic
-    /// guarantee for writes under `PIPE_BUF` (JSONL lines fit).
+    /// session spawn; writes and size-bounded rotation are serialized in-process.
     pub(crate) laziness_debug_log: Option<std::sync::Arc<std::path::Path>>,
 }
 /// Template for building trace configs on synthetic auto-wake turns.
