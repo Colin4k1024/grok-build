@@ -1360,9 +1360,15 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 agent
                     .prompt
                     .prompt_suggestion
-                    .on_loaded(suggestion, generation);
+                    .on_loaded(suggestion.clone(), generation);
                 agent.refresh_prompt_suggestion_gate();
                 agent.log_prompt_suggestion_shown_if_visible();
+                // Also show as a suggested question chip above the prompt
+                agent.suggested_questions = suggestion
+                    .as_ref()
+                    .filter(|t| !t.is_empty())
+                    .map(|t| vec![t.clone()])
+                    .unwrap_or_default();
             }
             vec![]
         }

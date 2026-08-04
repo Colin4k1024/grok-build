@@ -2759,40 +2759,37 @@ impl AgentView {
             } else {
                 None
             };
-            // Render suggested questions chips above the prompt
+            // Render suggested question chip above the prompt
             if !self.suggested_questions.is_empty() && layout.prompt.y > 0 {
                 let chips_y = layout.prompt.y.saturating_sub(1);
-                let mut chip_x = layout.prompt.x + 1;
-                let max_w = layout.prompt.width.saturating_sub(2) as usize;
                 let theme = Theme::current();
-                let chip_bg = theme.bg_base;
-                let chip_fg = theme.accent_running;
+                let bg = theme.bg_base;
                 let hint_fg = theme.text_secondary;
+                let chip_fg = theme.accent_running;
 
-                // "猜你想问" label
-                if let Some(cell) = buf.cell_mut((chip_x, chips_y)) {
+                if let Some(cell) = buf.cell_mut((layout.prompt.x + 1, chips_y)) {
                     cell.set_symbol("猜你想问 ");
-                    cell.set_style(Style::default().fg(hint_fg).bg(chip_bg));
+                    cell.set_style(Style::default().fg(hint_fg).bg(bg));
                 }
-                chip_x += "猜你想问 ".len() as u16;
 
-                for q in &self.suggested_questions {
-                    let chip_text = format!("[ {} ]", q);
-                    if chip_x as usize + chip_text.len() > max_w {
-                        break;
-                    }
-                    for (i, ch) in chip_text.chars().enumerate() {
-                        let cx = chip_x + i as u16;
-                        if cx < layout.prompt.x + layout.prompt.width {
-                            let mut s = String::new();
-                            s.push(ch);
-                            if let Some(cell) = buf.cell_mut((cx, chips_y)) {
-                                cell.set_symbol(&s);
-                                cell.set_style(Style::default().fg(chip_fg).bg(chip_bg));
-                            }
+                let label = "猜你想问 ".len() as u16 + layout.prompt.x + 1;
+                let q = &self.suggested_questions[0];
+                let max_w = layout.prompt.width.saturating_sub(2) as usize;
+                let display = if q.len() > max_w.saturating_sub(10) {
+                    format!("Tab {}", q.chars().take(max_w.saturating_sub(14)).collect::<String>())
+                } else {
+                    format!("Tab {}", q)
+                };
+                for (i, ch) in display.chars().enumerate() {
+                    let cx = label + i as u16;
+                    if cx < layout.prompt.x + layout.prompt.width {
+                        let mut s = String::new();
+                        s.push(ch);
+                        if let Some(cell) = buf.cell_mut((cx, chips_y)) {
+                            cell.set_symbol(&s);
+                            cell.set_style(Style::default().fg(chip_fg).bg(bg));
                         }
                     }
-                    chip_x += chip_text.len() as u16 + 1; // +1 for spacing
                 }
             }
 
