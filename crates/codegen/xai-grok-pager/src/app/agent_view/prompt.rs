@@ -105,6 +105,8 @@ impl AgentView {
         // (`sticky_toast`) are unaffected; ephemeral tips intentionally
         // survive typing (cleared by TTL, submit, or explicit clear).
         self.toast = None;
+        // Clear suggested questions when user starts typing
+        self.suggested_questions.clear();
 
         // Any key reaching the prompt is the user interacting with it, so hand
         // focus back from the /btw panel (its scroll keys are consumed earlier).

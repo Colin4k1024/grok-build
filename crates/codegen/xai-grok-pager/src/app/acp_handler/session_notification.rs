@@ -167,7 +167,13 @@ pub(super) fn handle_session_notification(notif: &acp::ExtNotification, app: &mu
         session_notif.update,
         XaiSessionUpdate::WorkflowUpdated { .. }
     );
+    // SuggestedQuestions should always apply, not be deduped
+    let is_suggested = matches!(
+        session_notif.update,
+        XaiSessionUpdate::SuggestedQuestions { .. }
+    );
     if !is_workflow_update
+        && !is_suggested
         && !meta.is_replay
         && meta.event_seq.is_some_and(|seq| {
             agent
