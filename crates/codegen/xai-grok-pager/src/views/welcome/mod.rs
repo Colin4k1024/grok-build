@@ -705,6 +705,7 @@ pub fn render_welcome(
                 multiline: false,
                 usage_warning: None,
                 usage_warning_critical: false,
+                suggested_question: None,
             };
             let (menu_rects, post_flush_escapes) = render_welcome_blocked(
                 content_area,
@@ -2176,6 +2177,7 @@ fn render_welcome_done(
             multiline: false,
             usage_warning: usage_warning_text.as_deref(),
             usage_warning_critical,
+            suggested_question: None,
         };
 
         render_prompt_and_version(

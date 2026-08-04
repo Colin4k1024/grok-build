@@ -81,6 +81,7 @@ mod tests {
             multiline: false,
             usage_warning: None,
             usage_warning_critical: false,
+            suggested_question: None,
         };
 
         let (_, post_flush) = render_prompt(

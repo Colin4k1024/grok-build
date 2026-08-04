@@ -318,6 +318,8 @@ pub struct PromptInfo<'a> {
     /// When true the warning uses the yellow warning color (<=5% left);
     /// when false it uses dim grey text (5-10% left).
     pub usage_warning_critical: bool,
+    /// Suggested next question to show as "猜你想问" chip above the prompt.
+    pub suggested_question: Option<&'a str>,
 }
 
 /// Live voice-capture overlay for the prompt.
@@ -3396,6 +3398,14 @@ impl PromptWidget {
         // bottom-border fill — giving 1 cell of visual padding on each side.
         let pad_style = Style::default().bg(bg);
         let mut left_spans = vec![Span::styled(" ", pad_style)];
+        // Show suggested question chip before model name
+        if let Some(q) = info.suggested_question {
+            let q_style = Style::default().fg(theme.accent_running).bg(bg);
+            left_spans.push(Span::styled(
+                format!("\u{1f4a1} {}  ", q),
+                q_style,
+            ));
+        }
         if let Some(warning) = info.usage_warning {
             let fg = if info.usage_warning_critical {
                 theme.warning
