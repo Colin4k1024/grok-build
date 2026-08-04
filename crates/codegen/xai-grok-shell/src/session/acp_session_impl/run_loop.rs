@@ -445,6 +445,13 @@ pub(super) async fn run_session(
                     // If no user prompt started, check for pending notifications
                     SessionActor::maybe_drain_notifications(session.clone(), completion_tx.clone()).await;
                     session.emit_session_idle_if_idle().await;
+                    // Emit suggested follow-up question after every turn
+                    if !session.startup_hints.is_subagent {
+                        let s = session.clone();
+                        tokio::task::spawn_local(async move {
+                            s.emit_suggested_question().await;
+                        });
+                    }
                     // Layer-3 LazinessDetector: spawn an idle-triggered
                     // classifier dispatch. The method is a no-op when the
                     // per-model `laziness_detector.enabled = false`
