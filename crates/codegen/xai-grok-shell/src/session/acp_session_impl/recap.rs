@@ -688,4 +688,83 @@ impl SessionActor {
         );
         suggestion
     }
+
+    /// Generate 2-3 suggested follow-up questions based on the conversation.
+    /// Uses a small model for cost efficiency. Returns empty vec on failure.
+    pub(super) async fn handle_suggested_questions(&self) -> Vec<String> {
+        use crate::session::helpers::prompt_suggest;
+
+        const SUGGESTED_QUESTIONS_SYSTEM: &str = "\
+Based on the conversation above, suggest 2-3 follow-up questions the user \
+might want to ask next. Each question should be under 30 words, actionable, \
+and in the same language as the conversation. Output one question per line. \
+Do not number them. Do not output anything else.";
+
+        let pin = self.models_manager.prompt_suggest_model_pin();
+        let Some(model) = prompt_suggest::effective_suggest_model(&pin, None, |m| {
+            self.models_manager.model_in_catalog(m)
+        }) else {
+            return Vec::new();
+        };
+
+        let conversation = self.chat_state_handle.get_conversation().await;
+        let Some(transcript) = prompt_suggest::build_transcript(&conversation) else {
+            return Vec::new();
+        };
+
+        let sampling_client = match self.prepare_chat_completion(false).await {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let cwd = self
+            .tool_context
+            .cwd
+            .as_path()
+            .to_string_lossy()
+            .into_owned();
+        let items = vec![
+            ConversationItem::system(SUGGESTED_QUESTIONS_SYSTEM.to_owned()),
+            ConversationItem::user(prompt_suggest::suggest_prompt_user_message(
+                &transcript, &cwd,
+            )),
+        ];
+
+        let request = ConversationRequest {
+            items,
+            tools: vec![],
+            model: Some(model),
+            temperature: None,
+            x_grok_conv_id: Some(format!("suggestedq-{}", uuid::Uuid::new_v4())),
+            x_grok_req_id: Some(format!("xai-suggestedq-{}", uuid::Uuid::new_v4())),
+            x_grok_session_id: Some(self.session_info.id.to_string()),
+            x_grok_agent_id: Some(xai_grok_telemetry::id::agent_id()),
+            ..Default::default()
+        };
+
+        let response = match sampling_client.conversation_collect(request).await {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+
+        let raw = response.assistant_text();
+        let questions: Vec<String> = raw
+            .lines()
+            .map(|l| l.trim().trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == '-').trim())
+            .filter(|l| !l.is_empty() && l.len() > 5 && l.len() < 200)
+            .take(3)
+            .map(|s| s.to_string())
+            .collect();
+
+        if !questions.is_empty() {
+            // Emit notification to the pager
+            self.send_xai_notification(
+                crate::extensions::notification::SessionUpdate::SuggestedQuestions {
+                    questions: questions.clone(),
+                },
+            )
+            .await;
+        }
+        questions
+    }
 }

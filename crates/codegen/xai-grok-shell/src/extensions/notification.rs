@@ -1058,6 +1058,14 @@ pub enum SessionUpdate {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stop_sequence: Option<String>,
     },
+    /// AI-suggested follow-up questions shown as chips above the prompt.
+    /// The pager renders these as "猜你想问" suggestion chips; Tab accepts
+    /// the first one, clicking fills the prompt.
+    #[serde(rename = "suggestedQuestions")]
+    SuggestedQuestions {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        questions: Vec<String>,
+    },
     /// Catch-all for unrecognized session update types.
     /// Allows forward/backward compatibility when variants are added or removed.
     /// All fields from the unrecognized variant are discarded during deserialization.

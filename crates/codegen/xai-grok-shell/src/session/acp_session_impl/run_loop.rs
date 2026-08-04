@@ -1912,6 +1912,11 @@ pub(super) async fn run_session(
                                 let result = s.handle_suggest_prompt(model_override.as_deref()).await;
                                 let _ = respond_to.send(result);
                             });
+                            // Also generate suggested follow-up questions
+                            let s2 = session.clone();
+                            tokio::task::spawn_local(async move {
+                                s2.handle_suggested_questions().await;
+                            });
                         }
                         SessionCommand::RewriteMemoryNote { raw_text, context_summary, respond_to } => {
                             let s = session.clone();

@@ -212,6 +212,10 @@ pub(super) fn handle_session_notification(notif: &acp::ExtNotification, app: &mu
             ref images,
             ref message,
         } => apply_image_compressed(agent, images, message),
+        XaiSessionUpdate::SuggestedQuestions { ref questions } => {
+            agent.suggested_questions = questions.clone();
+            true
+        }
         XaiSessionUpdate::TurnCompleted {
             prompt_id,
             stop_reason,

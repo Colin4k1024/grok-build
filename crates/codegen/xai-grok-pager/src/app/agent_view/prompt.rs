@@ -368,6 +368,19 @@ impl AgentView {
             }
         }
 
+        // ── Suggested questions chips (Tab to accept first) ──────────────
+        if !self.suggested_questions.is_empty()
+            && key!(Tab).matches(key)
+            && !self.prompt.slash_open()
+            && !self.prompt.file_search_visible()
+            && !self.prompt.completion_dropdown_open()
+        {
+            let question = self.suggested_questions.remove(0);
+            self.prompt.textarea.insert_str(&question);
+            self.suggested_questions.clear();
+            return InputOutcome::Changed;
+        }
+
         // ── Predicted-next-prompt ghost (tab autocomplete) ──────────────
         // Tab or Right arrow accepts the suggestion (the ghost only renders
         // with the cursor at end-of-text, where Right is otherwise a no-op —

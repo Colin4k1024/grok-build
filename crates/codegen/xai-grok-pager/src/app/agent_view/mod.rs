@@ -747,6 +747,9 @@ pub struct AgentView {
     pub prompt: PromptWidget,
     /// Sticky: once the user types in the prompt, hide the tip for the session.
     pub tip_typing_dismissed: bool,
+    /// AI-suggested follow-up questions shown as chips above the prompt.
+    /// Cleared when the user starts typing or accepts a suggestion.
+    pub suggested_questions: Vec<String>,
     pub todo: TodoPane,
     pub tasks: TasksPane,
     pub catalog: SubagentCatalogPane,
