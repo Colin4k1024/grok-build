@@ -415,6 +415,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: None,
             session_kind: None,
+            session_name: None,
+            pinned: false,
         };
         merged_session_to_row(m, &build_facet_registry())
     }
@@ -480,6 +482,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: None,
             session_kind: None,
+            session_name: None,
+            pinned: false,
         });
         let lf = reg.extract_all(&local);
         assert!(!lf.contains_key(WORKSPACE_FACET_KEY));
@@ -607,6 +611,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: None,
             session_kind: None,
+            session_name: None,
+            pinned: false,
         });
         assert!(!reg.extract_all(&local).contains_key(STARRED_FACET_KEY));
     }
@@ -652,6 +658,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: source_ws.map(Into::into),
             session_kind: None,
+            session_name: None,
+            pinned: false,
         };
         merged_session_to_row(m, &build_facet_registry())
     }
@@ -678,6 +686,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: Some("/Users/me/xai-main".into()),
             session_kind: Some("worktree".into()),
+            session_name: None,
+            pinned: false,
         });
         let f = reg.extract_all(&local);
         assert!(matches!(

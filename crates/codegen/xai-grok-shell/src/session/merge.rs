@@ -58,6 +58,16 @@ pub struct MergedSession {
     pub source_workspace_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_kind: Option<String>,
+    /// User-assigned session name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    /// Whether this session is pinned.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }
 /// Inputs to [`merge`]. The registry page is cwd-independent, so a widen reuses
 /// it without a second RPC.
@@ -286,6 +296,8 @@ pub fn merge(
                 git_remotes: s.git_remotes,
                 source_workspace_dir: s.source_workspace_dir,
                 session_kind: s.session_kind,
+                session_name: s.session_name,
+                pinned: s.pinned,
             },
         );
     }
@@ -344,6 +356,8 @@ pub fn merge(
                 git_remotes: local.git_remotes,
                 source_workspace_dir: local.source_workspace_dir,
                 session_kind: local.session_kind,
+                session_name: local.session_name,
+                pinned: local.pinned,
             },
         );
     }
@@ -473,6 +487,8 @@ mod tests {
             agent_name: None,
             sandbox_profile: None,
             reasoning_effort: None,
+            session_name: None,
+            pinned: false,
         }
     }
 
@@ -1202,6 +1218,8 @@ mod tests {
             git_remotes: Vec::new(),
             source_workspace_dir: None,
             session_kind: None,
+            session_name: None,
+            pinned: false,
         }
     }
 

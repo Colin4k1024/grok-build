@@ -1239,6 +1239,8 @@ mod tests {
             agent_name: None,
             sandbox_profile: None,
             reasoning_effort: None,
+            session_name: None,
+            pinned: false,
         }
     }
 

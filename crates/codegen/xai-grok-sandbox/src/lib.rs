@@ -27,6 +27,7 @@
 //! sandbox.install();
 //! ```
 pub mod child_net;
+pub mod credential_mask;
 mod deny;
 mod hook_write_deny;
 mod logging;
@@ -976,3 +977,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&ws_ws);
     }
 }
+
+// ── Cross-platform backend ──────────────────────────────────────────────────
+
+/// Cross-platform sandbox backend trait and factory.
+pub mod backend;
+/// Linux sandbox backend (Landlock via nono).
+#[cfg(target_os = "linux")]
+pub mod linux_backend;
+/// macOS sandbox backend (Seatbelt via nono).
+#[cfg(target_os = "macos")]
+pub mod macos_backend;
+/// Windows sandbox backends (AppContainer, Job Object, file/network policy).
+#[cfg(target_os = "windows")]
+pub mod windows;
+
+pub use backend::{
+    AccessMode, NoopSandboxBackend, SandboxBackend, SandboxOptions, SandboxStatus,
+    SandboxSupportInfo, create_backend,
+};

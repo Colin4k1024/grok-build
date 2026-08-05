@@ -46,4 +46,14 @@ pub struct SessionMetaEnvelope {
     pub kind: SessionKind,
     #[serde(default, skip_serializing_if = "FacetMap::is_empty")]
     pub facets: FacetMap,
+    /// User-assigned session name (e.g. "auth-refactor").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    /// Whether this session is pinned to the top of the list.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }

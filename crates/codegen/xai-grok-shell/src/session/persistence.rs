@@ -943,6 +943,14 @@ pub struct Summary {
     pub sandbox_profile: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// User-assigned session name for quick identification (e.g. "auth-refactor").
+    /// Set via `/new <name>` or `/rename <name>`. `None` for unnamed sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_name: Option<String>,
+    /// Whether this session is pinned to the top of the session list.
+    /// Pinned sessions persist across `/clear` and appear first in `/threads`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
 }
 
 /// Current `grok_home` as a UTF-8 string, or `None` if the path isn't valid UTF-8.
@@ -999,6 +1007,8 @@ impl Summary {
             agent_name: None,
             sandbox_profile: None,
             reasoning_effort: None,
+            session_name: None,
+            pinned: false,
         })
     }
 

@@ -16,12 +16,16 @@ pub mod event;
 pub mod language;
 pub mod pipeline;
 pub mod probe;
+pub mod realtime;
 pub mod stt;
+pub mod tui;
 
 pub use auth::{SharedVoiceAuth, StaticVoiceAuth, VoiceAuthProvider};
 pub use config::VoiceConfig;
 pub use error::VoiceError;
 pub use event::VoiceEvent;
+pub use realtime::{VoiceSessionEvent, VoiceSessionManager, VoiceSessionState};
+pub use tui::{TranscriptBuffer, VoiceIndicator};
 pub use language::{
     STT_LANGUAGE_AUTO, STT_LANGUAGE_DEFAULT, STT_LANGUAGES, SttLanguage, canonicalize_stt_language,
     language_for_api, stt_language_by_code,

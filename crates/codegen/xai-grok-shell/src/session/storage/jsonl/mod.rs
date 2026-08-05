@@ -1164,6 +1164,8 @@ impl JsonlStorageAdapter {
             agent_name: source_summary.agent_name,
             sandbox_profile: source_summary.sandbox_profile,
             reasoning_effort: source_summary.reasoning_effort,
+            session_name: source_summary.session_name,
+            pinned: source_summary.pinned,
         };
         let summary_bytes = serde_json::to_vec_pretty(&target_summary)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

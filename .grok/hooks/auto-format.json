@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".grok/hooks/run-formatter.sh",
+            "command": "bash .grok/hooks/run-formatter.sh",
             "timeout_ms": 10000
           }
         ]

@@ -5,6 +5,7 @@
 pub mod block_no_verify;
 pub mod command_log;
 pub mod cost_tracker;
+pub mod permission_classifier;
 pub mod session_lifecycle;
 pub mod session_suggest;
 
@@ -49,6 +50,7 @@ pub fn builtin_native_hooks() -> Vec<Box<dyn NativeHook>> {
     let tool_call_counter = Arc::new(AtomicU32::new(0));
     let hooks: Vec<Box<dyn NativeHook>> = vec![
         Box::new(block_no_verify::BlockNoVerify::new()),
+        Box::new(permission_classifier::PermissionClassifier::new()),
         Box::new(ToolCallCounter(Arc::clone(&tool_call_counter))),
         Box::new(command_log::CommandLog::new()),
         Box::new(cost_tracker::CostTracker::new()),

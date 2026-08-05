@@ -13298,6 +13298,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "xai-grok-context-manager"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "xai-grok-env"
 version = "0.1.0"
 dependencies = [
@@ -13328,6 +13343,24 @@ dependencies = [
  "xai-circuit-breaker",
  "xai-grok-sandbox",
  "xai-sqlite-journal",
+]
+
+[[package]]
+name = "xai-grok-exec-layer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "similar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -13810,6 +13843,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "dunce",
+ "fastrand",
  "globset",
  "ignore",
  "libc",
@@ -13823,6 +13857,7 @@ dependencies = [
  "toml",
  "tracing",
  "url",
+ "windows 0.61.3",
  "xai-grok-config",
 ]
 
@@ -14278,6 +14313,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "xai-grok-verify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "xai-grok-version"
 version = "0.2.116"
 dependencies = [
@@ -14289,6 +14341,7 @@ name = "xai-grok-voice"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "cpal",
  "futures-util",
  "rustls",

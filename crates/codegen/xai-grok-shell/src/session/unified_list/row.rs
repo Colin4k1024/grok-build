@@ -15,12 +15,16 @@ pub struct UnifiedRow {
     pub title: String,
     pub updated_at: Option<String>,
     pub facets: FacetMap,
+    /// User-assigned session name.
+    pub session_name: Option<String>,
+    /// Whether this session is pinned.
+    pub pinned: bool,
 }
 
 impl UnifiedRow {
-    fn envelope(kind: SessionKind, facets: FacetMap) -> RowMeta {
+    fn envelope(kind: SessionKind, facets: FacetMap, session_name: Option<String>, pinned: bool) -> RowMeta {
         RowMeta {
-            session: SessionMetaEnvelope { kind, facets },
+            session: SessionMetaEnvelope { kind, facets, session_name, pinned },
         }
     }
 
@@ -31,11 +35,13 @@ impl UnifiedRow {
             title,
             facets,
             updated_at: _,
+            session_name,
+            pinned,
         } = self;
         ExtSupersetRow {
             legacy,
             title,
-            meta: Self::envelope(kind, facets),
+            meta: Self::envelope(kind, facets, session_name, pinned),
         }
     }
 
@@ -46,13 +52,15 @@ impl UnifiedRow {
             title,
             updated_at,
             facets,
+            session_name: _,
+            pinned: _,
         } = self;
         SessionInfo {
             session_id: legacy.session_id,
             cwd: legacy.cwd,
             title: (!title.is_empty()).then_some(title),
             updated_at,
-            meta: Self::envelope(kind, facets),
+            meta: Self::envelope(kind, facets, None, false),
         }
     }
 
@@ -67,12 +75,16 @@ pub fn merged_session_to_row(m: MergedSession, reg: &FacetRegistry) -> UnifiedRo
     let facets = reg.extract_all(&NormalizedItem::from_merged(&m));
     let title = m.summary.clone();
     let updated_at = effective_local_ts(&m);
+    let session_name = m.session_name.clone();
+    let pinned = m.pinned;
     UnifiedRow {
         kind: SessionKind::Build,
         legacy: m,
         title,
         updated_at,
         facets,
+        session_name,
+        pinned,
     }
 }
 
@@ -104,6 +116,8 @@ pub fn conversation_to_row(c: Conversation, reg: &FacetRegistry) -> UnifiedRow {
         git_remotes: Vec::new(),
         source_workspace_dir: None,
         session_kind: None,
+        session_name: None,
+        pinned: false,
     };
     UnifiedRow {
         kind: SessionKind::Chat,
@@ -111,6 +125,8 @@ pub fn conversation_to_row(c: Conversation, reg: &FacetRegistry) -> UnifiedRow {
         title,
         updated_at: modify_time,
         facets,
+        session_name: None,
+        pinned: false,
     }
 }
 

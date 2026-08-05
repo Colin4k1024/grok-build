@@ -184,11 +184,18 @@ impl<'de> Deserialize<'de> for WebsiteOrigin {
 }
 
 /// Immutable exact-origin rules with deny precedence over allow and default.
+///
+/// When `strict` is `true`, any origin not explicitly in the `allow` set is
+/// silently denied without prompting the user. This is the "strict allowlist"
+/// mode from Claude Code's `sandbox.network.strictAllowlist` setting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebsitePolicy {
     default: WebsiteAction,
     allow: BTreeSet<WebsiteOrigin>,
     deny: BTreeSet<WebsiteOrigin>,
+    /// When true, non-allowlist origins are silently denied (no user prompt).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    strict: bool,
 }
 
 impl WebsitePolicy {
@@ -201,6 +208,21 @@ impl WebsitePolicy {
             default,
             allow: allow.into_iter().collect(),
             deny: deny.into_iter().collect(),
+            strict: false,
+        }
+    }
+
+    /// Create a strict allowlist policy. Non-allowlist origins are silently
+    /// denied without prompting.
+    pub fn new_strict(
+        allow: impl IntoIterator<Item = WebsiteOrigin>,
+        deny: impl IntoIterator<Item = WebsiteOrigin>,
+    ) -> Self {
+        Self {
+            default: WebsiteAction::Deny,
+            allow: allow.into_iter().collect(),
+            deny: deny.into_iter().collect(),
+            strict: true,
         }
     }
 
@@ -216,15 +238,34 @@ impl WebsitePolicy {
         &self.deny
     }
 
+    /// Whether this policy uses strict allowlist mode.
+    pub fn is_strict(&self) -> bool {
+        self.strict
+    }
+
     /// Evaluates deny exact match, then allow exact match, then the default.
+    ///
+    /// In strict mode, non-allowlist origins always return `Deny` regardless
+    /// of the configured `default` action.
     pub fn evaluate(&self, origin: &WebsiteOrigin) -> WebsiteAction {
         if self.deny.contains(origin) {
-            WebsiteAction::Deny
-        } else if self.allow.contains(origin) {
-            WebsiteAction::Allow
-        } else {
-            self.default
+            return WebsiteAction::Deny;
         }
+        if self.allow.contains(origin) {
+            return WebsiteAction::Allow;
+        }
+        // Strict mode: non-allowlist → always deny (no prompt).
+        if self.strict {
+            return WebsiteAction::Deny;
+        }
+        self.default
+    }
+
+    /// Returns `true` if this origin should be **silently denied** (strict
+    /// mode, not in allow list, not explicitly denied). Callers use this to
+    /// skip the user confirmation prompt entirely.
+    pub fn is_silently_denied(&self, origin: &WebsiteOrigin) -> bool {
+        self.strict && !self.allow.contains(origin)
     }
 }
 
@@ -496,6 +537,85 @@ mod tests {
         assert_eq!(
             ChildNetworkPolicy::from_restrict_network(true),
             ChildNetworkPolicy::Blocked
+        );
+    }
+
+    // --- Strict allowlist tests ---
+
+    #[test]
+    fn strict_allowlist_denies_non_allowlist() {
+        let allowed = origin("https://api.openai.com");
+        let policy = WebsitePolicy::new_strict([allowed.clone()], []);
+
+        assert!(policy.is_strict());
+        assert_eq!(policy.evaluate(&allowed), WebsiteAction::Allow);
+        // Non-allowlist → denied silently
+        assert_eq!(
+            policy.evaluate(&origin("https://evil.example")),
+            WebsiteAction::Deny
+        );
+        assert_eq!(
+            policy.evaluate(&origin("https://random.site:443")),
+            WebsiteAction::Deny
+        );
+    }
+
+    #[test]
+    fn strict_allowlist_explicit_deny_still_works() {
+        let allowed = origin("https://api.openai.com");
+        let denied = origin("https://blocked.example");
+        let policy = WebsitePolicy::new_strict([allowed.clone()], [denied.clone()]);
+
+        assert_eq!(policy.evaluate(&allowed), WebsiteAction::Allow);
+        assert_eq!(policy.evaluate(&denied), WebsiteAction::Deny);
+        assert_eq!(
+            policy.evaluate(&origin("https://other.example")),
+            WebsiteAction::Deny
+        );
+    }
+
+    #[test]
+    fn strict_allowlist_is_silently_denied() {
+        let allowed = origin("https://api.openai.com");
+        let policy = WebsitePolicy::new_strict([allowed.clone()], []);
+
+        assert!(!policy.is_silently_denied(&allowed));
+        assert!(policy.is_silently_denied(&origin("https://other.example")));
+    }
+
+    #[test]
+    fn non_strict_does_not_silently_deny() {
+        let allowed = origin("https://api.openai.com");
+        let policy = WebsitePolicy::new(WebsiteAction::Allow, [allowed.clone()], []);
+
+        assert!(!policy.is_strict());
+        assert!(!policy.is_silently_denied(&origin("https://other.example")));
+        // Non-strict with default=Allow → allowed
+        assert_eq!(
+            policy.evaluate(&origin("https://other.example")),
+            WebsiteAction::Allow
+        );
+    }
+
+    #[test]
+    fn strict_policy_snapshot_roundtrip() {
+        let allowed = origin("https://api.openai.com");
+        let policy = WebsitePolicy::new_strict([allowed.clone()], []);
+        let snapshot = NetworkPolicySnapshot::new(ChildNetworkPolicy::Websites(policy.clone()));
+        let json = snapshot.canonical_json().unwrap();
+
+        // Strict flag should appear in serialization
+        assert!(json.contains("\"strict\":true"));
+
+        let decoded = NetworkPolicySnapshot::from_canonical_json(&json).unwrap();
+        let ChildNetworkPolicy::Websites(decoded_policy) = decoded.policy() else {
+            panic!("expected website policy")
+        };
+        assert!(decoded_policy.is_strict());
+        assert_eq!(decoded_policy.evaluate(&allowed), WebsiteAction::Allow);
+        assert_eq!(
+            decoded_policy.evaluate(&origin("https://other.example")),
+            WebsiteAction::Deny
         );
     }
 }

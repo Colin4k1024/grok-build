@@ -2620,6 +2620,8 @@ fn write_test_summary(
         agent_name: None,
         sandbox_profile: None,
         reasoning_effort: None,
+        session_name: None,
+        pinned: false,
     };
     let json = serde_json::to_vec_pretty(&summary).unwrap();
     std::fs::write(session_dir.join("summary.json"), json).unwrap();

@@ -547,6 +547,8 @@ mod tests {
             git_remotes: vec!["git@github.com:example/repo.git".into()],
             source_workspace_dir: Some("/Users/me/xai-src".into()),
             session_kind: Some("worktree".into()),
+            session_name: None,
+            pinned: false,
         }
     }
     fn row(session_id: &str, updated_at: &str) -> UnifiedRow {

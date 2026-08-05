@@ -14,7 +14,7 @@ FILE="${GROK_TOOL_FILE_PATH:-}"
 
 case "$FILE" in
   *.rs)
-    command -v rustfmt >/dev/null 2>&1 && rustfmt --edition 2021 "$FILE" 2>/dev/null || true
+    command -v rustfmt >/dev/null 2>&1 && rustfmt --edition 2024 "$FILE" 2>/dev/null || true
     ;;
   *.go)
     command -v gofmt >/dev/null 2>&1 && gofmt -w "$FILE" 2>/dev/null || true

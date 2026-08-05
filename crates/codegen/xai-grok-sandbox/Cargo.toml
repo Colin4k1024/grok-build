@@ -10,6 +10,8 @@ anyhow = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 dirs = "5.0"
 dunce = { workspace = true }
+fastrand = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -41,6 +43,9 @@ globset = { workspace = true }
 # linux only). cfg(linux)-gated rather than enforce-gated: the cross-platform
 # enforce feature can't reference a linux-only optional dep without breaking macOS
 # feature resolution, so a `--no-default-features` Linux build pulls it unused.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 ignore = { workspace = true }
 

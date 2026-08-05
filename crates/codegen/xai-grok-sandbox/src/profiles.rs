@@ -38,6 +38,10 @@ pub struct SandboxProfile {
     pub default_read: bool,
     /// Whether child processes should have network blocked
     pub restrict_network: bool,
+    /// Whether non-allowlist network hosts are silently denied (no prompt).
+    /// Only meaningful when `restrict_network` is `false` and a website
+    /// policy is in effect.
+    pub network_strict_allowlist: bool,
 }
 
 fn resolve_write_deny(profile: &ProfileName) -> anyhow::Result<Vec<GlobalHookSource>> {
@@ -50,6 +54,11 @@ pub struct ProfileConfig {
     pub extends: Option<String>,
     #[serde(default)]
     pub restrict_network: Option<bool>,
+    /// When `true` and `restrict_network` is also `true`, non-allowlist
+    /// network hosts are silently denied without prompting the user.
+    /// This is the `sandbox.network.strictAllowlist` behavior.
+    #[serde(default)]
+    pub network_strict_allowlist: Option<bool>,
     #[serde(default)]
     pub read_only: Vec<String>,
     #[serde(default)]
@@ -357,6 +366,7 @@ impl ProfileName {
                 write_deny: resolve_write_deny(self)?,
                 default_read: true,
                 restrict_network: false,
+                network_strict_allowlist: false,
             }),
 
             Self::Devbox => {
@@ -396,6 +406,7 @@ impl ProfileName {
                     write_deny: vec![],
                     default_read: true,
                     restrict_network: false,
+                    network_strict_allowlist: false,
                 })
             }
 
@@ -407,6 +418,7 @@ impl ProfileName {
                 write_deny: resolve_write_deny(self)?,
                 default_read: true,
                 restrict_network: true,
+                network_strict_allowlist: false,
             }),
 
             Self::Strict => {
@@ -441,6 +453,7 @@ impl ProfileName {
                     write_deny: resolve_write_deny(self)?,
                     default_read: false,
                     restrict_network: true,
+                    network_strict_allowlist: false,
                 })
             }
 
@@ -483,6 +496,9 @@ impl ProfileName {
                 // Apply overrides from the custom config
                 if let Some(restrict_net) = profile_config.restrict_network {
                     profile.restrict_network = restrict_net;
+                }
+                if let Some(strict_al) = profile_config.network_strict_allowlist {
+                    profile.network_strict_allowlist = strict_al;
                 }
 
                 // Add custom read-only paths
@@ -608,6 +624,7 @@ mod tests {
                     ProfileConfig {
                         extends: Some("strict".to_string()),
                         restrict_network: None,
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec![],
                         deny: vec![],
@@ -618,6 +635,7 @@ mod tests {
                     ProfileConfig {
                         extends: Some("read-only".to_string()),
                         restrict_network: None,
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec![],
                         deny: vec![],
@@ -628,6 +646,7 @@ mod tests {
                     ProfileConfig {
                         extends: Some("strict".to_string()),
                         restrict_network: Some(false),
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec![],
                         deny: vec![],
@@ -638,6 +657,7 @@ mod tests {
                     ProfileConfig {
                         extends: Some("workspace".to_string()),
                         restrict_network: Some(true),
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec![],
                         deny: vec![],
@@ -721,6 +741,7 @@ mod tests {
                 ProfileConfig {
                     extends: Some("workspace".to_string()),
                     restrict_network: Some(true),
+                    network_strict_allowlist: None,
                     read_only: vec!["/data".to_string()],
                     read_write: vec![],
                     deny: vec!["/data/private".to_string()],
@@ -746,6 +767,7 @@ mod tests {
                 ProfileConfig {
                     extends: Some("devbox".to_string()),
                     restrict_network: None,
+                    network_strict_allowlist: None,
                     read_only: vec![],
                     read_write: vec![],
                     deny: vec![],
@@ -779,6 +801,7 @@ mod tests {
         let profile = |restrict_network| ProfileConfig {
             extends: Some("workspace".to_string()),
             restrict_network: Some(restrict_network),
+            network_strict_allowlist: None,
             read_only: vec![],
             read_write: vec![],
             deny: vec![],
@@ -831,6 +854,7 @@ read_write = ["/tmp/ci-artifacts"]
                 ProfileConfig {
                     extends: Some("workspace".to_string()),
                     restrict_network: Some(true),
+                    network_strict_allowlist: None,
                     read_only: vec![],
                     read_write: vec![],
                     deny: vec!["/home/user/.ssh".to_string()],
@@ -844,6 +868,7 @@ read_write = ["/tmp/ci-artifacts"]
                     ProfileConfig {
                         extends: Some("workspace".to_string()),
                         restrict_network: Some(false),
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec!["/".to_string()],
                         deny: vec![],
@@ -854,6 +879,7 @@ read_write = ["/tmp/ci-artifacts"]
                     ProfileConfig {
                         extends: Some("workspace".to_string()),
                         restrict_network: None,
+                        network_strict_allowlist: None,
                         read_only: vec![],
                         read_write: vec![],
                         deny: vec!["./secrets".to_string()],
@@ -890,6 +916,7 @@ read_write = ["/tmp/ci-artifacts"]
                 ProfileConfig {
                     extends: Some("off".to_string()),
                     restrict_network: None,
+                    network_strict_allowlist: None,
                     read_only: vec![],
                     read_write: vec![],
                     deny: vec![],
