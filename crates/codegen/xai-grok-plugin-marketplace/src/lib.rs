@@ -12,6 +12,7 @@ pub mod index;
 pub mod install_resolve;
 pub mod installer;
 pub mod matcher;
+pub mod provider;
 pub mod scanner;
 pub mod types;
 

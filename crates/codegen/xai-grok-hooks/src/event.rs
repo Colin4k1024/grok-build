@@ -184,6 +184,13 @@ hook_events! {
         aliases: ["SessionEnd", "session_end", "sessionEnd"],
         traits: (Observe, Tested, true),
     },
+    /// Fires when a new directory is added to the workspace (via `/add-dir`,
+    /// SDK registration, or auto-detection). Non-gating, hub-forwarded.
+    DirectoryAdded {
+        display: "directory_added",
+        aliases: ["DirectoryAdded", "directory_added", "directoryAdded"],
+        traits: (Observe, Ignored, true),
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -498,6 +505,13 @@ pub enum HookPayload {
         /// "manual" or "auto".
         source: String,
     },
+
+    DirectoryAdded {
+        /// Absolute path of the added directory.
+        path: String,
+        /// How the directory was added: "user_command", "sdk_register", or "auto_detect".
+        source: String,
+    },
 }
 
 impl HookPayload {
@@ -516,7 +530,8 @@ impl HookPayload {
             | Self::SubagentStop { subagent_type, .. } => subagent_type,
             Self::SessionStart { source, .. }
             | Self::PreCompact { source }
-            | Self::PostCompact { source } => source,
+            | Self::PostCompact { source }
+            | Self::DirectoryAdded { source, .. } => source,
             Self::SessionEnd { reason, .. } => reason,
             // Always a non-empty name, unlike the free-text arms above.
             Self::StopFailure { error, .. } => return Some(error.as_str()),
@@ -585,6 +600,11 @@ mod tests {
             ("SubagentEnd", "subagent_end", HookEventName::SubagentEnd),
             ("PreCompact", "pre_compact", HookEventName::PreCompact),
             ("PostCompact", "post_compact", HookEventName::PostCompact),
+            (
+                "DirectoryAdded",
+                "directory_added",
+                HookEventName::DirectoryAdded,
+            ),
         ];
 
         for (pascal, snake, expected) in cases {
@@ -618,6 +638,7 @@ mod tests {
             (HookEventName::SubagentEnd, "subagent_stop"), // alias collapses
             (HookEventName::PreCompact, "pre_compact"),
             (HookEventName::PostCompact, "post_compact"),
+            (HookEventName::DirectoryAdded, "directory_added"),
         ];
         for (event, expected) in cases {
             assert_eq!(&event.to_string(), expected, "Display wrong for {event:?}");
@@ -643,6 +664,7 @@ mod tests {
             ("subagentEnd", HookEventName::SubagentEnd),
             ("preCompact", HookEventName::PreCompact),
             ("stopFailure", HookEventName::StopFailure),
+            ("directoryAdded", HookEventName::DirectoryAdded),
         ];
         for (spelling, expected) in cases {
             let parsed: HookEventName = serde_json::from_str(&format!("\"{spelling}\"")).unwrap();

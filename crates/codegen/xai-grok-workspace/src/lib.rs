@@ -32,6 +32,7 @@ pub mod permission;
 pub mod preview_supervisor;
 pub mod project_config;
 pub mod recovery;
+pub mod remote;
 pub mod rpc_envelope;
 pub mod session;
 pub mod status_config;

@@ -35,6 +35,46 @@ pub struct ForkSessionRequest {
     /// The original workspace directory this worktree session was spawned from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_workspace_dir: Option<String>,
+    /// Temporary fork: does not appear in the session listing. Used for
+    /// side-conversations and ephemeral exploration. Cleaned up after a
+    /// configurable idle timeout.
+    #[serde(default)]
+    pub is_temporary: bool,
+}
+
+/// Pagination parameters for session history queries (offset-based alternative
+/// to cursor-based pagination in `unified_list`).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionQuery {
+    pub offset: usize,
+    pub limit: usize,
+    /// Whether to include temporary forked sessions in results.
+    #[serde(default)]
+    pub include_temporary: bool,
+}
+
+impl SessionQuery {
+    pub fn first_page(limit: usize) -> Self {
+        Self {
+            offset: 0,
+            limit,
+            include_temporary: false,
+        }
+    }
+
+    pub fn next_page(&self) -> Self {
+        Self {
+            offset: self.offset + self.limit,
+            limit: self.limit,
+            include_temporary: self.include_temporary,
+        }
+    }
+
+    pub fn with_temporary(mut self) -> Self {
+        self.include_temporary = true;
+        self
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

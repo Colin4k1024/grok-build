@@ -79,6 +79,60 @@ pub struct ResumeSourceData {
     pub child_session_id: String,
 }
 
+/// Spawn request with nesting depth tracking for nested subagent forwarding.
+///
+/// Depth 0 = main agent, depth 1 = first-level subagent, depth 2+ = nested.
+/// Events from nested subagents (depth >= 2) are forwarded to the TUI when
+/// `--forward-subagent-text` is enabled.
+#[derive(Debug, Clone, Default)]
+pub struct SubagentSpawnRequest {
+    pub prompt: String,
+    pub subagent_type: String,
+    /// Nesting depth (main agent = 0, first subagent = 1, etc.)
+    pub depth: usize,
+    /// Parent agent ID for building the forwarding chain.
+    pub parent_id: Option<String>,
+}
+
+/// Events forwarded from nested subagents to the TUI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForwardedEvent {
+    Spawned { subagent_id: String, depth: usize },
+    Completed { subagent_id: String, depth: usize },
+    Error { subagent_id: String, message: String },
+    Progress { subagent_id: String, message: String },
+}
+
+/// Policy for forwarding nested subagent events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForwardingPolicy {
+    /// Never forward nested events (default).
+    None,
+    /// Forward key lifecycle events (Spawned, Completed, Error).
+    Lifecycle,
+    /// Forward all events including progress.
+    All,
+}
+
+impl Default for ForwardingPolicy {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl ForwardingPolicy {
+    pub fn should_forward(&self, depth: usize) -> bool {
+        match self {
+            Self::None => false,
+            Self::Lifecycle | Self::All => depth >= 2,
+        }
+    }
+
+    pub fn include_progress(&self) -> bool {
+        matches!(self, Self::All)
+    }
+}
+
 /// Errors that can occur during subagent resolution.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolutionError {
@@ -155,5 +209,51 @@ mod tests {
     fn context_source_equality() {
         assert_eq!(ContextSource::New, ContextSource::New);
         assert_ne!(ContextSource::New, ContextSource::Resumed);
+    }
+
+    #[test]
+    fn spawn_request_default_depth_is_zero() {
+        let req = SubagentSpawnRequest::default();
+        assert_eq!(req.depth, 0);
+        assert!(req.parent_id.is_none());
+    }
+
+    #[test]
+    fn forwarding_policy_none_never_forwards() {
+        let policy = ForwardingPolicy::None;
+        assert!(!policy.should_forward(0));
+        assert!(!policy.should_forward(1));
+        assert!(!policy.should_forward(2));
+        assert!(!policy.should_forward(5));
+    }
+
+    #[test]
+    fn forwarding_policy_lifecycle_forwards_depth_2_plus() {
+        let policy = ForwardingPolicy::Lifecycle;
+        assert!(!policy.should_forward(0));
+        assert!(!policy.should_forward(1));
+        assert!(policy.should_forward(2));
+        assert!(policy.should_forward(3));
+        assert!(!policy.include_progress());
+    }
+
+    #[test]
+    fn forwarding_policy_all_includes_progress() {
+        let policy = ForwardingPolicy::All;
+        assert!(policy.should_forward(2));
+        assert!(policy.include_progress());
+    }
+
+    #[test]
+    fn forwarded_event_equality() {
+        let e1 = ForwardedEvent::Spawned {
+            subagent_id: "a".into(),
+            depth: 2,
+        };
+        let e2 = ForwardedEvent::Spawned {
+            subagent_id: "a".into(),
+            depth: 2,
+        };
+        assert_eq!(e1, e2);
     }
 }

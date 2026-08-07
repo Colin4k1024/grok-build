@@ -1201,6 +1201,7 @@ mod tests {
             (HookEventName::SubagentEnd, "hook.subagent_stop"),
             (HookEventName::PreCompact, "hook.pre_compact"),
             (HookEventName::PostCompact, "hook.post_compact"),
+            (HookEventName::DirectoryAdded, "hook.directory_added"),
         ];
 
         // Exhaustive match: adding a new HookEventName variant causes a
@@ -1221,7 +1222,8 @@ mod tests {
                 | HookEventName::SubagentStop
                 | HookEventName::SubagentEnd
                 | HookEventName::PreCompact
-                | HookEventName::PostCompact => 15,
+                | HookEventName::PostCompact
+                | HookEventName::DirectoryAdded => 16,
             }
         };
         assert_eq!(

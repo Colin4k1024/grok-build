@@ -47,6 +47,7 @@ parking_lot = { workspace = true }
 htmd = { workspace = true }
 scraper = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls", "json", "gzip", "brotli", "deflate"] }
+urlencoding = { workspace = true }
 pulldown-cmark = { workspace = true }
 regex = { workspace = true }
 schemars = { workspace = true }

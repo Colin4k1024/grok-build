@@ -15,6 +15,7 @@ pub mod block;
 pub mod blocks;
 pub mod entry;
 pub mod export;
+pub mod focus;
 pub mod layout;
 pub mod link_map;
 pub mod render;
@@ -30,6 +31,7 @@ pub mod wrappers;
 
 // Re-exports for convenience
 pub use block::{BlockContent, RenderBlock};
+pub use focus::{FocusMode, ToolTurnStatus, ToolTurnSummary};
 pub use blocks::{
     AgentMessageBlock, SystemMessageBlock, ThinkingBlock, ToolCallBlock, UserPromptBlock,
 };

@@ -101,6 +101,8 @@ pub enum HookEvent {
     // Compaction
     PreCompact,
     PostCompact,
+    // Directory
+    DirectoryAdded,
 }
 
 impl std::fmt::Display for HookEvent {
@@ -120,6 +122,7 @@ impl std::fmt::Display for HookEvent {
             Self::SubagentStop => write!(f, "Subagent Stop"),
             Self::PreCompact => write!(f, "Pre-Compact"),
             Self::PostCompact => write!(f, "Post-Compact"),
+            Self::DirectoryAdded => write!(f, "Directory Added"),
         }
     }
 }
@@ -869,6 +872,7 @@ mod tests {
             (HookEvent::SubagentStop, r#""subagent_stop""#),
             (HookEvent::PreCompact, r#""pre_compact""#),
             (HookEvent::PostCompact, r#""post_compact""#),
+            (HookEvent::DirectoryAdded, r#""directory_added""#),
         ] {
             let json = serde_json::to_string(&event).unwrap();
             assert_eq!(json, expected, "HookEvent::{event:?} serialized wrong");
