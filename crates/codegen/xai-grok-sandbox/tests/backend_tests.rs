@@ -1,6 +1,6 @@
 //! Integration tests for the cross-platform sandbox backend trait.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use xai_grok_sandbox::backend::{
     AccessMode, NoopSandboxBackend, SandboxBackend, SandboxStatus,
@@ -162,6 +162,7 @@ mod macos {
 #[cfg(target_os = "windows")]
 mod windows_tests {
     use super::*;
+    use std::path::PathBuf;
     use xai_grok_sandbox::windows::appcontainer::WindowsAppContainerBackend;
     use xai_grok_sandbox::windows::job_object::WindowsJobObjectBackend;
     use xai_grok_sandbox::windows::file_policy::WindowsFilePolicy;

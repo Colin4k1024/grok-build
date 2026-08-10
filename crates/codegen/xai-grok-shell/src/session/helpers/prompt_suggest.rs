@@ -626,7 +626,6 @@ pub fn suggested_question(
     let mut last_user = String::new();
     let mut last_assistant = String::new();
     let mut tools_used: Vec<String> = Vec::new();
-    let mut had_error = false;
     let mut user_lang_chinese = false;
 
     for item in conversation.iter().rev() {
@@ -663,7 +662,7 @@ pub fn suggested_question(
 
     // Detect error signals
     let assistant_lower = last_assistant.to_lowercase();
-    had_error = assistant_lower.contains("error")
+    let had_error = assistant_lower.contains("error")
         || assistant_lower.contains("failed")
         || assistant_lower.contains("panic")
         || assistant_lower.contains("cannot")

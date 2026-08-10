@@ -331,7 +331,9 @@ mod tests {
 
     #[tokio::test]
     async fn barge_in_during_speaking() {
-        let (conn, _server_tx, client_rx) = RealtimeConnection::mock();
+        // `process_input_audio` publishes to `event_tx`, not the connection, so
+        // the client receiver stays unused here.
+        let (conn, _server_tx, _client_rx) = RealtimeConnection::mock();
         let (event_tx, _) = broadcast::channel(64);
         let mut mgr = VoiceSessionManager {
             connection: conn,

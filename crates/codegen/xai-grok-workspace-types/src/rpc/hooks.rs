@@ -64,6 +64,7 @@ pub enum HookEventNameWire {
     SubagentEnd,
     PreCompact,
     PostCompact,
+    DirectoryAdded,
     Unknown(String),
 }
 
@@ -85,6 +86,7 @@ impl HookEventNameWire {
             Self::SubagentEnd => "subagent_end",
             Self::PreCompact => "pre_compact",
             Self::PostCompact => "post_compact",
+            Self::DirectoryAdded => "directory_added",
             Self::Unknown(s) => s,
         }
     }
@@ -118,6 +120,7 @@ impl<'de> Deserialize<'de> for HookEventNameWire {
             "subagent_end" => Self::SubagentEnd,
             "pre_compact" => Self::PreCompact,
             "post_compact" => Self::PostCompact,
+            "directory_added" => Self::DirectoryAdded,
             _ => Self::Unknown(s),
         })
     }

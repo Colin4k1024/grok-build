@@ -196,7 +196,7 @@ mod tests {
     fn collapsed_when_enabled_and_not_expanded() {
         let mut fm = FocusMode::new();
         fm.enable();
-        let id = EntryId(42);
+        let id = EntryId::new(42);
         assert!(fm.is_collapsed(id));
     }
 
@@ -204,7 +204,7 @@ mod tests {
     fn expanded_entry_not_collapsed_in_focus_mode() {
         let mut fm = FocusMode::new();
         fm.enable();
-        let id = EntryId(42);
+        let id = EntryId::new(42);
         fm.expand_entry(id);
         assert!(!fm.is_collapsed(id));
     }
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn force_collapsed_entry_stays_collapsed_when_mode_off() {
         let mut fm = FocusMode::new();
-        let id = EntryId(7);
+        let id = EntryId::new(7);
         fm.collapse_entry(id);
         assert!(!fm.is_enabled());
         assert!(fm.is_collapsed(id));
@@ -222,7 +222,7 @@ mod tests {
     fn toggle_entry_flips_individual_state() {
         let mut fm = FocusMode::new();
         fm.enable();
-        let id = EntryId(10);
+        let id = EntryId::new(10);
         assert!(fm.is_collapsed(id));
         fm.toggle_entry(id);
         assert!(!fm.is_collapsed(id));
@@ -234,11 +234,11 @@ mod tests {
     fn collapse_all_resets_expanded() {
         let mut fm = FocusMode::new();
         fm.enable();
-        fm.expand_entry(EntryId(1));
-        fm.expand_entry(EntryId(2));
+        fm.expand_entry(EntryId::new(1));
+        fm.expand_entry(EntryId::new(2));
         fm.collapse_all();
-        assert!(fm.is_collapsed(EntryId(1)));
-        assert!(fm.is_collapsed(EntryId(2)));
+        assert!(fm.is_collapsed(EntryId::new(1)));
+        assert!(fm.is_collapsed(EntryId::new(2)));
     }
 
     #[test]

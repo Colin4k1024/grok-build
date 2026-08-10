@@ -316,6 +316,9 @@ fn merge_summary_budget_exceeded() {
     assert!(result.is_err());
     match result.unwrap_err() {
         ContextError::TokenBudgetExceeded { used, max } => {
+            // `used` is the child's token count, `max` the limit we passed in.
+            assert_eq!(used, child_tokens);
+            assert_eq!(max, 1);
             assert!(used > max);
         }
         other => panic!("expected TokenBudgetExceeded, got: {other}"),
@@ -585,4 +588,21 @@ fn token_usage_by_role() {
     assert!(usage.total > 0);
     // Should have entries for User, Assistant, System roles.
     assert!(!usage.by_role.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Budget allocator
+// ---------------------------------------------------------------------------
+
+/// `available()` subtracts the response reserve from the parent's total, so a
+/// small budget makes the arithmetic checkable by hand: 100 - 20 = 80.
+#[test]
+fn allocator_available_excludes_response_reserve() {
+    let budget = small_budget();
+    let allocator = BudgetAllocator::new(budget.clone());
+    assert_eq!(
+        allocator.available(),
+        budget.max_total - budget.reserve_for_response,
+    );
+    assert_eq!(allocator.allocated(), 0);
 }

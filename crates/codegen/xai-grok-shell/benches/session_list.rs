@@ -523,6 +523,8 @@ fn write_summary(
         agent_name: Some("benchmark-agent".to_owned()),
         sandbox_profile: Some("workspace".to_owned()),
         reasoning_effort: None,
+        session_name: None,
+        pinned: false,
         last_turn_summary: None,
         last_turn_summary_prompt_id: None,
     };

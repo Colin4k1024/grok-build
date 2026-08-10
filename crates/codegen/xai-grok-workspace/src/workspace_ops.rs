@@ -2074,6 +2074,7 @@ mod tests {
                 E::SubagentEnd => HookEventNameWire::SubagentEnd,
                 E::PreCompact => HookEventNameWire::PreCompact,
                 E::PostCompact => HookEventNameWire::PostCompact,
+                E::DirectoryAdded => HookEventNameWire::DirectoryAdded,
             }
         }
         for e in [
@@ -2092,6 +2093,7 @@ mod tests {
             E::SubagentEnd,
             E::PreCompact,
             E::PostCompact,
+            E::DirectoryAdded,
         ] {
             assert_eq!(
                 serde_json::to_value(e).unwrap(),
