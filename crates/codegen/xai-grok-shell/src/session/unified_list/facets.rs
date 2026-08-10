@@ -31,7 +31,7 @@ pub struct NormalizedItem {
 }
 
 impl NormalizedItem {
-    pub fn from_merged(m: &MergedSession) -> Self {
+    pub(crate) fn from_merged(m: &MergedSession) -> Self {
         Self {
             kind: SessionKind::Build,
             cwd: m.cwd.clone(),
@@ -45,7 +45,7 @@ impl NormalizedItem {
         }
     }
 
-    pub fn from_conversation(c: &Conversation) -> Self {
+    pub(crate) fn from_conversation(c: &Conversation) -> Self {
         Self {
             kind: SessionKind::Chat,
             cwd: String::new(),
@@ -267,7 +267,7 @@ impl FacetRegistry {
             .find(|p| p.key() == key)
     }
 
-    pub fn extract_all(&self, item: &NormalizedItem) -> FacetMap {
+    pub(crate) fn extract_all(&self, item: &NormalizedItem) -> FacetMap {
         let mut facets = FacetMap::new();
         for provider in &self.providers {
             if provider.applies_to().contains(&item.kind)
@@ -279,7 +279,7 @@ impl FacetRegistry {
         facets
     }
 
-    pub fn apply_pushdown(
+    pub(crate) fn apply_pushdown(
         &self,
         filters: &BTreeMap<String, Vec<serde_json::Value>>,
         query: &mut SourceQuery,
@@ -322,7 +322,7 @@ impl FacetRegistry {
             .collect()
     }
 
-    pub fn summarize_window(&self, rows: &[UnifiedRow]) -> FacetSummary {
+    pub(crate) fn summarize_window(&self, rows: &[UnifiedRow]) -> FacetSummary {
         let mut acc: BTreeMap<String, BTreeMap<String, (serde_json::Value, usize)>> =
             BTreeMap::new();
         for row in rows {
@@ -414,6 +414,7 @@ mod tests {
             git_root_dir: None,
             git_remotes: Vec::new(),
             source_workspace_dir: None,
+            last_turn_summary: None,
             session_kind: None,
             session_name: None,
             pinned: false,
@@ -481,6 +482,7 @@ mod tests {
             git_root_dir: None,
             git_remotes: Vec::new(),
             source_workspace_dir: None,
+            last_turn_summary: None,
             session_kind: None,
             session_name: None,
             pinned: false,
@@ -610,6 +612,7 @@ mod tests {
             git_root_dir: None,
             git_remotes: Vec::new(),
             source_workspace_dir: None,
+            last_turn_summary: None,
             session_kind: None,
             session_name: None,
             pinned: false,
@@ -657,6 +660,7 @@ mod tests {
             git_root_dir: git_root.map(Into::into),
             git_remotes: Vec::new(),
             source_workspace_dir: source_ws.map(Into::into),
+            last_turn_summary: None,
             session_kind: None,
             session_name: None,
             pinned: false,
@@ -685,6 +689,7 @@ mod tests {
             git_root_dir: Some("/Users/me/xai".into()),
             git_remotes: Vec::new(),
             source_workspace_dir: Some("/Users/me/xai-main".into()),
+            last_turn_summary: None,
             session_kind: Some("worktree".into()),
             session_name: None,
             pinned: false,

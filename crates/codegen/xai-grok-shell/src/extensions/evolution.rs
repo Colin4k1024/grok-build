@@ -35,31 +35,26 @@ fn selected_evolution(
         .get("sessionId")
         .or_else(|| params.get("session_id"))
         .and_then(serde_json::Value::as_str);
-    let sessions = agent.sessions.borrow();
+    let to_selected = |handle: &crate::session::handle::SessionHandle| SelectedEvolution {
+        service_slot: handle.evolution_service.clone(),
+        workspace: PathBuf::from(&handle.info.cwd),
+        cmd_tx: handle.cmd_tx.clone(),
+    };
     if let Some(session_id) = session_id {
-        let handle = sessions
-            .iter()
-            .find(|(id, _)| id.0.as_ref() == session_id)
-            .map(|(_, handle)| handle)
+        let handle = agent
+            .resident_handle(&acp::SessionId::new(session_id.to_owned()))
             .ok_or_else(|| acp::Error::invalid_params().data("unknown evolution session"))?;
-        return Ok(Some(SelectedEvolution {
-            service_slot: handle.evolution_service.clone(),
-            workspace: PathBuf::from(&handle.info.cwd),
-            cmd_tx: handle.cmd_tx.clone(),
-        }));
+        return Ok(Some(to_selected(&handle)));
     }
-    if sessions.len() == 1 {
-        return Ok(sessions.values().next().map(|handle| SelectedEvolution {
-            service_slot: handle.evolution_service.clone(),
-            workspace: PathBuf::from(&handle.info.cwd),
-            cmd_tx: handle.cmd_tx.clone(),
-        }));
+    // No explicit sessionId: unambiguous only when exactly one session is resident.
+    let mut residents = Vec::new();
+    agent.for_each_resident(|_, handle| residents.push(to_selected(handle)));
+    match residents.len() {
+        0 => Ok(None),
+        1 => Ok(residents.pop()),
+        _ => Err(acp::Error::invalid_params()
+            .data("sessionId is required when multiple sessions are resident")),
     }
-    if sessions.is_empty() {
-        return Ok(None);
-    }
-    Err(acp::Error::invalid_params()
-        .data("sessionId is required when multiple sessions are resident"))
 }
 
 fn service_required(

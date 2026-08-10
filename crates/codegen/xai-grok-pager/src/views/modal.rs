@@ -229,11 +229,9 @@ pub enum ActiveModal {
         entries_query: Option<String>,
         /// Source filter for the modal session picker.
         source_filter: crate::views::session_picker::SourceFilter,
-        /// Session armed for delete, captured as `(source, session_id, cwd)` when
-        /// `d` is pressed so the `y` confirm always has a valid cwd even if
-        /// the picker lists change underneath it. `Some` only while the
-        /// focused row is armed; cleared on cancel / completion.
-        pending_delete: Option<(String, String, String)>,
+        /// Session armed for delete via `d` (see
+        /// [`crate::views::session_picker::PendingDelete`]).
+        pending_delete: Option<crate::views::session_picker::PendingDelete>,
     },
     /// How-to documentation list modal (wider picker style).
     DocPicker {
@@ -289,6 +287,11 @@ pub enum ActiveModal {
     /// Settings modal (F2, /settings, palette). Boxed — large state.
     Settings {
         state: Box<crate::views::settings_modal::SettingsModalState>,
+    },
+    /// Tabbed usage / session-info modal (`/usage`, `/session-info`,
+    /// `/context`, context-bar click). Boxed — holds fetched snapshots.
+    UsageInfo {
+        state: Box<crate::views::usage_modal::UsageInfoModalState>,
     },
     /// Reset-settings confirmation, stacked above Settings.
     ///
@@ -654,6 +657,7 @@ impl ActiveModal {
             | ActiveModal::ShortcutsHelp { .. }
             | ActiveModal::MemoryBrowser { .. }
             | ActiveModal::Settings { .. }
+            | ActiveModal::UsageInfo { .. }
             | ActiveModal::RememberNoteReview { .. }
             | ActiveModal::Evolution { .. } => vec![],
         }
@@ -686,6 +690,7 @@ impl ActiveModal {
             ActiveModal::Settings { .. } => crate::views::settings_modal::MODAL_TITLE,
             ActiveModal::ResetSettingsConfirm { .. } => "Reset setting?",
             ActiveModal::RememberNoteReview { .. } => "Memory Note",
+            ActiveModal::UsageInfo { .. } => "Usage",
             ActiveModal::Evolution { .. } => "Evolution",
         }
     }

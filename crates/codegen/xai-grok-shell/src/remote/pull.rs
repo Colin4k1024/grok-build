@@ -158,6 +158,8 @@ pub(crate) mod hydrate {
             reasoning_effort: None,
             session_name: None,
             pinned: false,
+            last_turn_summary: None,
+            last_turn_summary_prompt_id: None,
         };
 
         let json = serde_json::to_string_pretty(&summary)?;
