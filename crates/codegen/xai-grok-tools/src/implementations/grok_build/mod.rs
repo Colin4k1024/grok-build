@@ -71,7 +71,7 @@ pub use scheduler::list::SchedulerListTool;
 pub use schedule_wakeup::ScheduleWakeupTool;
 pub use send_message::SendMessageTool;
 pub use search_replace::SearchReplaceTool;
-pub use task::TaskTool;
+pub use task::{TaskTool, is_task_tool_id};
 pub use task_output::{GetTerminalCommandOutputTool, TaskOutputTool, WaitTasksTool};
 pub use todo::TodoWriteTool;
 pub use turn_rollback::TurnRollbackTool;
