@@ -861,6 +861,7 @@ read_write = ["/tmp/ci-artifacts"]
                 ProfileConfig {
                     extends: Some("workspace".to_string()),
                     restrict_network: None,
+                    network_strict_allowlist: None,
                     read_only: vec!["/opt/tooling/**".to_string()],
                     read_write: vec![
                         "/home/user/.cargo/registry/cache/**".to_string(),
@@ -919,6 +920,7 @@ read_write = ["/tmp/ci-artifacts"]
                 ProfileConfig {
                     extends: Some("workspace".to_string()),
                     restrict_network: None,
+                    network_strict_allowlist: None,
                     read_only: vec![],
                     read_write: vec![allow_glob],
                     deny: vec![],
