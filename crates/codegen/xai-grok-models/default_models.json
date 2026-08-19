@@ -13,6 +13,7 @@
         "DASHSCOPE_API_KEY"
       ],
       "context_window": 131072,
+      "max_completion_tokens": 16384,
       "api_backend": "chat_completions",
       "supported_in_api": true,
       "hidden": false

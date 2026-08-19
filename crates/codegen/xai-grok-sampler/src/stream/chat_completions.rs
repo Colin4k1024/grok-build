@@ -205,12 +205,16 @@ pub fn stream_chat_completions<'a>(
                     let mut name_for_event: Option<String> = None;
                     let mut args_for_event: Option<String> = None;
 
-                    if let Some(id) = tc_delta.id {
+                    // DashScope (and other providers) send empty strings for
+                    // id/name on continuation deltas. Only merge non-empty
+                    // values so a real name from an earlier chunk is never
+                    // clobbered by a later empty-string delta.
+                    if let Some(id) = tc_delta.id.filter(|id| !id.is_empty()) {
                         entry.0 = id.clone();
                         id_for_event = Some(id);
                     }
                     if let Some(func) = tc_delta.function {
-                        if let Some(name) = func.name {
+                        if let Some(name) = func.name.filter(|n| !n.is_empty()) {
                             entry.1 = name.clone();
                             name_for_event = Some(name);
                         }
