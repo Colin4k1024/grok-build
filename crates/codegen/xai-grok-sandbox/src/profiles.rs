@@ -63,6 +63,23 @@ pub struct ProfileConfig {
 pub struct SandboxConfig {
     #[serde(default)]
     pub profiles: HashMap<String, ProfileConfig>,
+    /// Sentinel-based credential masking, honored from the **global** config
+    /// only. Project-level `[credential_mask]` sections are ignored (with a
+    /// warning in `merge_project_profiles`): a workspace must not be able to
+    /// influence how host secrets are masked or restored.
+    #[serde(default)]
+    pub credential_mask: crate::credential_mask::CredentialMaskConfig,
+}
+
+impl SandboxConfig {
+    /// Build a runtime [`credential_mask::CredentialMask`] from the global
+    /// `[credential_mask]` section, resolving real values against `workspace`.
+    pub fn build_credential_mask(
+        &self,
+        workspace: &Path,
+    ) -> crate::credential_mask::CredentialMask {
+        crate::credential_mask::CredentialMask::from_config(&self.credential_mask, workspace)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -162,6 +179,11 @@ fn mismatched_profile_names(global: &SandboxConfig, project: &SandboxConfig) -> 
 /// Merge project profiles into `config`. Names already defined globally are
 /// ignored so a workspace cannot replace a global custom profile's policy.
 fn merge_project_profiles(config: &mut SandboxConfig, project: SandboxConfig) {
+    if project.credential_mask.enabled {
+        tracing::warn!(
+            "ignoring project-level [credential_mask]: credential masking is global-config only"
+        );
+    }
     for (name, profile) in project.profiles {
         config.profiles.entry(name).or_insert(profile);
     }
@@ -518,6 +540,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn credential_mask_section_parses_into_config() {
+        let toml = r#"
+            [credential_mask]
+            enabled = true
+
+            [[credential_mask.entries]]
+            name = "github token"
+            source = { type = "env", name = "GITHUB_TOKEN" }
+            sentinel_prefix = "gh_"
+        "#;
+        let config: SandboxConfig = toml::from_str(toml).expect("valid sandbox config");
+        assert!(config.credential_mask.enabled);
+        assert_eq!(config.credential_mask.entries.len(), 1);
+        assert_eq!(config.credential_mask.entries[0].name, "github token");
+    }
+
+    #[test]
+    fn credential_mask_absent_by_default() {
+        let config: SandboxConfig = toml::from_str("").expect("empty config parses");
+        assert!(!config.credential_mask.enabled);
+        assert!(config.credential_mask.entries.is_empty());
+        // Disabled config builds a pass-through mask.
+        let mask = config.build_credential_mask(Path::new("/tmp"));
+        assert!(!mask.is_enabled());
+        assert_eq!(mask.restore_string("untouched"), "untouched");
+    }
+
+    #[test]
+    fn project_credential_mask_is_ignored_in_merge() {
+        let mut global = SandboxConfig::default();
+        let project: SandboxConfig = toml::from_str(
+            r#"
+                [credential_mask]
+                enabled = true
+                [[credential_mask.entries]]
+                name = "hostile"
+                source = { type = "env", name = "AWS_SECRET_ACCESS_KEY" }
+            "#,
+        )
+        .expect("project config parses");
+        merge_project_profiles(&mut global, project);
+        assert!(
+            !global.credential_mask.enabled,
+            "project-level credential_mask must not reach the merged config"
+        );
+    }
+
+    #[test]
     fn parse_profile_names() {
         assert_eq!(
             "workspace".parse::<ProfileName>().unwrap(),
@@ -605,6 +675,7 @@ mod tests {
 
     fn network_inheritance_config() -> SandboxConfig {
         SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([
                 (
                     "strict-inherited".to_string(),
@@ -719,6 +790,7 @@ mod tests {
         }
         let workspace = std::env::current_dir().unwrap();
         let config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "project".to_string(),
                 ProfileConfig {
@@ -744,6 +816,7 @@ mod tests {
         // deny set (which would wrongly read-deny /data and force fail-closed).
         let workspace = std::env::current_dir().unwrap();
         let config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "mydev".to_string(),
                 ProfileConfig {
@@ -787,12 +860,14 @@ mod tests {
             deny: vec![],
         };
         let global = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([
                 ("dev".to_string(), profile(false)),
                 ("same".to_string(), profile(false)),
             ]),
         };
         let project = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([
                 ("dev".to_string(), profile(true)),
                 ("same".to_string(), profile(false)),
@@ -833,6 +908,7 @@ read_write = ["/tmp/ci-artifacts"]
         }
         let workspace = std::env::current_dir().unwrap();
         let config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "cargo".to_string(),
                 ProfileConfig {
@@ -891,6 +967,7 @@ read_write = ["/tmp/ci-artifacts"]
         let workspace = root.join("ws");
         std::fs::create_dir_all(&workspace).unwrap();
         let config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "cargo".to_string(),
                 ProfileConfig {
@@ -920,6 +997,7 @@ read_write = ["/tmp/ci-artifacts"]
     fn project_cannot_redefine_global_profile() {
         // Global "secure" with a real deny list must win over a project hollow-out.
         let mut config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "secure".to_string(),
                 ProfileConfig {
@@ -932,6 +1010,7 @@ read_write = ["/tmp/ci-artifacts"]
             )]),
         };
         let project = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([
                 (
                     "secure".to_string(),
@@ -979,6 +1058,7 @@ read_write = ["/tmp/ci-artifacts"]
     fn extends_off_returns_err_not_panic() {
         let workspace = std::env::current_dir().unwrap();
         let config = SandboxConfig {
+            credential_mask: Default::default(),
             profiles: HashMap::from([(
                 "broken".to_string(),
                 ProfileConfig {

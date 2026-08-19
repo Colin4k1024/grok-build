@@ -28,6 +28,7 @@
 //! ```
 mod allow_path;
 pub mod child_net;
+pub mod credential_mask;
 mod deny;
 mod hook_write_deny;
 mod logging;

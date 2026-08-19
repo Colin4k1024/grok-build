@@ -34,8 +34,12 @@ Thread Forking（/fork）。
 
 1. **A1 Permission Classifier**（`xai-grok-hooks/src/native/permission_classifier.rs`
    + workspace/permission 集成）— 价值高，涉及 6+ 文件，需按当前权限管线重构
-2. **A2 Credential Masking**（`xai-grok-sandbox/src/credential_mask.rs`，611 行）—
-   自包含模块，移植面中等
+2. ~~**A2 Credential Masking**~~ ✅ 已于 2026-08-19 重新落地：
+   `xai-grok-sandbox/src/credential_mask.rs`（模块 + 16 测试）+
+   `SandboxConfig.credential_mask` 配置接入（仅认全局 `~/.grok/sandbox.toml`，
+   项目级配置忽略并告警）+ `build_credential_mask()` 构建器。
+   **待后续**：执行管线接线（spawn 时注入 sentinel 环境变量、命令输出
+   跨界返回时 `restore_output()` 还原）
 3. C2 DirectoryAdded Hook — **暂缓**：当前上游无 add-dir 类基础功能，
    事件无触发点，移植只会产生死代码；待基础功能出现后再做
 4. B2 Multi-Marketplace（`plugin-marketplace/provider.rs`）— 按需
