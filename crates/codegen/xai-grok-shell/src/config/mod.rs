@@ -38,8 +38,8 @@ pub struct SubagentsConfig {
     ///
     /// ```toml
     /// [subagents.models]
-    /// explore = "grok-3-fast"
-    /// plan = "grok-3"
+    /// explore = "qwen-turbo"
+    /// plan = "qwen-max"
     /// ```
     #[serde(default)]
     pub models: std::collections::HashMap<String, String>,
@@ -60,7 +60,7 @@ pub struct SubagentsConfig {
     /// [subagents.roles.researcher]
     /// description = "Deep research agent"
     /// default_capability_mode = "read-only"
-    /// model = "grok-3"
+    /// model = "qwen-max"
     ///
     /// [subagents.roles.implementer]
     /// description = "Implementation agent with full access"

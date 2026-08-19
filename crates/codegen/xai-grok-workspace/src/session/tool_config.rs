@@ -543,7 +543,7 @@ fn build_web_fetch_config() -> xai_grok_tools::implementations::grok_build::web_
     WebFetchConfig::Enabled { params }
 }
 fn default_web_search_model() -> String {
-    std::env::var("GROK_WEB_SEARCH_MODEL").unwrap_or_else(|_| "grok-4.5".to_string())
+    std::env::var("GROK_WEB_SEARCH_MODEL").unwrap_or_else(|_| "qwen-plus".to_string())
 }
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support {

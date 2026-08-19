@@ -1225,7 +1225,7 @@ where
 /// only guaranteed to work with a compatible harness (cursor vs grok-build).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GoalRoleModel {
-    /// Model id, e.g. "grok-4". Resolved against available models at
+    /// Model id, e.g. "deepseek-v4-pro". Resolved against available models at
     /// spawn time; unknown/unauthorized ⇒ fail-open to current model.
     pub model: String,
     /// Harness `agent_type` (e.g. "cursor", "grok-build-plan") whose
