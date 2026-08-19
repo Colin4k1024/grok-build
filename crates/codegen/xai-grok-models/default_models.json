@@ -19,19 +19,6 @@
       "hidden": false
     },
     {
-      "model": "qwen3-coder-plus",
-      "name": "Qwen3 Coder Plus (百炼)",
-      "description": "Qwen3 coding specialist — agentic coding, tool use, long context",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "env_key": [
-        "DASHSCOPE_API_KEY"
-      ],
-      "context_window": 262144,
-      "api_backend": "chat_completions",
-      "supported_in_api": true,
-      "hidden": false
-    },
-    {
       "model": "glm-5.1",
       "name": "GLM-5.1 (百炼)",
       "description": "Zhipu GLM-5.1 via DashScope",
