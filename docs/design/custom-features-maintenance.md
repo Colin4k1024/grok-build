@@ -32,8 +32,11 @@ Thread Forking（/fork）。
 
 重落地优先级队列：
 
-1. **A1 Permission Classifier**（`xai-grok-hooks/src/native/permission_classifier.rs`
-   + workspace/permission 集成）— 价值高，涉及 6+ 文件，需按当前权限管线重构
+1. ~~**A1 Permission Classifier**~~ ✅ 上游已原生吸收且更强
+   （`permission/auto_mode/security_findings.rs` 类型化安全发现 +
+   LLM 分类路径 + `policy.rs`/`shell_access.rs` 危险命令解析）。
+   backup 的正则分类器已过时，不再移植。细微差异：backup 版会硬拦
+   `.env`/密钥文件的编辑，上游交给 LLM 分类器决策（策略选择，非遗漏）
 2. ~~**A2 Credential Masking**~~ ✅ 已于 2026-08-19 重新落地：
    `xai-grok-sandbox/src/credential_mask.rs`（模块 + 16 测试）+
    `SandboxConfig.credential_mask` 配置接入（仅认全局 `~/.grok/sandbox.toml`，
