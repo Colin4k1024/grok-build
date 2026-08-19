@@ -14037,6 +14037,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "dunce",
+ "fastrand",
  "globset",
  "ignore",
  "libc",
