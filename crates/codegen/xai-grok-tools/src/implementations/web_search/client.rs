@@ -1,4 +1,4 @@
-use super::types::WebSearchConfig;
+use super::types::{WebSearchBackend, WebSearchConfig};
 use crate::attribution::{SharedAttributionCallback, ToolConsumer};
 use crate::types::SharedApiKeyProvider;
 use async_openai::types::responses as rs;
@@ -10,6 +10,9 @@ pub struct WebSearchClient {
     http: reqwest::Client,
     base_url: String,
     model: String,
+    /// Which HTTP surface `base_url` serves; selects the request shape and
+    /// the citation extraction strategy.
+    api_backend: WebSearchBackend,
     /// Authoritative domain allowlist from `[toolset.web_search] allowed_domains`.
     /// When set it governs the search and the model's per-call `allowed_domains`
     /// is ignored (see [`Self::resolve_filters`]). Mutually exclusive with
@@ -37,6 +40,7 @@ impl WebSearchClient {
             api_key,
             base_url,
             model,
+            api_backend,
             extra_headers,
             alpha_test_key,
             allowed_domains,
@@ -89,6 +93,7 @@ impl WebSearchClient {
             http,
             base_url: base_url.clone(),
             model: model.clone(),
+            api_backend: *api_backend,
             default_allowed_domains: allowed_domains.clone(),
             default_excluded_domains: excluded_domains.clone(),
             api_key_provider,
@@ -178,6 +183,45 @@ impl WebSearchClient {
         }
         Ok(body)
     }
+    /// Build the `/chat/completions` request body for providers with
+    /// server-side search enabled via `enable_search` (DashScope).
+    ///
+    /// This surface has no citation annotations, so the prompt asks the model
+    /// to end its answer with a markdown `Sources:` list; the client parses
+    /// those links back into citations. Domain filters have no native
+    /// equivalent here, so they are applied as prompt-level guidance (soft
+    /// enforcement, unlike the Responses-API filters).
+    fn build_chat_completions_json(
+        &self,
+        query: &str,
+        allowed_domains: Option<Vec<String>>,
+        excluded_domains: Option<Vec<String>>,
+    ) -> serde_json::Value {
+        let mut prompt = format!(
+            "Search the web for the following query and give a concise, factual answer \
+             in the same language as the query. End your reply with a line containing \
+             only \"Sources:\" followed by one markdown bullet per source you actually \
+             used, in the exact form \"- [title](url)\".\n\nQuery: {query}"
+        );
+        if let Some(allowed) = allowed_domains.filter(|d| !d.is_empty()) {
+            prompt.push_str(&format!(
+                "\n\nOnly use sources from these domains: {}",
+                allowed.join(", ")
+            ));
+        }
+        if let Some(excluded) = excluded_domains.filter(|d| !d.is_empty()) {
+            prompt.push_str(&format!(
+                "\n\nDo not use any sources from these domains: {}",
+                excluded.join(", ")
+            ));
+        }
+        serde_json::json!({
+            "model": self.model,
+            "messages": [{ "role": "user", "content": prompt }],
+            "enable_search": true,
+            "stream": false,
+        })
+    }
     /// Wire a 401-attribution callback into this client. Idempotent;
     /// safe to call before or after the first request.
     pub fn with_attribution_callback(
@@ -197,20 +241,18 @@ impl WebSearchClient {
             sent_bearer,
         );
     }
-    /// Perform a web search query using the Responses API.
+    /// POST a search request and handle the shared status/error surface.
     ///
-    /// Returns `(content, citations)` where content is the assistant's text
-    /// and citations are unique URLs found in the response annotations.
-    pub async fn search(
+    /// Returns the parsed JSON body on 2xx. A 401 records attribution and
+    /// returns an `unauthorized` error; other non-success statuses return an
+    /// execution error carrying the upstream body.
+    async fn post_search_request(
         &self,
-        query: &str,
-        allowed_domains: Option<Vec<String>>,
-    ) -> Result<(String, Vec<String>), xai_tool_runtime::ToolError> {
-        let (allowed, excluded) = self.resolve_filters(allowed_domains);
-        let request = self.build_request_json(query, allowed, excluded)?;
-        let url = format!("{}/responses", self.base_url.trim_end_matches('/'));
+        url: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, xai_tool_runtime::ToolError> {
         let sent_bearer = self.current_bearer().await;
-        let mut req = self.http.post(&url).json(&request);
+        let mut req = self.http.post(url).json(body);
         if let Some(ref key) = sent_bearer {
             req = req.header(AUTHORIZATION, format!("Bearer {key}"));
         }
@@ -228,7 +270,7 @@ impl WebSearchClient {
                 .await
                 .unwrap_or_else(|_| "Failed to read error body".to_string());
             return Err(xai_tool_runtime::ToolError::unauthorized(format!(
-                "Responses API returned 401 Unauthorized: {body}"
+                "Web search API returned 401 Unauthorized: {body}"
             ))
             .with_details(serde_json::json!({
                 "tool_id": "web_search",
@@ -242,7 +284,7 @@ impl WebSearchClient {
                 .unwrap_or_else(|_| "Failed to read error body".to_string());
             return Err(xai_tool_runtime::ToolError::execution(
                 xai_tool_protocol::ToolId::new("web_search").expect("valid"),
-                format!("Responses API returned {status}: {body}"),
+                format!("Web search API returned {status}: {body}"),
             ));
         }
         let bytes = response.bytes().await.map_err(|e| {
@@ -251,20 +293,65 @@ impl WebSearchClient {
                 format!("Failed to read response body: {e}"),
             )
         })?;
-        let response_obj: rs::Response = serde_json::from_slice(&bytes).map_err(|e| {
+        serde_json::from_slice(&bytes).map_err(|e| {
             xai_tool_runtime::ToolError::execution(
                 xai_tool_protocol::ToolId::new("web_search").expect("valid"),
                 format!("Failed to parse response: {e}"),
             )
-        })?;
-        let content = response_obj
-            .output_text()
-            .unwrap_or_else(|| "No search results found.".to_string());
-        let citations = extract_citations(&response_obj);
-        Ok((content, citations))
+        })
+    }
+    /// Shared search implementation. Returns `(content, citations)` where
+    /// each citation is a `(title, url)` pair; empty titles mean the
+    /// upstream didn't supply one.
+    async fn search_impl(
+        &self,
+        query: &str,
+        allowed_domains: Option<Vec<String>>,
+    ) -> Result<(String, Vec<(String, String)>), xai_tool_runtime::ToolError> {
+        let (allowed, excluded) = self.resolve_filters(allowed_domains);
+        match self.api_backend {
+            WebSearchBackend::Responses => {
+                let request = self.build_request_json(query, allowed, excluded)?;
+                let url = format!("{}/responses", self.base_url.trim_end_matches('/'));
+                let body = self.post_search_request(&url, &request).await?;
+                let response_obj: rs::Response = serde_json::from_value(body).map_err(|e| {
+                    xai_tool_runtime::ToolError::execution(
+                        xai_tool_protocol::ToolId::new("web_search").expect("valid"),
+                        format!("Failed to parse response: {e}"),
+                    )
+                })?;
+                let content = response_obj
+                    .output_text()
+                    .unwrap_or_else(|| "No search results found.".to_string());
+                Ok((content, extract_citation_pairs(&response_obj)))
+            }
+            WebSearchBackend::ChatCompletions => {
+                let request = self.build_chat_completions_json(query, allowed, excluded);
+                let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+                let body = self.post_search_request(&url, &request).await?;
+                let content = body
+                    .pointer("/choices/0/message/content")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| "No search results found.".to_string());
+                Ok((content.clone(), extract_markdown_links(&content)))
+            }
+        }
+    }
+    /// Perform a web search query.
+    ///
+    /// Returns `(content, citations)` where content is the assistant's text
+    /// and citations are unique URLs found in the response.
+    pub async fn search(
+        &self,
+        query: &str,
+        allowed_domains: Option<Vec<String>>,
+    ) -> Result<(String, Vec<String>), xai_tool_runtime::ToolError> {
+        let (content, pairs) = self.search_impl(query, allowed_domains).await?;
+        Ok((content, pairs.into_iter().map(|(_title, url)| url).collect()))
     }
     /// Same as [`Self::search`] but also extracts per-citation titles when
-    /// the Responses API surfaces them. Returns `(content, citations_with_titles)`
+    /// the backend surfaces them. Returns `(content, citations_with_titles)`
     /// where each citation is `(title, url)`. Empty `title` strings indicate
     /// the upstream didn't supply one for that URL.
     ///
@@ -275,88 +362,45 @@ impl WebSearchClient {
         query: &str,
         allowed_domains: Option<Vec<String>>,
     ) -> Result<(String, Vec<(String, String)>), xai_tool_runtime::ToolError> {
-        let (allowed, excluded) = self.resolve_filters(allowed_domains);
-        let request = self.build_request_json(query, allowed, excluded)?;
-        let url = format!("{}/responses", self.base_url.trim_end_matches('/'));
-        let sent_bearer = self.current_bearer().await;
-        let mut req = self.http.post(&url).json(&request);
-        if let Some(ref key) = sent_bearer {
-            req = req.header(AUTHORIZATION, format!("Bearer {key}"));
-        }
-        let response = req.send().await.map_err(|e| {
-            xai_tool_runtime::ToolError::execution(
-                xai_tool_protocol::ToolId::new("web_search").expect("valid"),
-                format!("HTTP request failed: {e}"),
-            )
-        })?;
-        let status = response.status();
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            self.record_401_attribution(sent_bearer.as_deref());
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Failed to read error body".to_string());
-            return Err(xai_tool_runtime::ToolError::unauthorized(format!(
-                "Responses API returned 401 Unauthorized: {body}"
-            ))
-            .with_details(serde_json::json!({
-                "tool_id": "web_search",
-                "status": 401,
-            })));
-        }
-        if !status.is_success() {
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Failed to read error body".to_string());
-            return Err(xai_tool_runtime::ToolError::execution(
-                xai_tool_protocol::ToolId::new("web_search").expect("valid"),
-                format!("Responses API returned {status}: {body}"),
-            ));
-        }
-        let bytes = response.bytes().await.map_err(|e| {
-            xai_tool_runtime::ToolError::execution(
-                xai_tool_protocol::ToolId::new("web_search").expect("valid"),
-                format!("Failed to read response body: {e}"),
-            )
-        })?;
-        let response_obj: rs::Response = serde_json::from_slice(&bytes).map_err(|e| {
-            xai_tool_runtime::ToolError::execution(
-                xai_tool_protocol::ToolId::new("web_search").expect("valid"),
-                format!("Failed to parse response: {e}"),
-            )
-        })?;
-        let content = response_obj
-            .output_text()
-            .unwrap_or_else(|| "No search results found.".to_string());
-        let pairs = extract_citation_pairs(&response_obj);
-        Ok((content, pairs))
+        self.search_impl(query, allowed_domains).await
     }
 }
 /// Extract citation URLs from the Response output items.
 /// The async-openai crate doesn't provide a helper for this, and the `url` field
 /// in `UrlCitationBody` is private, so we serialize to JSON to extract it.
+#[cfg(test)]
 fn extract_citations(response: &rs::Response) -> Vec<String> {
-    let mut citations = Vec::new();
-    for output_item in &response.output {
-        if let rs::OutputItem::Message(output_message) = output_item {
-            for message_content in &output_message.content {
-                if let rs::OutputMessageContent::OutputText(text_content) = message_content {
-                    for annotation in &text_content.annotations {
-                        if let rs::Annotation::UrlCitation(url_citation) = annotation
-                            && let Ok(json) = serde_json::to_value(url_citation)
-                            && let Some(url) = json.get("url").and_then(|v| v.as_str())
-                        {
-                            citations.push(url.to_string());
-                        }
-                    }
-                }
-            }
+    extract_citation_pairs(response)
+        .into_iter()
+        .map(|(_title, url)| url)
+        .collect()
+}
+/// Extract `[title](http…)` markdown links from assistant text.
+///
+/// Used for Chat Completions backends (e.g. DashScope `enable_search`) where
+/// citations only exist as links the model wrote into its answer. Only
+/// `http(s)` targets count; URLs are deduplicated preserving first-seen
+/// order. The byte indices come from `str::find`/char-boundary-safe scans,
+/// so slicing is always on UTF-8 boundaries.
+fn extract_markdown_links(text: &str) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut rest = text;
+    while let Some(marker) = rest.find("](") {
+        let after = &rest[marker + 2..];
+        let url_end = after.find(')').unwrap_or(after.len());
+        let url = after[..url_end].trim();
+        let before = &rest[..marker];
+        if let Some(open) = before.rfind('[')
+            && (url.starts_with("http://") || url.starts_with("https://"))
+        {
+            let title = before[open + 1..].trim();
+            pairs.push((title.to_string(), url.to_string()));
         }
+        rest = after.get(url_end + 1..).unwrap_or(after);
     }
     let mut seen = std::collections::HashSet::new();
-    citations.retain(|url| seen.insert(url.clone()));
-    citations
+    pairs.retain(|(_t, url)| seen.insert(url.clone()));
+    pairs
 }
 /// Extract `(title, url)` pairs from the Responses API annotations.
 ///
@@ -410,6 +454,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: allowed,
@@ -487,6 +532,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "custom-enterprise-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -519,6 +565,7 @@ mod tests {
             api_key: "ignored".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -545,6 +592,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -800,6 +848,7 @@ mod tests {
             api_key: "static-key-from-config".to_string(),
             base_url: server.uri(),
             model: "test-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -852,6 +901,7 @@ mod tests {
             api_key: "stale-static-key".to_string(),
             base_url: server.uri(),
             model: "test-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -891,5 +941,73 @@ mod tests {
         }));
         let citations = extract_citations(&response);
         assert!(citations.is_empty());
+    }
+    #[test]
+    fn test_extract_markdown_links_parses_and_dedupes() {
+        let text = "Answer text.\n\nSources:\n- [Rust](https://www.rust-lang.org/)\n\
+                    - [Docs](https://docs.rs/)\n- [Rust again](https://www.rust-lang.org/)";
+        let pairs = extract_markdown_links(text);
+        assert_eq!(pairs.len(), 2, "duplicate URL must be dropped");
+        assert_eq!(pairs[0], ("Rust".to_string(), "https://www.rust-lang.org/".to_string()));
+        assert_eq!(pairs[1], ("Docs".to_string(), "https://docs.rs/".to_string()));
+    }
+    #[test]
+    fn test_extract_markdown_links_ignores_non_http() {
+        let text = "See [notes](relative/path.md) and [ftp](ftp://example.com/x) \
+                    but keep [real](https://example.com/a).";
+        let pairs = extract_markdown_links(text);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].1, "https://example.com/a");
+    }
+    #[test]
+    fn test_extract_markdown_links_empty_title() {
+        let pairs = extract_markdown_links("link: [](https://example.com/b)");
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0], (String::new(), "https://example.com/b".to_string()));
+    }
+    /// Chat Completions backend: request carries `enable_search`, hits
+    /// `/chat/completions`, and citations are parsed from the markdown links
+    /// in the assistant text.
+    #[tokio::test]
+    async fn chat_completions_backend_searches_with_enable_search() {
+        use wiremock::matchers::{body_partial_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_partial_json(serde_json::json!({
+                "model": "qwen-plus",
+                "enable_search": true,
+                "stream": false,
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Rust is a systems language.\n\nSources:\n- [Rust](https://www.rust-lang.org/)"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "model": "qwen-plus"
+            })))
+            .mount(&server)
+            .await;
+        let config = WebSearchConfig::Enabled {
+            api_key: "test-key".to_string(),
+            base_url: server.uri(),
+            model: "qwen-plus".to_string(),
+            api_backend: WebSearchBackend::ChatCompletions,
+            extra_headers: IndexMap::new(),
+            alpha_test_key: None,
+            allowed_domains: None,
+            excluded_domains: None,
+        };
+        let client = WebSearchClient::new(&config, None).expect("client should build");
+        let (content, citations) = client
+            .search("what is rust", None)
+            .await
+            .expect("chat-completions search must succeed");
+        assert!(content.starts_with("Rust is a systems language."));
+        assert_eq!(citations, vec!["https://www.rust-lang.org/".to_string()]);
     }
 }

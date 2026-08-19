@@ -430,6 +430,17 @@ pub(crate) async fn spawn_session_actor(
                 api_key,
                 base_url: cfg.base_url,
                 model: cfg.model,
+                // Chat Completions models (e.g. DashScope) get search via
+                // `enable_search` on /chat/completions instead of the
+                // Responses-API `web_search` tool.
+                api_backend: match cfg.api_backend {
+                    xai_grok_sampling_types::ApiBackend::ChatCompletions => {
+                        xai_grok_tools::implementations::web_search::WebSearchBackend::ChatCompletions
+                    }
+                    _ => {
+                        xai_grok_tools::implementations::web_search::WebSearchBackend::Responses
+                    }
+                },
                 extra_headers: cfg.extra_headers,
                 alpha_test_key: credentials.alpha_test_key.clone(),
                 allowed_domains: web_search_domains

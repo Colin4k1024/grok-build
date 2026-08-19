@@ -3749,6 +3749,16 @@ struct DefaultModelJson {
     agent_type: String,
     inference_idle_timeout_secs: Option<u64>,
     hidden: bool,
+    /// Provider base URL override (BYOK / third-party endpoints). When
+    /// absent, the entry inherits the resolved inference base URL.
+    base_url: Option<String>,
+    /// Environment variable name(s) holding the provider API key
+    /// (string or array; first set, non-blank value wins).
+    env_key: Option<EnvKeys>,
+    /// Auth header scheme for this entry's endpoint; `None` ⇒ Bearer.
+    auth_scheme: Option<AuthScheme>,
+    /// Extra headers sent with requests to this entry's endpoint.
+    extra_headers: IndexMap<String, String>,
     reasoning_effort: Option<ReasoningEffort>,
     #[serde(default)]
     supports_reasoning_effort: bool,
@@ -3799,7 +3809,9 @@ fn default_models(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntryCon
                 id: m.id,
                 model: m.model,
                 model_family: m.model_family,
-                base_url: endpoints.resolve_inference_base_url(),
+                base_url: m
+                    .base_url
+                    .unwrap_or_else(|| endpoints.resolve_inference_base_url()),
                 api_base_url: Some(endpoints.xai_api_base_url.clone()),
                 name: m.name,
                 description: m.description,
@@ -3810,13 +3822,13 @@ fn default_models(endpoints: &EndpointsConfig) -> IndexMap<String, ModelEntryCon
                 top_p: m.top_p,
                 max_completion_tokens: m.max_completion_tokens,
                 api_backend: m.api_backend,
-                auth_scheme: None,
+                auth_scheme: m.auth_scheme,
                 agent_type: m.agent_type,
                 inference_idle_timeout_secs: m.inference_idle_timeout_secs,
                 max_retries: None,
                 api_key: None,
-                env_key: None,
-                extra_headers: IndexMap::new(),
+                env_key: m.env_key,
+                extra_headers: m.extra_headers,
                 use_concise: false,
                 hidden: m.hidden,
                 supported_in_api: m.supported_in_api,

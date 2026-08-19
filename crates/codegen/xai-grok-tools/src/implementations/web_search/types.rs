@@ -1,5 +1,20 @@
 use indexmap::IndexMap;
 
+/// HTTP surface the web-search endpoint speaks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebSearchBackend {
+    /// OpenAI-style Responses API with a server-side `web_search` tool
+    /// and `url_citation` annotations (xAI / OpenAI).
+    #[default]
+    Responses,
+    /// OpenAI-compatible Chat Completions with provider-side search enabled
+    /// via `enable_search` (DashScope). There are no citation annotations on
+    /// this surface; citations are parsed from the markdown links in the
+    /// assistant text.
+    ChatCompletions,
+}
+
 /// Configuration for the web search tool.
 ///
 /// Use `Disabled` when no API key is available or web search should be turned off.
@@ -17,6 +32,10 @@ pub enum WebSearchConfig {
         api_key: String,
         base_url: String,
         model: String,
+        /// Which API surface `base_url` serves. Selects between the
+        /// Responses-API search tool and Chat Completions `enable_search`.
+        #[serde(default)]
+        api_backend: WebSearchBackend,
         #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
         extra_headers: IndexMap<String, String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,6 +72,7 @@ impl WebSearchConfig {
             Self::Enabled {
                 base_url,
                 model,
+                api_backend,
                 extra_headers,
                 allowed_domains,
                 excluded_domains,
@@ -61,6 +81,7 @@ impl WebSearchConfig {
                 api_key: "***REDACTED***".to_string(),
                 base_url: base_url.clone(),
                 model: model.clone(),
+                api_backend: *api_backend,
                 extra_headers: extra_headers.clone(),
                 alpha_test_key: None,
                 allowed_domains: allowed_domains.clone(),
@@ -86,6 +107,7 @@ mod tests {
             api_key: "test-key".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-web-search-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,
@@ -102,6 +124,7 @@ mod tests {
             api_key: "secret-key-12345".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-web-search-model".to_string(),
+            api_backend: WebSearchBackend::ChatCompletions,
             extra_headers: headers,
             alpha_test_key: Some("alpha-secret".to_string()),
             allowed_domains: Some(vec!["docs.x.ai".to_string()]),
@@ -113,6 +136,7 @@ mod tests {
                 api_key,
                 base_url,
                 model,
+                api_backend,
                 extra_headers,
                 alpha_test_key,
                 allowed_domains,
@@ -121,6 +145,7 @@ mod tests {
                 assert_eq!(api_key, "***REDACTED***");
                 assert_eq!(base_url, "https://api.x.ai/v1");
                 assert_eq!(model, "test-web-search-model");
+                assert_eq!(api_backend, WebSearchBackend::ChatCompletions);
                 assert_eq!(extra_headers.get("X-Custom").unwrap(), "value");
                 assert!(alpha_test_key.is_none());
                 // Domain filters survive redaction (not secrets).
@@ -137,6 +162,7 @@ mod tests {
             api_key: "key".to_string(),
             base_url: "https://api.x.ai/v1".to_string(),
             model: "test-web-search-model".to_string(),
+            api_backend: WebSearchBackend::Responses,
             extra_headers: IndexMap::new(),
             alpha_test_key: None,
             allowed_domains: None,

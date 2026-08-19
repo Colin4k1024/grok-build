@@ -538,6 +538,7 @@ mod tests {
                 api_key: "test-key".to_string(),
                 base_url: "https://api.x.ai/v1".to_string(),
                 model: "grok-4".to_string(),
+                api_backend: Default::default(),
                 extra_headers: Default::default(),
                 alpha_test_key: None,
                 allowed_domains: None,
