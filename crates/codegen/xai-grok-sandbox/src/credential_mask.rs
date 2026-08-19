@@ -264,8 +264,13 @@ impl CredentialMask {
         self.mappings.len()
     }
 
-    /// Write sentinel files to their target paths. Should be called after
-    /// sandbox apply but before the first command execution.
+    /// **Not wired — destructive without an FS veneer.** This writes sentinel
+    /// content over the *real* credential files at their original paths. The
+    /// kernel sandbox (Seatbelt/Landlock) restricts access but does not
+    /// virtualize file contents, so children share the host's files; calling
+    /// this would clobber the user's real credentials. File-source masking
+    /// stays dormant until a copy-on-write/overlay layer exists, and callers
+    /// must re-create the real files from `restore_output()` of the originals.
     pub fn materialize_sentinel_files(&self) -> std::io::Result<()> {
         for (path, content) in &self.sentinel_files {
             if let Some(parent) = path.parent() {
@@ -286,6 +291,80 @@ impl CredentialMask {
             }
         }
     }
+}
+
+// ── Process-global instance ────────────────────────────────────────────────
+
+/// The process-wide mask installed at startup. The agent process keeps real
+/// credential values in its own environment (the sampler needs them); child
+/// processes get sentinel overrides at spawn, and their output is restored at
+/// the tool-result boundary.
+static GLOBAL: std::sync::RwLock<Option<CredentialMask>> = std::sync::RwLock::new(None);
+
+/// Install `mask` as the process-global credential mask.
+pub fn install_global(mask: CredentialMask) {
+    *GLOBAL.write().expect("credential mask global lock") = Some(mask);
+}
+
+/// Load the sandbox config for `workspace`, build the mask from its
+/// `[credential_mask]` section, and install it process-globally. No-op when
+/// the section is absent or disabled. Call once at startup, next to
+/// `SandboxManager::apply`.
+pub fn install_from_config(workspace: &Path) {
+    let config = crate::profiles::load_sandbox_config(workspace);
+    let mask = config.build_credential_mask(workspace);
+    if mask.is_enabled() {
+        tracing::info!(
+            mappings = mask.mapping_count(),
+            "credential mask active: children see sentinels, tool output is restored"
+        );
+        install_global(mask);
+    }
+}
+
+/// Whether a process-global mask with at least one mapping is installed.
+pub fn is_globally_active() -> bool {
+    GLOBAL
+        .read()
+        .expect("credential mask global lock")
+        .as_ref()
+        .is_some_and(CredentialMask::is_enabled)
+}
+
+/// Sentinel env overrides for child-process spawns: `{var: sentinel}` for
+/// every env-sourced entry. Empty map when masking is off. Applied as the
+/// last env layer so sentinels cannot be overridden by login/request env.
+pub fn global_sentinel_env() -> HashMap<String, String> {
+    GLOBAL
+        .read()
+        .expect("credential mask global lock")
+        .as_ref()
+        .map(|m| m.sentinel_env_vars().clone())
+        .unwrap_or_default()
+}
+
+/// Restore sentinels in child output crossing back to the host (tool results
+/// shown to the model). Returns the input unchanged when masking is off.
+pub fn restore_string_global(output: &str) -> String {
+    match GLOBAL.read().expect("credential mask global lock").as_ref() {
+        Some(mask) => mask.restore_string(output),
+        None => output.to_string(),
+    }
+}
+
+/// Restore sentinels in binary child output. Returns the input unchanged
+/// when masking is off.
+pub fn restore_bytes_global(output: &[u8]) -> Vec<u8> {
+    match GLOBAL.read().expect("credential mask global lock").as_ref() {
+        Some(mask) => mask.restore_output(output),
+        None => output.to_vec(),
+    }
+}
+
+/// Test-only: drop the process-global mask so tests don't leak state.
+#[cfg(test)]
+pub(crate) fn clear_global_for_tests() {
+    *GLOBAL.write().expect("credential mask global lock") = None;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -607,5 +686,43 @@ mod tests {
 
         unsafe { std::env::remove_var(key1) };
         unsafe { std::env::remove_var(key2) };
+    }
+
+    #[test]
+    fn global_roundtrip_and_env() {
+        clear_global_for_tests();
+        assert!(!is_globally_active());
+        assert!(global_sentinel_env().is_empty());
+        assert_eq!(restore_string_global("untouched"), "untouched");
+
+        let key = "GROK_TEST_GLOBAL_MASK";
+        unsafe { std::env::set_var(key, "global-secret-xyz") };
+        let config = CredentialMaskConfig {
+            enabled: true,
+            entries: vec![CredentialMaskEntry {
+                name: "global test".into(),
+                source: CredentialSource::Env {
+                    name: key.to_string(),
+                },
+                extract: None,
+                sentinel_prefix: Some("g_".into()),
+            }],
+        };
+        install_global(CredentialMask::from_config(&config, Path::new("/tmp")));
+
+        assert!(is_globally_active());
+        let env = global_sentinel_env();
+        let sentinel = env.get(key).expect("sentinel env present");
+        assert!(sentinel.starts_with("g_"));
+        // Round-trip: sentinel in child output restores to the real value.
+        assert_eq!(restore_string_global(sentinel), "global-secret-xyz");
+        assert_eq!(
+            restore_bytes_global(format!("x{sentinel}y").as_bytes()),
+            format!("xglobal-secret-xyzy").as_bytes()
+        );
+
+        unsafe { std::env::remove_var(key) };
+        clear_global_for_tests();
+        assert!(!is_globally_active());
     }
 }

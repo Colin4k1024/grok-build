@@ -2126,6 +2126,14 @@ impl xai_tool_runtime::Tool for BashTool {
                     return Err(bash_err.into());
                 }
             };
+            // Credential masking: children emitted sentinels; restore real
+            // values before the output crosses back to the host (streaming
+            // notifications and the final tool result). The on-disk output
+            // file deliberately keeps sentinel bytes — sandbox artifacts must
+            // not hold real secrets.
+            let mut result = result;
+            result.combined_output =
+                xai_grok_sandbox::credential_mask::restore_string_global(&result.combined_output);
 
             // ─── Backgrounded (user Ctrl+G or auto-timeout): return BackgroundTaskStarted ───
             let auto_backgrounded = result.signal.as_deref() == Some("auto_backgrounded");

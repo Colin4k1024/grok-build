@@ -37,12 +37,21 @@ Thread Forking（/fork）。
    LLM 分类路径 + `policy.rs`/`shell_access.rs` 危险命令解析）。
    backup 的正则分类器已过时，不再移植。细微差异：backup 版会硬拦
    `.env`/密钥文件的编辑，上游交给 LLM 分类器决策（策略选择，非遗漏）
-2. ~~**A2 Credential Masking**~~ ✅ 已于 2026-08-19 重新落地：
-   `xai-grok-sandbox/src/credential_mask.rs`（模块 + 16 测试）+
-   `SandboxConfig.credential_mask` 配置接入（仅认全局 `~/.grok/sandbox.toml`，
-   项目级配置忽略并告警）+ `build_credential_mask()` 构建器。
-   **待后续**：执行管线接线（spawn 时注入 sentinel 环境变量、命令输出
-   跨界返回时 `restore_output()` 还原）
+2. ~~**A2 Credential Masking**~~ ✅ 2026-08-19 完整落地（模块 + 配置 + **管线接线**）：
+   - `xai-grok-sandbox/src/credential_mask.rs`：模块（16 测试）+ 进程级全局
+     API（`install_from_config` / `global_sentinel_env` / `restore_*_global`）
+   - 配置：`SandboxConfig.credential_mask`（仅认全局 `~/.grok/sandbox.toml`，
+     项目级忽略并告警）
+   - 启动接线：`apply_sandbox()`（shell config/mod.rs）+ workspace_server
+   - spawn 注入：`terminal.rs apply_child_env()` 的 env 层序中 sentinel
+     在 request env 之后（unix + Windows 镜像），真实值无法穿透
+   - 输出还原：`bash/mod.rs` 在 `backend.run()` 返回后统一还原（通知 +
+     工具结果都覆盖；磁盘 output_file 刻意保留 sentinel 字节）
+   - **端到端已验证**（2026-08-19）：`printenv` 测试变量 → 磁盘产物仅
+     `sentinel` 字节、模型侧收到还原后的真实值
+   - **未接线（有意）**：`materialize_sentinel_files` 需 FS 虚化层，直接调用
+     会覆写真实凭证文件，已加警告文档；网络出口的 sentinel→真实值替换
+     （egress proxy）为后续项；headless 下 `-p` 模式工具需 `--always-approve`
 3. C2 DirectoryAdded Hook — **暂缓**：当前上游无 add-dir 类基础功能，
    事件无触发点，移植只会产生死代码；待基础功能出现后再做
 4. B2 Multi-Marketplace（`plugin-marketplace/provider.rs`）— 按需

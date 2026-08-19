@@ -367,6 +367,9 @@ async fn run(
             None => ProfileName::Workspace,
         };
         let profile_name = profile.to_string();
+        // Credential masking is independent of the profile (own enable switch,
+        // no kernel sandbox needed); install from the global sandbox.toml.
+        xai_grok_sandbox::credential_mask::install_from_config(&cwd);
         if profile == ProfileName::Off {
             tracing::info!(profile = %profile_name, "Sandbox explicitly disabled via GROK_SANDBOX_PROFILE=off");
         } else {

@@ -1476,6 +1476,10 @@ pub fn apply_sandbox(
             None => {}
         }
     }
+    // Credential masking is independent of the sandbox profile (it has its own
+    // `[credential_mask] enabled` switch and needs no kernel sandbox): install
+    // from the global sandbox.toml so children see sentinels from the start.
+    xai_grok_sandbox::credential_mask::install_from_config(&workspace);
     if sandbox_profile != xai_grok_sandbox::ProfileName::Off {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         let requires_protection = {

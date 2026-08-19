@@ -3161,10 +3161,13 @@ fn apply_child_env(
     // 1. Base env: cleared and rebuilt from the policy only when one is active.
     crate::util::shell_env_policy::install_policy_base_env(cmd, active_policy);
     // 2. Login-shell capture (filtered). 3. Grok control vars. 4. Request env
-    // (filtered). 5. Pager vars. 6. Login PATH last. 7. Agent marker wins.
+    // (filtered). 5. Credential sentinels override any earlier layer that
+    // carried a real masked value. 6. Pager vars. 7. Login PATH last.
+    // 8. Agent marker wins.
     layer_login_env_vars(cmd, login_env, active_policy);
     cmd.envs(shell_state::shell_env_overrides());
     layer_request_env(cmd, request_env, active_policy);
+    cmd.envs(xai_grok_sandbox::credential_mask::global_sentinel_env());
     cmd.envs(crate::util::pager_env());
     layer_login_path(cmd, login_env, active_policy);
     crate::util::apply_grok_agent_marker(cmd);
@@ -3248,13 +3251,15 @@ fn spawn_shell_command(
             .kill_on_drop(true);
 
         // Policy base first (cleared + rebuilt only when a policy is active), then
-        // the shell-invocation env, the filtered request env, pager vars, and the
-        // agent marker last. Mirrors the unix ordering in `apply_child_env`;
-        // `inv.env` is grok's trusted shell setup, so it is not filtered.
+        // the shell-invocation env, the filtered request env, credential
+        // sentinels, pager vars, and the agent marker last. Mirrors the unix
+        // ordering in `apply_child_env`; `inv.env` is grok's trusted shell
+        // setup, so it is not filtered.
         let active_policy = shell_env_policy.filter(|p| !p.is_noop());
         crate::util::shell_env_policy::install_policy_base_env(&mut cmd, active_policy);
         cmd.envs(inv.env);
         layer_request_env(&mut cmd, env, active_policy);
+        cmd.envs(xai_grok_sandbox::credential_mask::global_sentinel_env());
         cmd.envs(crate::util::pager_env());
         crate::util::apply_grok_agent_marker(&mut cmd);
 
@@ -3501,6 +3506,60 @@ mod tests {
         assert_eq!(
             env.get(crate::util::GROK_AGENT_ENV).map(String::as_str),
             Some(crate::util::GROK_AGENT_ENV_VALUE)
+        );
+    }
+
+    /// Credential sentinels are applied after the request-env layer, so a
+    /// masked variable always reaches the child as its sentinel — neither the
+    /// inherited real value nor a request-supplied one can leak through.
+    #[cfg(unix)]
+    #[test]
+    fn apply_child_env_sentinel_layer_overrides_request_env() {
+        unsafe { std::env::set_var("GROK_TEST_MASKED", "real-value-do-not-leak") };
+        let config = xai_grok_sandbox::credential_mask::CredentialMaskConfig {
+            enabled: true,
+            entries: vec![xai_grok_sandbox::credential_mask::CredentialMaskEntry {
+                name: "masked".into(),
+                source: xai_grok_sandbox::credential_mask::CredentialSource::Env {
+                    name: "GROK_TEST_MASKED".into(),
+                },
+                extract: None,
+                sentinel_prefix: Some("sent_".into()),
+            }],
+        };
+        xai_grok_sandbox::credential_mask::install_global(
+            xai_grok_sandbox::credential_mask::CredentialMask::from_config(
+                &config,
+                std::path::Path::new("/tmp"),
+            ),
+        );
+
+        // The request layer tries to carry the real value through.
+        let request = HashMap::from([(
+            "GROK_TEST_MASKED".to_string(),
+            "real-value-do-not-leak".to_string(),
+        )]);
+        let mut cmd = tokio::process::Command::new("true");
+        apply_child_env(&mut cmd, None, None, &request);
+        let env: HashMap<String, String> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+            .collect();
+
+        let got = env.get("GROK_TEST_MASKED").expect("masked var present");
+        assert!(
+            got.starts_with("sent_"),
+            "child must see the sentinel, got {got:?}"
+        );
+        assert_ne!(got, "real-value-do-not-leak");
+
+        unsafe { std::env::remove_var("GROK_TEST_MASKED") };
+        xai_grok_sandbox::credential_mask::install_global(
+            xai_grok_sandbox::credential_mask::CredentialMask::from_config(
+                &Default::default(),
+                std::path::Path::new("/tmp"),
+            ),
         );
     }
 
