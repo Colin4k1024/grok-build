@@ -20,6 +20,8 @@ export function useAcpEventListener() {
   const updateSubagent = useSessionStore((s) => s.updateSubagent);
   const setTodos = useSessionStore((s) => s.setTodos);
   const setTokenUsage = useSessionStore((s) => s.setTokenUsage);
+  const setCompacting = useSessionStore((s) => s.setCompacting);
+  const addCompactionMarker = useSessionStore((s) => s.addCompactionMarker);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
@@ -69,6 +71,20 @@ export function useAcpEventListener() {
           break;
         case "TurnComplete":
           setStreaming(false);
+          // If a manual compaction was in progress, mark it complete
+          {
+            const compacting = useSessionStore.getState().compacting[sid];
+            if (compacting) {
+              const usage = useSessionStore.getState().tokenUsage[sid];
+              setCompacting(sid, false);
+              addCompactionMarker(sid, {
+                timestamp: Date.now(),
+                tokensBefore: usage ? usage.used : null,
+                tokensAfter: null,
+                summary: null,
+              });
+            }
+          }
           break;
         case "Error":
           setStreaming(false);
@@ -86,6 +102,23 @@ export function useAcpEventListener() {
         case "UsageUpdate":
           if (event.used !== undefined && event.size !== undefined) {
             setTokenUsage(sid, event.used, event.size);
+          }
+          break;
+        case "CompactionStatus":
+          if (event.compaction_status) {
+            if (event.compaction_status === "started") {
+              setCompacting(sid, true);
+            } else if (event.compaction_status === "completed") {
+              setCompacting(sid, false);
+              addCompactionMarker(sid, {
+                timestamp: Date.now(),
+                tokensBefore: event.compaction_tokens_before ?? null,
+                tokensAfter: event.compaction_tokens_after ?? null,
+                summary: event.compaction_summary ?? null,
+              });
+            } else if (event.compaction_status === "failed" || event.compaction_status === "cancelled") {
+              setCompacting(sid, false);
+            }
           }
           break;
         case "PermissionRequest":
@@ -107,5 +140,6 @@ export function useAcpEventListener() {
   }, [
     appendAssistantText, addToolCall, addToolResult, setStreaming,
     addPendingPermission, addSubagent, updateSubagent, setTodos, setTokenUsage,
+    setCompacting, addCompactionMarker,
   ]);
 }

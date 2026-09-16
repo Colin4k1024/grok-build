@@ -25,6 +25,7 @@ pub enum SessionCommand {
         remember: bool,
     },
     Cancel,
+    Compact { reply: oneshot::Sender<Result<(), String>> },
     Shutdown,
 }
 
@@ -67,6 +68,14 @@ pub enum AcpEvent {
         session_id: String,
         used: u64,
         size: u64,
+    },
+    CompactionStatus {
+        session_id: String,
+        status: String,
+        tokens_before: Option<u64>,
+        tokens_after: Option<u64>,
+        summary: Option<String>,
+        error: Option<String>,
     },
 }
 
@@ -350,6 +359,19 @@ async fn run_agent_loop(
                             }
                         }
                     }
+                    Some(SessionCommand::Compact { reply }) => {
+                        let blocks = vec![acp::ContentBlock::Text(
+                            acp::TextContent::new("/compact".to_string()),
+                        )];
+                        let request = acp::PromptRequest::new(
+                            new_resp.session_id.clone(),
+                            blocks,
+                        );
+                        let result = acp_send(request, &acp_tx).await
+                            .map(|_: acp::PromptResponse| ())
+                            .map_err(|e| e.to_string());
+                        let _ = reply.send(result);
+                    }
                     Some(SessionCommand::Cancel) => {
                         cancel.cancel();
                     }
@@ -445,7 +467,65 @@ async fn forward_acp_message(
         M::WriteTextFile(args) => {
             let _ = args.response_tx.send(Ok(acp::WriteTextFileResponse::new()));
         }
-        M::ExtNotification(_) | M::ExtMethod(_)
+        M::ExtNotification(args) => {
+            let method = args.method.to_string();
+            if method == "x.ai/session_notification" {
+                let params_str = args.params.get();
+                if let Ok(params) = serde_json::from_str::<serde_json::Value>(params_str) {
+                    if let Some(update_type) = params.get("sessionUpdate").and_then(|v| v.as_str()) {
+                        match update_type {
+                            "auto_compact_started" => {
+                                let tokens_used = params.get("tokens_used").and_then(|v| v.as_u64());
+                                let _ = event_tx.send(AcpEvent::CompactionStatus {
+                                    session_id: session_id.to_string(),
+                                    status: "started".into(),
+                                    tokens_before: tokens_used,
+                                    tokens_after: None,
+                                    summary: None,
+                                    error: None,
+                                });
+                            }
+                            "auto_compact_completed" => {
+                                let tokens_before = params.get("tokens_before").and_then(|v| v.as_u64());
+                                let tokens_after = params.get("tokens_after").and_then(|v| v.as_u64());
+                                let summary = params.get("summary_preview").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                let _ = event_tx.send(AcpEvent::CompactionStatus {
+                                    session_id: session_id.to_string(),
+                                    status: "completed".into(),
+                                    tokens_before,
+                                    tokens_after,
+                                    summary,
+                                    error: None,
+                                });
+                            }
+                            "auto_compact_failed" => {
+                                let error = params.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+                                let _ = event_tx.send(AcpEvent::CompactionStatus {
+                                    session_id: session_id.to_string(),
+                                    status: "failed".into(),
+                                    tokens_before: None,
+                                    tokens_after: None,
+                                    summary: None,
+                                    error,
+                                });
+                            }
+                            "auto_compact_cancelled" => {
+                                let _ = event_tx.send(AcpEvent::CompactionStatus {
+                                    session_id: session_id.to_string(),
+                                    status: "cancelled".into(),
+                                    tokens_before: None,
+                                    tokens_after: None,
+                                    summary: None,
+                                    error: None,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        M::ExtMethod(_)
         | M::CreateTerminal(_) | M::TerminalOutput(_)
         | M::ReleaseTerminal(_) | M::WaitForTerminalExit(_)
         | M::KillTerminalCommand(_) => {}
@@ -476,6 +556,19 @@ pub async fn set_model_cmd(
 ) -> anyhow::Result<()> {
     let (reply_tx, reply_rx) = oneshot::channel();
     cmd_tx.send(SessionCommand::SetModel { model_id, reply: reply_tx })
+        .map_err(|_| anyhow::anyhow!("Agent channel closed"))?;
+    reply_rx.await
+        .map_err(|_| anyhow::anyhow!("Agent thread not responding"))?
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(())
+}
+
+/// Trigger a manual compaction of the session context.
+pub async fn compact_cmd(
+    cmd_tx: &mpsc::UnboundedSender<SessionCommand>,
+) -> anyhow::Result<()> {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    cmd_tx.send(SessionCommand::Compact { reply: reply_tx })
         .map_err(|_| anyhow::anyhow!("Agent channel closed"))?;
     reply_rx.await
         .map_err(|_| anyhow::anyhow!("Agent thread not responding"))?

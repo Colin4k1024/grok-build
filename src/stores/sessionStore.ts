@@ -33,6 +33,15 @@ export interface PendingPermission {
   options: { id: string; label: string; kind: string }[];
 }
 
+export interface CompactionMarker {
+  id: string;
+  timestamp: number;
+  tokensBefore: number | null;
+  tokensAfter: number | null;
+  summary: string | null;
+  rolledBack: boolean;
+}
+
 export interface SessionTab {
   id: string;
   title: string;
@@ -51,6 +60,9 @@ interface SessionState {
   subagents: Record<string, Subagent[]>;
   todos: Record<string, TodoItem[]>;
   tokenUsage: Record<string, { used: number; size: number }>;
+  compacting: Record<string, boolean>;
+  compactionMarkers: Record<string, CompactionMarker[]>;
+  preCompactSnapshot: Record<string, ChatMessage[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -69,6 +81,10 @@ interface SessionState {
   setTodos: (sessionId: string, todos: TodoItem[]) => void;
   toggleTodo: (sessionId: string, id: string) => void;
   setTokenUsage: (sessionId: string, used: number, size: number) => void;
+  setCompacting: (sessionId: string, compacting: boolean) => void;
+  snapshotForCompaction: (sessionId: string) => void;
+  addCompactionMarker: (sessionId: string, marker: Omit<CompactionMarker, "id" | "rolledBack">) => void;
+  rollbackCompaction: (sessionId: string) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -89,6 +105,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   subagents: {},
   todos: {},
   tokenUsage: {},
+  compacting: {},
+  compactionMarkers: {},
+  preCompactSnapshot: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -207,6 +226,42 @@ export const useSessionStore = create<SessionState>((set) => ({
       tokenUsage: { ...state.tokenUsage, [sessionId]: { used, size } },
     })),
 
+  setCompacting: (sessionId, compacting) =>
+    set((state) => ({
+      compacting: { ...state.compacting, [sessionId]: compacting },
+    })),
+
+  snapshotForCompaction: (sessionId) =>
+    set((state) => ({
+      preCompactSnapshot: {
+        ...state.preCompactSnapshot,
+        [sessionId]: [...(state.messages[sessionId] || [])],
+      },
+    })),
+
+  addCompactionMarker: (sessionId, marker) =>
+    set((state) => ({
+      compactionMarkers: {
+        ...state.compactionMarkers,
+        [sessionId]: [...(state.compactionMarkers[sessionId] || []), { ...marker, id: genId("compact"), rolledBack: false }],
+      },
+    })),
+
+  rollbackCompaction: (sessionId) =>
+    set((state) => {
+      const snapshot = state.preCompactSnapshot[sessionId];
+      if (!snapshot) return {};
+      const markers = state.compactionMarkers[sessionId] || [];
+      const lastMarkerIdx = markers.reduce((acc, m, i) => m.timestamp > markers[acc].timestamp ? i : acc, 0);
+      return {
+        messages: { ...state.messages, [sessionId]: [...snapshot] },
+        compactionMarkers: {
+          ...state.compactionMarkers,
+          [sessionId]: markers.map((m, i) => i === lastMarkerIdx ? { ...m, rolledBack: true } : m),
+        },
+      };
+    }),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
@@ -278,6 +333,9 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: _sa, ...restSub } = state.subagents;
       const { [sessionId]: _td, ...restTodos } = state.todos;
       const { [sessionId]: _tu, ...restUsage } = state.tokenUsage;
-      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage };
+      const { [sessionId]: _co, ...restCompact } = state.compacting;
+      const { [sessionId]: _cm, ...restMarkers } = state.compactionMarkers;
+      const { [sessionId]: _pc, ...restSnap } = state.preCompactSnapshot;
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap };
     }),
 }));

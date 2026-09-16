@@ -59,6 +59,10 @@ export async function cancelSession(sessionId: string): Promise<void> {
   return invoke("session_cancel", { sessionId });
 }
 
+export async function compactSession(sessionId: string): Promise<void> {
+  return invoke("session_compact", { sessionId });
+}
+
 export async function closeSession(sessionId: string): Promise<void> {
   return invoke("session_close", { sessionId });
 }
@@ -101,6 +105,11 @@ export interface AcpEventPayload {
   entries?: { content: string; status: string; priority: string }[];
   used?: number;
   size?: number;
+  compaction_status?: string;
+  compaction_tokens_before?: number;
+  compaction_tokens_after?: number;
+  compaction_summary?: string;
+  compaction_error?: string;
 }
 
 export function onAuthMessage(

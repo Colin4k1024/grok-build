@@ -339,3 +339,18 @@ pub async fn respond_permission(state: tauri::State<'_, AppState>, args: Respond
     });
     Ok(())
 }
+
+#[tauri::command]
+pub async fn session_compact(state: tauri::State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let cmd_tx = {
+        let sessions = state.pool.sessions.read();
+        sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .ok_or_else(|| format!("Session {} not found", session_id))?
+            .cmd_tx.clone()
+    };
+    acp_bridge::compact_cmd(&cmd_tx)
+        .await
+        .map_err(|e| e.to_string())
+}
