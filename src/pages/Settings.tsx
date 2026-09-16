@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ModelManager } from "../components/settings/ModelManager";
 import { ApiKeyManager } from "../components/settings/ApiKeyManager";
+import { GeneralSettings } from "../components/settings/GeneralSettings";
 
 type SettingsTab = "models" | "apikeys" | "general" | "about";
 
@@ -48,11 +49,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <div className="flex-1 overflow-y-auto">
           {tab === "models" && <ModelManager />}
           {tab === "apikeys" && <ApiKeyManager />}
-          {tab === "general" && (
-            <div className="p-4 text-xs text-gb-muted">
-              <p>General settings will be available in a later phase.</p>
-            </div>
-          )}
+          {tab === "general" && <GeneralSettings />}
           {tab === "about" && (
             <div className="p-4">
               <h3 className="mb-2 text-sm font-semibold text-gb-text">Grok Build Desktop</h3>

@@ -354,3 +354,16 @@ pub async fn session_compact(state: tauri::State<'_, AppState>, session_id: Stri
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn update_tray_badge(app: tauri::AppHandle, unread: u64) -> Result<(), String> {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let tooltip = if unread > 0 {
+            format!("Grok Build — {} unread", unread)
+        } else {
+            "Grok Build".to_string()
+        };
+        tray.set_tooltip(Some(&tooltip)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

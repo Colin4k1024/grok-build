@@ -186,3 +186,27 @@ export async function respondPermission(
     args: { session_id: sessionId, request_id: requestId, option_id: optionId, remember }
   });
 }
+
+// --- Autostart ---
+
+export async function enableAutostart(): Promise<void> {
+  return invoke("autostart_enable");
+}
+
+export async function disableAutostart(): Promise<void> {
+  return invoke("autostart_disable");
+}
+
+export async function isAutostartEnabled(): Promise<boolean> {
+  return invoke<boolean>("autostart_is_enabled");
+}
+
+// --- Tray events ---
+
+export function onTrayAction(handler: (action: string) => void): Promise<UnlistenFn> {
+  return listen<string>("tray-action", (e) => handler(e.payload));
+}
+
+export async function updateTrayBadge(unread: number): Promise<void> {
+  return invoke("update_tray_badge", { unread });
+}

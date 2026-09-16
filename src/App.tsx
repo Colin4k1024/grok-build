@@ -18,6 +18,7 @@ import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
   type AuthStatus, type ConfigSnapshot,
+  onTrayAction,
 } from "./lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 
@@ -144,6 +145,16 @@ export default function App() {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
   });
+
+  // Handle tray "new session" action
+  useEffect(() => {
+    const unlisten = onTrayAction((action) => {
+      if (action === "new-session") {
+        handleNewSession();
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const handleSend = useCallback(async (message: string, images: { data: string; mime_type: string }[] = []) => {
     if (!activeSessionId) return;

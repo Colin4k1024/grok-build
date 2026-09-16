@@ -12,6 +12,7 @@
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
     "notification:default",
-    "global-shortcut:default"
+    "global-shortcut:default",
+    "autostart:default"
   ]
 }
