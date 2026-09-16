@@ -18,6 +18,7 @@ import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { Home, type ComposerMode } from "./pages/Home";
+import { AuthHandoff } from "./pages/AuthHandoff";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
@@ -50,6 +51,7 @@ export default function App() {
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -69,6 +71,12 @@ export default function App() {
   const detachedSessionId = typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("session")
     : null;
+
+  // Auth handoff route — /auth-handoff or ?auth=handoff.
+  const isAuthHandoff = typeof window !== "undefined" && (
+    window.location.pathname === "/auth-handoff" ||
+    new URLSearchParams(window.location.search).get("auth") === "handoff"
+  );
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -333,6 +341,31 @@ export default function App() {
       }
     }
 
+    // Settings navigation — jump to a specific tab from the palette.
+    const settingsTargets: { id: string; title: string; tab: string }[] = [
+      { id: "settings-models", title: "Settings: Models", tab: "models" },
+      { id: "settings-apikeys", title: "Settings: API Keys", tab: "apikeys" },
+      { id: "settings-mcp", title: "Settings: MCP Servers", tab: "mcp" },
+      { id: "settings-plugins", title: "Settings: Plugins", tab: "plugins" },
+      { id: "settings-worktrees", title: "Settings: Worktrees", tab: "worktrees" },
+      { id: "settings-appearance", title: "Settings: Appearance", tab: "appearance" },
+      { id: "settings-permissions", title: "Settings: Permissions", tab: "permissions" },
+      { id: "settings-agent", title: "Settings: Agent", tab: "agent" },
+      { id: "settings-trusted", title: "Settings: Trusted Folders", tab: "trusted" },
+      { id: "settings-general", title: "Settings: General", tab: "general" },
+    ];
+    for (const s of settingsTargets) {
+      cmds.push({
+        id: s.id,
+        title: s.title,
+        category: "Settings",
+        action: () => {
+          setSettingsTab(s.tab);
+          setShowSettings(true);
+        },
+      });
+    }
+
     // Go home (fresh composer).
     cmds.push({
       id: "go-home",
@@ -345,6 +378,7 @@ export default function App() {
   }, [tabs, activeSessionId, config, setActiveSession]);
 
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
+  if (isAuthHandoff) return <AuthHandoff />;
   if (!auth) {
     return (
       <div className="flex h-full items-center justify-center bg-gb-bg">
@@ -383,7 +417,7 @@ export default function App() {
   }
 
   if (showSettings) {
-    return <Settings onClose={() => setShowSettings(false)} />;
+    return <Settings onClose={() => { setShowSettings(false); setSettingsTab(undefined); }} initialTab={settingsTab} />;
   }
 
   return (
