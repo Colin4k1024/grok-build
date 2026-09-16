@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { SlashComplete } from "./SlashComplete";
+import type { SlashCommand } from "../../data/slashCommands";
 
 interface Props {
   onSend: (message: string) => void;
@@ -11,15 +13,29 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
   const [text, setText] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+  const [showSlash, setShowSlash] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
   }, [text]);
+
+  // Slash command detection: show when input starts with / and no space yet
+  const slashQuery = text.startsWith("/") && !text.includes(" ") ? text : null;
+  useEffect(() => {
+    setShowSlash(slashQuery !== null);
+  }, [slashQuery]);
+
+  const handleSlashSelect = (cmd: SlashCommand) => {
+    const newText = `/${cmd.name} `;
+    setText(newText);
+    setShowSlash(false);
+    textareaRef.current?.focus();
+  };
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -28,9 +44,17 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
     setHistory((prev) => [...prev, trimmed]);
     setHistoryIdx(-1);
     setText("");
+    setShowSlash(false);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // If slash complete is open, let it handle navigation keys
+    if (showSlash && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Enter" || e.key === "Escape")) {
+      e.preventDefault();
+      if (e.key === "Escape") setShowSlash(false);
+      return;
+    }
+
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSend();
@@ -60,13 +84,21 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
   };
 
   return (
-    <div className="border-t border-gb-border p-4">
+    <div ref={containerRef} className="relative border-t border-gb-border p-4">
+      {showSlash && slashQuery && (
+        <SlashComplete
+          query={slashQuery}
+          onSelect={handleSlashSelect}
+          onClose={() => setShowSlash(false)}
+          anchorBottom={120}
+        />
+      )}
       <div className="flex items-end gap-2">
         <textarea
           ref={textareaRef}
           className="flex-1 resize-none rounded border border-gb-border bg-gb-surface px-3 py-2 text-sm text-gb-text outline-none focus:border-gb-accent"
           rows={2}
-          placeholder="Type a message... (Enter to send, Shift+Enter for newline, ⌘+↑/↓ for history, Esc to cancel)"
+          placeholder="Type a message or / for commands... (Enter to send, Shift+Enter for newline)"
           value={text}
           onChange={(e) => {
             setText(e.target.value);
