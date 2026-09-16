@@ -5,7 +5,7 @@ import { useImagePaste } from "../hooks/useImagePaste";
 export type ComposerMode = "chat" | "agent";
 
 interface HomeProps {
-  onStart: (prompt: string, mode: ComposerMode) => void;
+  onStart: (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[]) => void;
   onOpenSession: (id: string) => void;
   creating: boolean;
 }
@@ -53,7 +53,8 @@ export function Home({ onStart, onOpenSession, creating }: HomeProps) {
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && images.length === 0) || creating) return;
-    onStart(trimmed, mode);
+    const outgoing = images.map((img) => ({ data: img.base64, mime_type: img.mimeType }));
+    onStart(trimmed, mode, outgoing);
     setText("");
     clearImages();
   }, [text, images, creating, mode, onStart, clearImages]);

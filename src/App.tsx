@@ -53,6 +53,15 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  // Explicit home visibility so the Home page is reachable even when tabs exist
+  // (e.g. user clicks the app icon / "Home" button). Defaults to true on fresh
+  // launch with no tabs; any new/open session hides it.
+  const [showHome, setShowHome] = useState(true);
+
+  // When the user creates or activates a session, hide Home.
+  useEffect(() => {
+    if (activeSessionId) setShowHome(false);
+  }, [activeSessionId]);
 
   // Check if running as a detached single-session window
   const detachedSessionId = typeof window !== "undefined"
@@ -121,7 +130,7 @@ export default function App() {
   // Home page: start a session with an initial prompt, in chat or agent mode.
   // The mode is forwarded as a prefix in the first message so the backend
   // session knows whether to run autonomously (agent) or conversationally.
-  const handleStartFromHome = useCallback(async (prompt: string, mode: ComposerMode) => {
+  const handleStartFromHome = useCallback(async (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[] = []) => {
     setCreating(true);
     setError(null);
     try {
@@ -135,7 +144,8 @@ export default function App() {
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
-      if (prompt.trim()) {
+      setShowHome(false);
+      if (prompt.trim() || images.length > 0) {
         // Agent mode: prepend a system-style instruction so the backend agent
         // runs autonomously; Chat mode sends the prompt as-is.
         const outbound = mode === "agent"
@@ -144,7 +154,7 @@ export default function App() {
         addUserMessage(info.id, outbound);
         setStreaming(true);
         try {
-          await sendMessage(info.id, outbound, []);
+          await sendMessage(info.id, outbound, images);
         } catch (e) {
           setError(String(e));
           setStreaming(false);
@@ -331,10 +341,13 @@ export default function App() {
             </div>
           )}
 
-          {tabs.length === 0 ? (
+          {showHome ? (
             <Home
               onStart={handleStartFromHome}
-              onOpenSession={(id) => setActiveSession(id)}
+              onOpenSession={(id) => {
+                setActiveSession(id);
+                setShowHome(false);
+              }}
               creating={creating}
             />
           ) : (

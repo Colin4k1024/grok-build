@@ -7,3 +7,4 @@ node_modules/
 dist/
 src-tauri/gen/
 .goal-state.md
+Cargo.toml.bak
