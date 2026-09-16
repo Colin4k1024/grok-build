@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import { ToolCallCard } from "./ToolCallCard";
 import { ImageViewer } from "./ImageViewer";
 import { CodeBlock } from "./CodeBlock";
+import { DiffViewer } from "./DiffViewer";
 import type { ChatMessage } from "../../stores/sessionStore";
 
 interface Props { message: ChatMessage; }
@@ -82,8 +83,13 @@ function MessageItemImpl({ message }: Props) {
                   code: ({ className, children, ...rest }) => {
                     const match = /language-(\w+)/.exec(className || "");
                     const text = String(children ?? "").replace(/\n$/, "");
+                    const lang = match?.[1]?.toLowerCase();
                     const isBlock = Boolean(match) || text.includes("\n");
                     if (isBlock) {
+                      // Render unified-diff fences inline via DiffViewer.
+                      if (lang === "diff" || lang === "patch") {
+                        return <InlineDiff diffText={text} />;
+                      }
                       return (
                         <CodeBlock
                           code={text}
@@ -124,3 +130,38 @@ function MessageItemImpl({ message }: Props) {
 }
 
 export const MessageItem = memo(MessageItemImpl);
+
+/** Split a unified diff into "before" and "after" buffers so we can feed
+ *  DiffViewer. Handles the standard - / + / space line prefixes; headers
+ *  (diff/---/+++/@@) are stripped. */
+function splitUnifiedDiff(diffText: string): { oldContent: string; newContent: string } {
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+  for (const raw of diffText.split("\n")) {
+    if (raw.startsWith("diff ") || raw.startsWith("index ") || raw.startsWith("---") || raw.startsWith("+++") || raw.startsWith("@@")) {
+      continue;
+    }
+    if (raw.startsWith("-")) {
+      oldLines.push(raw.slice(1));
+    } else if (raw.startsWith("+")) {
+      newLines.push(raw.slice(1));
+    } else if (raw.startsWith(" ")) {
+      const line = raw.slice(1);
+      oldLines.push(line);
+      newLines.push(line);
+    } else if (raw.trim() === "") {
+      oldLines.push("");
+      newLines.push("");
+    }
+  }
+  return { oldContent: oldLines.join("\n"), newContent: newLines.join("\n") };
+}
+
+function InlineDiff({ diffText }: { diffText: string }) {
+  const { oldContent, newContent } = splitUnifiedDiff(diffText);
+  return (
+    <div className="my-2 overflow-hidden rounded-md border border-gb-border/10">
+      <DiffViewer oldContent={oldContent} newContent={newContent} />
+    </div>
+  );
+}
