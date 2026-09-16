@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSessionStore } from "../../stores/sessionStore";
 import { setSessionModel, type AuthStatus, type ConfigSnapshot } from "../../lib/tauri";
+import { AgentMenu } from "./AgentMenu";
 
 interface TitleBarProps {
   auth: AuthStatus;
@@ -211,6 +212,7 @@ export function TitleBar({
       {/* Right cluster — window actions + user menu. On non-macOS we also render
           custom min/max/close buttons because decorations are disabled. */}
       <div className="flex items-center gap-1.5" data-no-drag>
+        <AgentMenu />
         <button
           className="flex items-center gap-1 rounded px-2.5 py-1 text-[12px] font-medium text-gb-text hover:bg-gb-surface-hover disabled:opacity-30"
           onClick={onNewSession}
