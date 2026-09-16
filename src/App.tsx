@@ -6,6 +6,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { useTheme } from "./hooks/useTheme";
 import { useSessionStore } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
+import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -471,6 +472,7 @@ export default function App() {
             />
           ) : (
             <>
+              <WorktreeOnboardingBanner />
               <MessageList messages={currentMessages} />
               {activeSessionId && (pendingPermissions[activeSessionId] || []).map((perm) => (
                 <ApprovalCard
