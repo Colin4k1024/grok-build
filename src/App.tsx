@@ -19,6 +19,8 @@ import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Onboarding } from "./components/Onboarding";
+import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { useAutoReconnect } from "./hooks/useAutoReconnect";
 import { useAutoSave } from "./hooks/useAutoSave";
 import {
@@ -372,6 +374,8 @@ export default function App() {
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
         onCompact={() => {}}
       />
+      <Onboarding onComplete={() => {}} />
+      <ShortcutCheatSheet />
     </div>
     </ErrorBoundary>
   );
