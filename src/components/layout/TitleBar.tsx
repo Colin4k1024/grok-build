@@ -77,22 +77,6 @@ export function TitleBar({
     [activeSessionId, setTabEffort]
   );
 
-  const handleDragMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
-      // Only start window drag when the press lands on the drag region itself,
-      // not on any button / interactive element inside the title bar.
-      if (!isTauri) return;
-      if (e.button !== 0) return;
-      const target = e.target as HTMLElement;
-      if (target.closest("button, a, input, [data-no-drag]")) return;
-      e.preventDefault();
-      getCurrentWindow()
-        .startDragging()
-        .catch((err) => console.error("startDragging failed:", err));
-    },
-    []
-  );
-
   const handleMinimize = useCallback(() => {
     getCurrentWindow().minimize().catch(console.error);
   }, []);
@@ -122,7 +106,6 @@ export function TitleBar({
   return (
     <header
       data-tauri-drag-region
-      onMouseDown={handleDragMouseDown}
       className="relative flex h-11 shrink-0 select-none items-center justify-between border-b border-gb-border/8 px-3"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
