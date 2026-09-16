@@ -9,9 +9,10 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenDashboard: () => void;
   onOpenAgentsPage: () => void;
+  onOpenAutomations: () => void;
 }
 
-export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage }: SidebarProps) {
+export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage, onOpenAutomations }: SidebarProps) {
   if (collapsed) return null;
 
   return (
@@ -24,6 +25,10 @@ export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCl
       </div>
       <SessionList onForkSession={onForkSession} onCloseSession={onCloseSession} />
       <div className="border-t border-gb-border/8 p-1">
+        <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenAutomations}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none" /><path d="M8 4v4l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" /></svg>
+          Automations
+        </button>
         <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenAgentsPage}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="5" r="2" /><circle cx="11" cy="5" r="2" /><circle cx="8" cy="11" r="2" /></svg>
           Agents

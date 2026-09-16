@@ -10,6 +10,12 @@ interface UpdateState {
   downloading: boolean;
   installed: boolean;
   error: string | null;
+  /** 0-100 while downloading, null otherwise. */
+  progress: number | null;
+  /** Release notes body when the manifest provides it. */
+  releaseNotes: string | null;
+  /** Release date from the manifest. */
+  releaseDate: string | null;
 }
 
 export function useUpdater() {
@@ -20,6 +26,9 @@ export function useUpdater() {
     downloading: false,
     installed: false,
     error: null,
+    progress: null,
+    releaseNotes: null,
+    releaseDate: null,
   });
 
   const checkForUpdates = useCallback(async (silent = false) => {
@@ -32,6 +41,8 @@ export function useUpdater() {
           checking: false,
           updateAvailable: true,
           version: update.version,
+          releaseNotes: update.body ?? null,
+          releaseDate: update.date ?? null,
         }));
         if (!silent) {
           try {
@@ -60,11 +71,11 @@ export function useUpdater() {
   }, []);
 
   const downloadAndInstall = useCallback(async () => {
-    setState((s) => ({ ...s, downloading: true, error: null }));
+    setState((s) => ({ ...s, downloading: true, error: null, progress: 0 }));
     try {
       const update = await check();
       if (!update) {
-        setState((s) => ({ ...s, downloading: false }));
+        setState((s) => ({ ...s, downloading: false, progress: null }));
         return;
       }
 
@@ -76,14 +87,14 @@ export function useUpdater() {
         } else if (event.event === "Progress" && contentLength > 0) {
           downloaded += event.data.chunkLength;
           const percent = Math.round((downloaded / contentLength) * 100);
-          console.log(`Downloading update: ${percent}%`);
+          setState((s) => ({ ...s, progress: percent }));
         }
       });
 
-      setState((s) => ({ ...s, downloading: false, installed: true }));
+      setState((s) => ({ ...s, downloading: false, installed: true, progress: 100 }));
       await relaunch();
     } catch (e) {
-      setState((s) => ({ ...s, downloading: false, error: String(e) }));
+      setState((s) => ({ ...s, downloading: false, error: String(e), progress: null }));
     }
   }, []);
 

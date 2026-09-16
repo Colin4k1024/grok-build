@@ -85,6 +85,10 @@ export function ToolCallCard({ message }: Props) {
   return (
     <div
       className={`my-1 overflow-hidden rounded-md border transition-colors ${
+        toolName.toLowerCase().includes("screenshot") || toolName.toLowerCase().includes("capture")
+          ? "gb-screenshot-capture"
+          : ""
+      } ${
         message.toolSuccess === true
           ? "border-gb-green/20"
           : message.toolSuccess === false
