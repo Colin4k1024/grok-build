@@ -17,6 +17,7 @@ import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
+import { Home, type ComposerMode } from "./pages/Home";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
@@ -52,6 +53,15 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  // Explicit home visibility so the Home page is reachable even when tabs exist
+  // (e.g. user clicks the app icon / "Home" button). Defaults to true on fresh
+  // launch with no tabs; any new/open session hides it.
+  const [showHome, setShowHome] = useState(true);
+
+  // When the user creates or activates a session, hide Home.
+  useEffect(() => {
+    if (activeSessionId) setShowHome(false);
+  }, [activeSessionId]);
 
   // Check if running as a detached single-session window
   const detachedSessionId = typeof window !== "undefined"
@@ -116,6 +126,43 @@ export default function App() {
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }, [addTab, tabs.length]);
+
+  // Home page: start a session with an initial prompt, in chat or agent mode.
+  // The mode is forwarded as a prefix in the first message so the backend
+  // session knows whether to run autonomously (agent) or conversationally.
+  const handleStartFromHome = useCallback(async (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[] = []) => {
+    setCreating(true);
+    setError(null);
+    try {
+      const info = await createSession(".");
+      addTab({
+        id: info.id,
+        title: prompt ? prompt.slice(0, 30) + (prompt.length > 30 ? "…" : "") : `Session ${tabs.length + 1}`,
+        cwd: info.cwd,
+        model: info.models[0]?.id || "",
+        reasoningEffort: "medium",
+        createdAt: Date.now(),
+        lastActiveAt: Date.now(),
+      });
+      setShowHome(false);
+      if (prompt.trim() || images.length > 0) {
+        // Agent mode: prepend a system-style instruction so the backend agent
+        // runs autonomously; Chat mode sends the prompt as-is.
+        const outbound = mode === "agent"
+          ? `[Agent mode] ${prompt}`
+          : prompt;
+        addUserMessage(info.id, outbound);
+        setStreaming(true);
+        try {
+          await sendMessage(info.id, outbound, images);
+        } catch (e) {
+          setError(String(e));
+          setStreaming(false);
+        }
+      }
+    } catch (e) { setError(String(e)); }
+    finally { setCreating(false); }
+  }, [addTab, addUserMessage, setStreaming, tabs.length]);
 
   // Cmd+N / Ctrl+N -> New Session
   useEffect(() => {
@@ -294,13 +341,15 @@ export default function App() {
             </div>
           )}
 
-          {tabs.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center">
-              <p className="mb-4 text-[14px] text-gb-muted">No active session</p>
-              <button className="flex items-center gap-2 rounded-md bg-gb-accent px-4 py-2 text-[13px] font-medium text-white hover:opacity-80 disabled:opacity-30" onClick={handleNewSession} disabled={creating}>
-                {creating ? "Starting…" : "New Session"}
-              </button>
-            </div>
+          {showHome ? (
+            <Home
+              onStart={handleStartFromHome}
+              onOpenSession={(id) => {
+                setActiveSession(id);
+                setShowHome(false);
+              }}
+              creating={creating}
+            />
           ) : (
             <>
               <MessageList messages={currentMessages} />
