@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 export interface ChatMessage {
   id: string;
@@ -102,7 +103,9 @@ function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>()(
+  persist(
+    (set) => ({
   tabs: [],
   activeSessionId: null,
   messages: {},
@@ -366,4 +369,17 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: _pc, ...restSnap } = state.preCompactSnapshot;
       return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap };
     }),
-}));
+    }),
+    {
+      name: "gb-session-tabs",
+      storage: createJSONStorage(() => localStorage),
+      version: 1,
+      // Persist only the shell state needed to restore tabs across restarts;
+      // streaming buffers and per-session message contents stay in memory.
+      partialize: (state) => ({
+        tabs: state.tabs,
+        activeSessionId: state.activeSessionId,
+      }),
+    }
+  )
+);
