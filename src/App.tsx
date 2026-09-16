@@ -16,6 +16,7 @@ import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
+import { CommandPalette } from "./components/layout/CommandPalette";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
@@ -352,6 +353,17 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <CommandPalette
+        commands={[]}
+        onNewSession={handleNewSession}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenDashboard={() => setShowDashboard(true)}
+        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+        onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+        onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
+        onCompact={() => {}}
+      />
     </div>
   );
 }
