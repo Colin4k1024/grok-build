@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
-import { listWorktrees, type WorktreeInfo } from "../../lib/tauri";
+import { listWorktrees, addWorktree, type WorktreeInfo } from "../../lib/tauri";
 
 interface ProjectSelectorProps {
   /** Currently active session's cwd; the selector displays and re-binds it. */
@@ -24,6 +24,10 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newBranch, setNewBranch] = useState("");
+  const [newPath, setNewPath] = useState("");
+  const [creating, setCreating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const setTabCwd = useSessionStore((s) => s.setTabCwd);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
@@ -67,6 +71,26 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
     if (activeSessionId) setTabCwd(activeSessionId, ".");
     onSwitchProject(".");
   }, [activeSessionId, setTabCwd, onSwitchProject]);
+
+  const handleCreate = useCallback(async () => {
+    if (!newBranch.trim() || !newPath.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await addWorktree(cwd, newBranch.trim(), newPath.trim(), true);
+      setShowCreate(false);
+      setNewBranch("");
+      setNewPath("");
+      // Refresh the list and switch to the new worktree.
+      const list = await listWorktrees(cwd);
+      setWorktrees(list);
+      handleSelect(newPath.trim());
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCreating(false);
+    }
+  }, [cwd, newBranch, newPath, handleSelect]);
 
   const name = projectNameFromPath(cwd);
   const isCompact = variant === "compact";
@@ -136,6 +160,49 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
             ))}
           </div>
           <div className="border-t border-gb-border/8 py-1">
+            {showCreate ? (
+              <div className="space-y-1.5 px-2.5 py-1.5">
+                <input
+                  autoFocus
+                  value={newBranch}
+                  onChange={(e) => setNewBranch(e.target.value)}
+                  placeholder="new branch name"
+                  className="w-full rounded border border-gb-border bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
+                />
+                <input
+                  value={newPath}
+                  onChange={(e) => setNewPath(e.target.value)}
+                  placeholder="path (e.g. ../my-feature)"
+                  className="w-full rounded border border-gb-border bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={handleCreate}
+                    disabled={creating || !newBranch.trim() || !newPath.trim()}
+                    className="flex-1 rounded bg-gb-accent px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40"
+                  >
+                    {creating ? "Creating…" : "Create"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowCreate(false);
+                      setNewBranch("");
+                      setNewPath("");
+                    }}
+                    className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[11px] text-gb-muted hover:bg-gb-surface-hover"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-accent hover:bg-gb-surface-hover"
+              >
+                + New worktree…
+              </button>
+            )}
             <button
               onClick={handleClear}
               className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
