@@ -51,10 +51,24 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
       for (let i = min; i <= max; i += step) arr.push(i);
       return arr;
     }
-    // Single number or comma list.
-    const parts = f.split(",").map((p) => parseInt(p, 10));
-    if (parts.some((n) => !Number.isFinite(n) || n < min || n > max)) return null;
-    return parts;
+    // Support ranges like "1-5" and comma mixes like "1,5,9-11".
+    const out: number[] = [];
+    for (const part of f.split(",")) {
+      const rangeMatch = /^(\d+)-(\d+)$/.exec(part);
+      if (rangeMatch) {
+        const lo = parseInt(rangeMatch[1], 10);
+        const hi = parseInt(rangeMatch[2], 10);
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo > hi || lo < min || hi > max) {
+          return null;
+        }
+        for (let i = lo; i <= hi; i++) out.push(i);
+        continue;
+      }
+      const n = parseInt(part, 10);
+      if (!Number.isFinite(n) || n < min || n > max) return null;
+      out.push(n);
+    }
+    return out;
   };
 
   const minutes = parseField(fields[0], 0, 59);
@@ -94,6 +108,61 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
  * Automations page — schedule prompts to run in the current session on an
  * interval or when an event fires. Codex parity: `automations-page`.
  */
+// Module-level scheduler: keeps firing even when the user navigates away
+// from the Automations page. State lives in localStorage; each tick computes
+// purely, then dispatches events as a separate side effect.
+let schedulerTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startAutomationScheduler(getActiveSessionId: () => string | null) {
+  if (schedulerTimer) return; // already running
+  schedulerTimer = setInterval(() => {
+    const items = loadAutomations();
+    const now = Date.now();
+    const activeSessionId = getActiveSessionId();
+
+    // Pure pass: compute next state.
+    const updated: Automation[] = [];
+    const toFire: Automation[] = [];
+    let changed = false;
+    for (const a of items) {
+      const baseline = a.lastRunAt ?? a.createdAt;
+      const nextRun = nextCronRun(a.schedule, baseline);
+      if (nextRun !== null && nextRun <= now) {
+        changed = true;
+        const bumped = { ...a, lastRunAt: now, runCount: a.runCount + 1 };
+        updated.push(bumped);
+        toFire.push(bumped);
+      } else {
+        updated.push(a);
+      }
+    }
+
+    if (!changed) return;
+
+    // Side effects — outside the pure pass.
+    saveAutomations(updated);
+    for (const a of toFire) {
+      if (activeSessionId) {
+        window.dispatchEvent(
+          new CustomEvent("grok:automation-run", {
+            detail: { automationId: a.id, sessionId: activeSessionId, prompt: a.prompt },
+          })
+        );
+      }
+    }
+
+    // Notify any open AutomationsPage to re-read localStorage.
+    window.dispatchEvent(new CustomEvent("grok:automations-changed"));
+  }, 30_000);
+}
+
+export function stopAutomationScheduler() {
+  if (schedulerTimer) {
+    clearInterval(schedulerTimer);
+    schedulerTimer = null;
+  }
+}
+
 export function AutomationsPage({ onClose }: { onClose: () => void }) {
   // Lazy initializer so we don't re-parse localStorage on every render.
   const [items, setItems] = useState<Automation[]>(() => loadAutomations());
@@ -104,38 +173,18 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
-  // Tick every 30s; if any automation's next run is in the past, fire it.
+  // Re-read when the module-level scheduler fires an automation so the UI
+  // stays in sync (runCount, lastRunAt).
   useEffect(() => {
-    const tick = () => {
-      const now = Date.now();
-      setItems((prev) => {
-        let changed = false;
-        const next = prev.map((a) => {
-          // If we've never run or lastRun is before the previous scheduled
-          // tick, see if the schedule says we should have fired by now.
-          const baseline = a.lastRunAt ?? a.createdAt;
-          const nextRun = nextCronRun(a.schedule, baseline);
-          if (nextRun !== null && nextRun <= now) {
-            changed = true;
-            // Fire-and-forget: dispatch into the active session.
-            if (activeSessionId) {
-              window.dispatchEvent(
-                new CustomEvent("grok:automation-run", {
-                  detail: { automationId: a.id, sessionId: activeSessionId, prompt: a.prompt },
-                })
-              );
-            }
-            return { ...a, lastRunAt: now, runCount: a.runCount + 1 };
-          }
-          return a;
-        });
-        if (changed) saveAutomations(next);
-        return changed ? next : prev;
-      });
-    };
-    const t = setInterval(tick, 30_000);
-    return () => clearInterval(t);
-  }, [activeSessionId]);
+    const handler = () => setItems(loadAutomations());
+    window.addEventListener("grok:automations-changed", handler);
+    return () => window.removeEventListener("grok:automations-changed", handler);
+  }, []);
+
+  // Boot the module-level scheduler on mount (idempotent).
+  useEffect(() => {
+    startAutomationScheduler(() => useSessionStore.getState().activeSessionId);
+  }, []);
 
   // Accept only plausible cron expressions: 5 space-separated fields with
   // digits, '*', ',', '-', '/'. Rejects free text. Then verify it actually
