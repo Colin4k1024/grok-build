@@ -4,6 +4,10 @@ import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useSessionStore } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { PromptInput } from "./components/chat/PromptInput";
+import { TitleBar } from "./components/layout/TitleBar";
+import { Sidebar } from "./components/layout/Sidebar";
+import { RightPanel } from "./components/panels/RightPanel";
+import { StatusBar } from "./components/panels/StatusBar";
 import { createSession, sendMessage, cancelSession, getAuthStatus, logout, getConfig, type AuthStatus, type ConfigSnapshot } from "./lib/tauri";
 
 export default function App() {
@@ -14,6 +18,21 @@ export default function App() {
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  // Layout state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+
+  // Responsive: collapse sidebar on narrow windows
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const responsiveSidebarCollapsed = sidebarCollapsed || windowWidth < 1000;
+  const responsiveRightCollapsed = rightPanelCollapsed || windowWidth < 1200;
 
   const refreshAuth = useCallback(async () => {
     try {
@@ -75,12 +94,10 @@ export default function App() {
     }
   }, [setActiveSession]);
 
-  // Show login page if not authenticated
   if (auth && !auth.authenticated) {
     return <Login onLoginSuccess={refreshAuth} />;
   }
 
-  // Loading state while checking auth
   if (!auth) {
     return (
       <div className="flex h-full items-center justify-center bg-gb-bg">
@@ -90,44 +107,38 @@ export default function App() {
   }
 
   const currentMessages = activeSessionId ? (messages[activeSessionId] || []) : [];
+  const sessionCount = Object.keys(messages).length;
 
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      {/* Title bar */}
-      <header className="flex h-12 items-center justify-between border-b border-gb-border bg-gb-surface px-4">
-        <div className="flex items-center gap-3">
-          <h1 className="text-sm font-semibold">Grok Build</h1>
-          {config && (
-            <span className="text-xs text-gb-muted">{config.default_model}</span>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {auth.authenticated && (
-            <span className="text-xs text-gb-green">● {auth.username || "Connected"}</span>
-          )}
-          <button
-            className="rounded bg-gb-accent px-3 py-1 text-xs text-white hover:opacity-80 disabled:opacity-40"
-            onClick={handleNewSession}
-            disabled={creating}
-          >
-            {creating ? "Starting..." : "+ New Session"}
-          </button>
-          <button
-            className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+      <TitleBar
+        auth={auth}
+        config={config}
+        onLogout={handleLogout}
+        onNewSession={handleNewSession}
+        creating={creating}
+        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+        onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+      />
 
-      {/* Main content */}
-      <main className="flex flex-1 overflow-hidden">
-        {/* Chat area */}
-        <div className="flex flex-1 flex-col">
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar
+          collapsed={responsiveSidebarCollapsed}
+          onNewSession={handleNewSession}
+          creating={creating}
+        />
+
+        {/* Center: chat area */}
+        <main className="flex flex-1 flex-col overflow-hidden">
           {error && (
-            <div className="border-b border-gb-red/30 bg-gb-red/10 px-4 py-2 text-xs text-gb-red">
-              {error}
+            <div className="flex items-center gap-2 border-b border-gb-red/30 bg-gb-red/10 px-4 py-2 text-xs text-gb-red">
+              <span className="flex-1">{error}</span>
+              <button
+                className="text-gb-red/60 hover:text-gb-red"
+                onClick={() => setError(null)}
+              >
+                ✕
+              </button>
             </div>
           )}
           <MessageList messages={currentMessages} />
@@ -137,14 +148,18 @@ export default function App() {
             isStreaming={isStreaming}
             disabled={!activeSessionId}
           />
-        </div>
-      </main>
+        </main>
 
-      {/* Status bar */}
-      <footer className="flex h-6 items-center justify-between border-t border-gb-border bg-gb-surface px-4 text-xs text-gb-muted">
-        <span>Grok Build Desktop v0.1.0</span>
-        <span>{activeSessionId ? `session: ${activeSessionId.slice(0, 12)}...` : "no session"}</span>
-      </footer>
+        <RightPanel collapsed={responsiveRightCollapsed} />
+      </div>
+
+      <StatusBar
+        connected={auth.authenticated}
+        workingDir="."
+        sandboxMode={false}
+        sessionCount={sessionCount}
+        streaming={isStreaming}
+      />
     </div>
   );
 }
