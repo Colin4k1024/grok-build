@@ -36,7 +36,38 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Grok Build Desktop",
+    "longDescription": "Desktop application for Grok Build \u2014 AI agent coding assistant with multi-session, ACP bridge, and terminal embedding.",
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "11.0",
+      "exceptionDomain": "",
+      "signingIdentity": null,
+      "providerShortName": null,
+      "entitlements": null
+    },
+    "windows": {
+      "wix": {
+        "language": [
+          "en-US"
+        ]
+      },
+      "nsis": {
+        "displayLanguageSelector": false,
+        "languages": [
+          "English"
+        ],
+        "installerIcon": "icons/icon.ico"
+      },
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
   },
   "plugins": {
     "updater": {
