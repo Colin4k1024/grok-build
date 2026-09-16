@@ -206,13 +206,25 @@ fn resolve_dismissable_campaigns() -> Vec<CampaignEntry> {
 }
 
 /// Effective config with the remote/override-aware campaign overlay, from one `ConfigLayers::load`.
+///
+/// Caches the first successful result in a process-wide `OnceLock` so that
+/// subsequent calls (e.g. from `spawn_blocking` threads inside the agent
+/// runtime) return the already-parsed value without re-entering the TOML
+/// parser.  This avoids a heap-corruption crash that manifests when the
+/// parser runs on a `spawn_blocking` worker thread spawned by the agent's
+/// single-threaded tokio runtime inside the Tauri host process.
 pub fn load_effective_config() -> std::io::Result<toml::Value> {
+    static CACHED: std::sync::OnceLock<toml::Value> = std::sync::OnceLock::new();
+    if let Some(cached) = CACHED.get() {
+        return Ok(cached.clone());
+    }
     let layers = ConfigLayers::load()?;
     let dismissed = load_dismissed_ids();
     let remote = cached_remote_campaigns();
     let mut effective = layers.effective_config_base();
     let active = resolve_active_campaigns_from_layers(&layers, &effective, &remote, &dismissed);
     layers.apply_campaign_overrides(&mut effective, &active);
+    let _ = CACHED.set(effective.clone());
     Ok(effective)
 }
 

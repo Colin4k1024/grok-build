@@ -27,9 +27,8 @@ import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
   type AuthStatus, type ConfigSnapshot,
-  onTrayAction,
+  onTrayAction, onConfigChanged,
 } from "./lib/tauri";
-import { listen } from "@tauri-apps/api/event";
 
 export default function App() {
   useAcpEventListener();
@@ -72,7 +71,10 @@ export default function App() {
     try {
       const status = await getAuthStatus();
       setAuth(status);
-    } catch (e) { setError(String(e)); }
+    } catch (e) {
+      console.error("Failed to check auth status:", e);
+      setAuth({ authenticated: false, username: null });
+    }
   }, []);
 
   useEffect(() => {
@@ -91,7 +93,7 @@ export default function App() {
 
   // Hot-reload config when models are saved
   useEffect(() => {
-    const unlisten = listen("config_changed", () => {
+    const unlisten = onConfigChanged(() => {
       getConfig().then(setConfig).catch(() => {});
     });
     return () => { unlisten.then((fn) => fn()); };
@@ -114,6 +116,18 @@ export default function App() {
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }, [addTab, tabs.length]);
+
+  // Cmd+N / Ctrl+N -> New Session
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        handleNewSession();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleNewSession]);
 
   const handleCloseSession = useCallback(async (id: string) => {
     const msgs = messages[id] || [];
@@ -212,7 +226,7 @@ export default function App() {
   // Detached window: render only the chat area
   if (detachedSessionId) {
     return (
-      <div className="flex h-full flex-col bg-gb-bg text-gb-text">
+      <div className="flex h-full flex-col text-gb-text">
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">
           <span className="text-xs font-medium text-gb-text">Detached Session</span>
         </header>
@@ -242,7 +256,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className="flex h-full flex-col bg-gb-bg text-gb-text">
+    <div className="flex h-full flex-col text-gb-text">
       <TitleBar
         auth={auth}
         config={config}
@@ -274,7 +288,7 @@ export default function App() {
           )}
 
           {error && (
-            <div className="flex items-center gap-2 border-b border-gb-red/30 bg-gb-red/10 px-4 py-2 text-xs text-gb-red">
+            <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
               <span className="flex-1">{error}</span>
               <button className="text-gb-red/60 hover:text-gb-red" onClick={() => setError(null)}>✕</button>
             </div>
@@ -282,22 +296,10 @@ export default function App() {
 
           {tabs.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center">
-              <p className="mb-3 text-sm text-gb-muted">No active sessions</p>
-              <div className="flex gap-2">
-                <button
-                  className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40"
-                  onClick={handleNewSession}
-                  disabled={creating}
-                >
-                  {creating ? "Starting..." : "+ New Session"}
-                </button>
-                <button
-                  className="rounded-lg border border-gb-border px-4 py-2 text-sm font-medium text-gb-muted hover:bg-gb-surface hover:text-gb-text"
-                  onClick={() => setShowPicker(true)}
-                >
-                  ↻ Restore
-                </button>
-              </div>
+              <p className="mb-4 text-[14px] text-gb-muted">No active session</p>
+              <button className="flex items-center gap-2 rounded-md bg-gb-accent px-4 py-2 text-[13px] font-medium text-white hover:opacity-80 disabled:opacity-30" onClick={handleNewSession} disabled={creating}>
+                {creating ? "Starting…" : "New Session"}
+              </button>
             </div>
           ) : (
             <>
@@ -341,20 +343,20 @@ export default function App() {
 
       {confirmClose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-80 rounded-xl border border-gb-border bg-gb-surface p-6 text-center">
+          <div className="w-80 rounded-gb border border-gb-border bg-gb-surface-solid p-6 text-center dropdown-shadow">
             <p className="mb-2 text-sm font-medium text-gb-text">Close this session?</p>
             <p className="mb-4 text-xs text-gb-muted">
               Messages in this session will be lost. The agent process will be terminated.
             </p>
             <div className="flex gap-2">
               <button
-                className="flex-1 rounded-lg border border-gb-border px-3 py-2 text-xs text-gb-muted hover:bg-gb-bg"
+                className="flex-1 rounded-md border border-gb-border/10 px-3 py-2 text-[12px] text-gb-muted hover:bg-gb-surface-hover"
                 onClick={() => setConfirmClose(null)}
               >
                 Cancel
               </button>
               <button
-                className="flex-1 rounded-lg bg-gb-red px-3 py-2 text-xs font-medium text-white hover:opacity-80"
+                className="flex-1 rounded-md bg-gb-red px-3 py-2 text-[12px] font-medium text-white hover:opacity-80"
                 onClick={() => performClose(confirmClose)}
               >
                 Close

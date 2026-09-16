@@ -212,3 +212,19 @@ pub async fn save_config(key: String, value: serde_json::Value) -> Result<(), St
 
 #[allow(dead_code)]
 fn _unused(_m: BTreeMap<String, String>) {}
+
+/// Collect all unique `env_key` names from the current model configuration.
+/// Used to inject keychain-stored keys into the process environment before
+/// spawning the agent.
+pub fn collect_model_env_keys() -> Vec<String> {
+    let parsed = load_models_config();
+    let snapshot = parse_config(&parsed);
+    let mut keys: Vec<String> = snapshot
+        .models
+        .iter()
+        .flat_map(|m| m.env_key.clone())
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}

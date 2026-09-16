@@ -1,5 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+ 
+ function isTauriAvailable(): boolean {
+   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+ }
+ 
+ async function safeListen<T>(
+   event: string,
+   handler: (payload: T) => void
+ ): Promise<UnlistenFn> {
+   if (!isTauriAvailable()) {
+     console.warn(`[tauri] listen("${event}") called outside Tauri context — no-op`);
+     return () => {};
+   }
+   try {
+     return await listen<T>(event, (e) => handler(e.payload));
+   } catch (err) {
+     console.error(`[tauri] listen("${event}") failed:`, err);
+     return () => {};
+   }
+ }
 
 export interface SessionInfo {
   id: string;
@@ -67,12 +87,42 @@ export async function closeSession(sessionId: string): Promise<void> {
   return invoke("session_close", { sessionId });
 }
 
+const EMPTY_CONFIG: ConfigSnapshot = {
+  models: [],
+  default_model: "",
+  web_search_model: "",
+  image_description_model: "",
+  session_summary_model: "",
+};
+
 export async function getConfig(): Promise<ConfigSnapshot> {
-  return invoke<ConfigSnapshot>("get_config");
+  if (!isTauriAvailable()) {
+    return EMPTY_CONFIG;
+  }
+  try {
+    return await Promise.race([
+      invoke<ConfigSnapshot>("get_config"),
+      new Promise<ConfigSnapshot>((resolve) => setTimeout(() => resolve(EMPTY_CONFIG), 5000)),
+    ]);
+  } catch {
+    return EMPTY_CONFIG;
+  }
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
-  return invoke<AuthStatus>("check_auth_status");
+  if (!isTauriAvailable()) {
+    return { authenticated: false, username: null };
+  }
+  try {
+    return await Promise.race([
+      invoke<AuthStatus>("check_auth_status"),
+      new Promise<AuthStatus>((resolve) =>
+        setTimeout(() => resolve({ authenticated: false, username: null }), 5000)
+      ),
+    ]);
+  } catch {
+    return { authenticated: false, username: null };
+  }
 }
 
 export async function login(): Promise<AuthStatus> {
@@ -86,7 +136,7 @@ export async function logout(): Promise<void> {
 export function onAcpEvent(
   handler: (event: AcpEventPayload) => void
 ): Promise<UnlistenFn> {
-  return listen<AcpEventPayload>("acp_event", (e) => handler(e.payload));
+  return safeListen<AcpEventPayload>("acp_event", handler);
 }
 
 export interface AcpEventPayload {
@@ -115,7 +165,7 @@ export interface AcpEventPayload {
 export function onAuthMessage(
   handler: (message: string) => void
 ): Promise<UnlistenFn> {
-  return listen<string>("auth_message", (e) => handler(e.payload));
+  return safeListen<string>("auth_message", handler);
 }
 
 export interface SessionListItem {
@@ -125,6 +175,9 @@ export interface SessionListItem {
 }
 
 export async function listSessions(): Promise<SessionListItem[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<SessionListItem[]>("session_list");
 }
 
@@ -159,10 +212,16 @@ export interface ChatHistoryEntry {
 }
 
 export async function listHistorySessions(): Promise<HistorySession[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<HistorySession[]>("session_list_history");
 }
 
 export async function getSessionHistory(sessionId: string, cwd: string): Promise<ChatHistoryEntry[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
 }
 
@@ -198,18 +257,25 @@ export async function disableAutostart(): Promise<void> {
 }
 
 export async function isAutostartEnabled(): Promise<boolean> {
+  if (!isTauriAvailable()) {
+    return false;
+  }
   return invoke<boolean>("autostart_is_enabled");
 }
 
 // --- Tray events ---
 
 export function onTrayAction(handler: (action: string) => void): Promise<UnlistenFn> {
-  return listen<string>("tray-action", (e) => handler(e.payload));
+  return safeListen<string>("tray-action", handler);
 }
 
 export async function updateTrayBadge(unread: number): Promise<void> {
   return invoke("update_tray_badge", { unread });
 }
+ 
+ export function onConfigChanged(handler: () => void): Promise<UnlistenFn> {
+   return safeListen("config_changed", handler);
+ }
 
 // --- MCP Server Management ---
 
@@ -226,6 +292,9 @@ export interface McpServerInfo {
 }
 
 export async function getMcpServers(): Promise<McpServerInfo[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<McpServerInfo[]>("get_mcp_servers");
 }
 
@@ -260,6 +329,9 @@ export interface WorktreeInfo {
 }
 
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<WorktreeInfo[]>("git_worktree_list", { cwd });
 }
 
@@ -272,5 +344,8 @@ export async function removeWorktree(cwd: string, path: string, force: boolean):
 }
 
 export async function listBranches(cwd: string): Promise<string[]> {
+  if (!isTauriAvailable()) {
+    return [];
+  }
   return invoke<string[]>("git_list_branches", { cwd });
 }

@@ -139,6 +139,7 @@ fn main() {
             commands::worktree::git_worktree_add,
             commands::worktree::git_worktree_remove,
             commands::worktree::git_list_branches,
+            commands::logging::log_frontend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

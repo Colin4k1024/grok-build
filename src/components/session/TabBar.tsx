@@ -75,7 +75,7 @@ export function TabBar({ onNewSession, onCloseSession, onForkSession }: TabBarPr
 
   return (
     <>
-      <div className="flex items-center gap-0.5 border-b border-gb-border bg-gb-bg px-1">
+      <div className="flex items-center gap-0.5 border-b border-gb-border/8 px-1.5 py-1">
         <div className="flex flex-1 items-center gap-0.5 overflow-x-auto">
           {tabs.map((tab, index) => (
             <div
@@ -101,7 +101,7 @@ export function TabBar({ onNewSession, onCloseSession, onForkSession }: TabBarPr
                     if (e.key === "Enter") commitRename();
                     if (e.key === "Escape") setEditingId(null);
                   }}
-                  className="w-24 rounded border border-gb-accent bg-gb-bg px-1 py-0 text-xs text-gb-text outline-none"
+                  className="w-24 rounded bg-gb-bg px-1 py-0 text-[12px] text-gb-text outline-none"
                 />
               ) : (
                 <>
@@ -126,7 +126,7 @@ export function TabBar({ onNewSession, onCloseSession, onForkSession }: TabBarPr
           ))}
         </div>
         <button
-          className="shrink-0 rounded p-1 text-gb-muted hover:bg-gb-surface hover:text-gb-text"
+          className="shrink-0 rounded-md p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
           onClick={onNewSession}
           title="New session (Cmd+N)"
         >
@@ -145,7 +145,7 @@ export function TabBar({ onNewSession, onCloseSession, onForkSession }: TabBarPr
           />
           <div
             ref={menuRef}
-            className="fixed z-50 w-44 rounded-lg border border-gb-border bg-gb-surface py-1 shadow-xl"
+            className="fixed z-50 w-44 rounded-md border border-gb-border/10 bg-gb-surface-solid py-0.5 shadow-lg animate-fade-in"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <MenuItem label="Rename" onClick={() => {
@@ -177,7 +177,7 @@ export function TabBar({ onNewSession, onCloseSession, onForkSession }: TabBarPr
 function MenuItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
   return (
     <button
-      className={`w-full px-3 py-1.5 text-left text-xs hover:bg-gb-bg ${
+      className={`w-full px-2.5 py-1.5 text-left text-[12px] hover:bg-gb-surface-hover ${
         danger ? "text-gb-red" : "text-gb-text"
       }`}
       onClick={onClick}

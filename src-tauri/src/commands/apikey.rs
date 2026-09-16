@@ -71,3 +71,24 @@ pub async fn get_all_api_keys(env_keys: Vec<String>) -> Result<Vec<(String, Stri
     }
     Ok(result)
 }
+
+
+/// Read stored API keys from the OS keychain and inject them into the process
+/// environment so the agent can resolve them via `std::env::var`.
+///
+/// Keychain keys take precedence over any existing shell env var; if no
+/// keychain value exists the existing env var (if any) is left untouched as
+/// a fallback.
+pub fn inject_stored_keys_into_env(env_keys: &[String]) {
+    for key in env_keys {
+        if let Ok(value) = get_entry(key).get_password() {
+            if !value.is_empty() {
+                // SAFETY: called from the agent thread before the agent starts
+                // processing requests. No concurrent readers exist at this point.
+                unsafe {
+                    std::env::set_var(key, &value);
+                }
+            }
+        }
+    }
+}

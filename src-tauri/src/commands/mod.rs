@@ -7,3 +7,4 @@ pub mod autostart;
 
 pub mod mcp;
 pub mod worktree;
+pub mod logging;

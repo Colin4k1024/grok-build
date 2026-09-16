@@ -133,7 +133,7 @@ pub fn create_and_init_session(
     std::thread::Builder::new()
         .name("grok-acp-bridge".into())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
+            let runtime = match tokio::runtime::Builder::new_multi_thread().worker_threads(1)
                 .enable_all()
                 .build()
             {
@@ -146,22 +146,19 @@ pub fn create_and_init_session(
 
             let local = tokio::task::LocalSet::new();
             local.block_on(&runtime, async move {
-                match run_agent_loop(init_session_id, init_cwd, init_cancel, cmd_rx, init_event_tx).await {
-                    Ok((acp_session_id, models)) => {
-                        let _ = ready_tx.send(Ok((acp_session_id, models)));
-                        // The loop continues until Shutdown or channel closed
-                    }
-                    Err(e) => {
-                        let _ = ready_tx.send(Err(e.to_string()));
-                    }
+                if let Err(e) = run_agent_loop(
+                    init_session_id, init_cwd, init_cancel, cmd_rx, init_event_tx, ready_tx,
+                ).await {
+                    eprintln!("[BRIDGE] run_agent_loop exited with error: {e}");
                 }
             });
         })
         .map_err(|e| anyhow::anyhow!("Failed to spawn agent thread: {e}"))?;
 
+    eprintln!("[BRIDGE] waiting for agent thread to be ready (blocking_recv)...");
     // Wait for the agent to be ready (or fail)
     let (acp_session_id, models) = ready_rx.blocking_recv()
-        .map_err(|_| anyhow::anyhow!("Agent thread died before responding"))?
+        .map_err(|_| { eprintln!("[BRIDGE] ERROR: agent thread died before responding"); anyhow::anyhow!("Agent thread died before responding") })?
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let handle = SessionHandle {
@@ -183,7 +180,8 @@ async fn run_agent_loop(
     cancel: CancellationToken,
     mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
     event_tx: mpsc::UnboundedSender<AcpEvent>,
-) -> anyhow::Result<(String, Vec<ModelSummary>)> {
+    ready_tx: oneshot::Sender<Result<(String, Vec<ModelSummary>), String>>,
+) -> anyhow::Result<()> {
     use xai_grok_pager::acp::spawn::{spawn_grok_shell, AgentShutdownGuard, SpawnedAgent};
 
     // Load config
@@ -210,12 +208,23 @@ async fn run_agent_loop(
     agent_config.mode = xai_grok_shell::agent::config::AgentMode::Headless;
     agent_config.default_yolo_mode = true;
 
+    // Inject keychain-stored API keys into the process environment so the
+    // agent can resolve them via std::env::var. The agent reads credentials
+    // from env vars, not the OS keychain — this bridges the gap.
+    let env_keys = crate::commands::config::collect_model_env_keys();
+    crate::commands::apikey::inject_stored_keys_into_env(&env_keys);
+
     let memory_config = agent_config.memory_config.clone();
 
     // Spawn the agent
-    let spawned: SpawnedAgent = spawn_grok_shell(agent_config, &cancel, memory_config)
-        .await
-        .map_err(|e| anyhow::anyhow!("Couldn't start session: {e}"))?;
+    let spawned: SpawnedAgent = match spawn_grok_shell(agent_config, &cancel, memory_config).await {
+        Ok(s) => s,
+        Err(e) => {
+            let msg = format!("Couldn't start session: {e}");
+            let _ = ready_tx.send(Err(msg.clone()));
+            return Err(anyhow::anyhow!(msg));
+        }
+    };
 
     let _guard = AgentShutdownGuard::new(cancel.clone(), Some(spawned.thread_handle));
     let acp_tx = spawned.channel.tx.clone();
@@ -228,9 +237,14 @@ async fn run_agent_loop(
                 .fs(acp::FileSystemCapabilities::new())
                 .terminal(false),
         );
-    let init_resp: acp::InitializeResponse = acp_send(init_req, &acp_tx)
-        .await
-        .map_err(|e| anyhow::anyhow!("Initialize failed: {e}"))?;
+    let init_resp: acp::InitializeResponse = match acp_send(init_req, &acp_tx).await {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("Initialize failed: {e}");
+            let _ = ready_tx.send(Err(msg.clone()));
+            return Err(anyhow::anyhow!(msg));
+        }
+    };
 
     // 2. Authenticate
     let default_auth_method_id = init_resp
@@ -243,19 +257,31 @@ async fn run_agent_loop(
     let method_id = select_eager_auth_method(&init_resp.auth_methods, default_auth_method_id.as_ref())
         .ok_or_else(|| anyhow::anyhow!("No usable auth method available"))?;
 
-    let _auth_resp: acp::AuthenticateResponse =
-        acp_send(acp::AuthenticateRequest::new(method_id), &acp_tx)
-            .await
-            .map_err(|e| anyhow::anyhow!("Authenticate failed: {e}"))?;
+    let _auth_resp: acp::AuthenticateResponse = match acp_send(
+        acp::AuthenticateRequest::new(method_id), &acp_tx,
+    ).await {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("Authenticate failed: {e}");
+            let _ = ready_tx.send(Err(msg.clone()));
+            return Err(anyhow::anyhow!(msg));
+        }
+    };
 
     // 3. Create session
-    let new_resp: acp::NewSessionResponse =
-        acp_send(acp::NewSessionRequest::new(cwd.clone()), &acp_tx)
-            .await
-            .map_err(|e| anyhow::anyhow!("NewSession failed: {e}"))?;
+    let new_resp: acp::NewSessionResponse = match acp_send(
+        acp::NewSessionRequest::new(cwd.clone()), &acp_tx,
+    ).await {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("NewSession failed: {e}");
+            let _ = ready_tx.send(Err(msg.clone()));
+            return Err(anyhow::anyhow!(msg));
+        }
+    };
 
     let acp_session_id = new_resp.session_id.0.to_string();
-    let models = new_resp
+    let models: Vec<ModelSummary> = new_resp
         .models
         .as_ref()
         .map(|state| {
@@ -265,6 +291,9 @@ async fn run_agent_loop(
             }).collect()
         })
         .unwrap_or_default();
+
+    // Signal readiness to the caller — this unblocks create_and_init_session.
+    let _ = ready_tx.send(Ok((acp_session_id.clone(), models.clone())));
 
     // 4. Main loop: forward ACP events + handle commands
     let fwd_session_id = session_id.clone();
@@ -381,7 +410,7 @@ async fn run_agent_loop(
         }
     }
 
-    Ok((acp_session_id, models))
+    Ok(())
 }
 
 async fn forward_acp_message(

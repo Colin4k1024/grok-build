@@ -17,14 +17,20 @@ export function useNotifications() {
     const stored = localStorage.getItem(NOTIF_SETTING_KEY);
     enabled.current = stored === null ? true : stored === "true";
 
-    (async () => {
-      let granted = await isPermissionGranted();
-      if (!granted) {
-        const perm = await requestPermission();
-        granted = perm === "granted";
+    const init = async () => {
+      try {
+        let granted = await isPermissionGranted();
+        if (!granted) {
+          const perm = await requestPermission();
+          granted = perm === "granted";
+        }
+        permissionGranted.current = granted;
+      } catch (e) {
+        console.warn("Notification permission check failed:", e);
+        permissionGranted.current = false;
       }
-      permissionGranted.current = granted;
-    })();
+    };
+    init();
   }, []);
 
   // Listen for ACP events and send notifications when window is not focused

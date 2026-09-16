@@ -3,36 +3,39 @@
 @tailwind utilities;
 
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Dark theme (default) */
-  --gb-bg: #0d1117;
-  --gb-surface: #161b22;
-  --gb-border: #30363d;
-  --gb-text: #e6edf3;
-  --gb-muted: #8b949e;
-  --gb-accent: #2f81f7;
-  --gb-green: #3fb950;
-  --gb-yellow: #d29922;
-  --gb-red: #f85149;
-  --gb-blue: #58a6ff;
+  /* Codex desktop palette — warm-tinted dark, flat, no gradients */
+  --gb-bg: 33 33 33;           /* #212121 — main background */
+  --gb-bg-secondary: 28 28 28; /* #1c1c1c — sidebar */
+  --gb-surface: 43 43 43;      /* #2b2b2b — elevated surface */
+  --gb-surface-hover: 52 52 52;/* #343434 — hover state */
+  --gb-surface-solid: 38 38 38;/* #262626 — solid panel */
+  --gb-border: 255 255 255;    /* used with alpha → hairline borders */
+  --gb-text: 235 235 235;       /* #ebebeb — primary text */
+  --gb-text-secondary: 168 168 168; /* #a8a8a8 */
+  --gb-muted: 124 124 124;     /* #7c7c7c — tertiary/placeholder */
+  --gb-accent: 74 158 255;     /* #4a9eff — subtle blue accent */
+  --gb-green: 52 211 153;
+  --gb-yellow: 251 191 36;
+  --gb-red: 248 113 113;
 }
 
 .light {
-  --gb-bg: #ffffff;
-  --gb-surface: #f6f8fa;
-  --gb-border: #d0d7de;
-  --gb-text: #1f2328;
-  --gb-muted: #656d76;
-  --gb-accent: #0969da;
-  --gb-green: #1a7f37;
-  --gb-yellow: #9a6700;
-  --gb-red: #cf222e;
-  --gb-blue: #0969da;
+  --gb-bg: 255 255 255;
+  --gb-bg-secondary: 250 250 249;
+  --gb-surface: 244 244 243;
+  --gb-surface-hover: 238 238 237;
+  --gb-surface-solid: 250 250 249;
+  --gb-border: 0 0 0;
+  --gb-text: 28 28 28;
+  --gb-text-secondary: 90 90 90;
+  --gb-muted: 140 140 140;
+  --gb-accent: 0 122 255;
 }
 
 html, body, #root {
@@ -40,22 +43,38 @@ html, body, #root {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: var(--gb-bg);
-  color: var(--gb-text);
+  background: rgb(var(--gb-bg));
+  color: rgb(var(--gb-text));
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* Scrollbar — thin, unobtrusive */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 100px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* No glass, no gradients, no blur — flat and clean */
+
+/* Code blocks */
+pre {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border-radius: 6px;
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 13px;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--gb-border);
+code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
+:not(pre) > code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: var(--gb-muted);
-}
+
+/* Minimal animations */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+
+@keyframes slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.animate-slide-up { animation: slide-up 0.25s ease-out; }
+
+/* Selection */
+::selection { background: rgba(74, 158, 255, 0.25); }

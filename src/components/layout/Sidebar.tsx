@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { SessionList } from "../session/SessionList";
 
 interface SidebarProps {
@@ -12,52 +11,26 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard }: SidebarProps) {
-  const [activeView, setActiveView] = useState<"sessions" | "settings">("sessions");
-
   if (collapsed) return null;
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-gb-border bg-gb-surface">
-      <div className="flex border-b border-gb-border">
-        <button
-          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-            activeView === "sessions"
-              ? "border-b-2 border-gb-accent text-gb-text"
-              : "text-gb-muted hover:text-gb-text"
-          }`}
-          onClick={() => setActiveView("sessions")}
-        >
-          Sessions
-        </button>
-        <button
-          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors text-gb-muted hover:text-gb-text`}
-          onClick={onOpenDashboard}
-        >
-          ◧ Dashboard
-        </button>
-        <button
-          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors text-gb-muted hover:text-gb-text`}
-          onClick={onOpenSettings}
-        >
-          ⚙ Settings
-        </button>
-      </div>
-
+    <aside className="flex w-60 shrink-0 flex-col border-r border-gb-border/8 bg-gb-bg-secondary">
       <div className="p-2">
-        <button
-          className="w-full rounded-lg border border-gb-border bg-gb-bg px-3 py-2 text-xs font-medium text-gb-text hover:border-gb-accent/50 disabled:opacity-40"
-          onClick={onNewSession}
-          disabled={creating}
-        >
-          {creating ? "Starting..." : "+ New Session"}
+        <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-gb-text hover:bg-gb-surface-hover disabled:opacity-30" onClick={onNewSession} disabled={creating}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          {creating ? "Starting…" : "New Session"}
         </button>
       </div>
       <SessionList onForkSession={onForkSession} onCloseSession={onCloseSession} />
-
-      <div className="border-t border-gb-border p-2">
-        <div className="rounded-lg bg-gb-bg px-3 py-2 text-[10px] text-gb-muted">
-          Grok Build v0.1.0
-        </div>
+      <div className="border-t border-gb-border/8 p-1">
+        <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenDashboard}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h5v5H2V4zm7 0h5v2H9V4zm0 4h5v6H9V8zM2 11h5v2H2v-2z" /></svg>
+          Dashboard
+        </button>
+        <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenSettings}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z M13.4 6.8l-1.2-.7-.2-1.2 1-.7-.5-1.3-1.3.3-1-.9.1-1.3L8.1 0 6.8 1l-1 .9-1.3-.1-.6 1.2.8 1-.4 1.3-1.2.4.1 1.4 1 .8-.1 1.3-1.3.6.5 1.3 1.3-.1.8 1 1.2-.3z" /></svg>
+          Settings
+        </button>
       </div>
     </aside>
   );

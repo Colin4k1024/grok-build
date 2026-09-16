@@ -29,12 +29,32 @@ pub async fn session_create(
     state: tauri::State<'_, AppState>,
     args: CreateSessionArgs,
 ) -> Result<SessionInfo, String> {
-    let cwd = PathBuf::from(&args.cwd);
-    let session_id = format!("session-{}", nanoid());
+    let ts = chrono::Local::now().format("%H:%M:%S%.3f");
+    eprintln!("[{ts}] [CMD] session_create invoked: cwd={}", args.cwd);
 
+    // Canonicalize the cwd to an absolute path — ACP NewSession requires it.
+    let cwd = if std::path::Path::new(&args.cwd).is_absolute() {
+        PathBuf::from(&args.cwd)
+    } else {
+        std::env::current_dir()
+            .map(|d| d.join(&args.cwd))
+            .and_then(|p| dunce::canonicalize(&p).or(Ok(p)))
+            .unwrap_or_else(|_| PathBuf::from(&args.cwd))
+    };
+    let session_id = format!("session-{}", nanoid());
+    eprintln!("[{ts}] [CMD] session_id={session_id}, spawning via spawn_blocking...");
+
+    // create_and_init_session uses blocking_recv() internally, which panics
+    // if called from within a tokio runtime. Wrap it in spawn_blocking.
+    let session_id_for_blocking = session_id.clone();
     let (spawned, mut event_rx) =
-        acp_bridge::create_and_init_session(session_id.clone(), cwd)
-            .map_err(|e| e.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            acp_bridge::create_and_init_session(session_id_for_blocking, cwd)
+        })
+        .await
+        .map_err(|e| format!("Blocking task panicked: {e}"))?
+        .map_err(|e| { eprintln!("[{ts}] [CMD] create_and_init_session FAILED: {e}"); e.to_string() })?;
+    eprintln!("[{ts}] [CMD] create_and_init_session OK, acp_session_id={}", spawned.handle.acp_session_id);
 
     let acp_session_id = spawned.handle.acp_session_id.clone();
     let models: Vec<ModelSummary> = spawned

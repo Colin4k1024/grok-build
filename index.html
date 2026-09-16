@@ -1,11 +1,38 @@
 <!doctype html>
 <html lang="en" class="dark">
   <head>
+  <script>
+    (function() {
+      var invoke = (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) || null;
+      function send(level, args) {
+        if (!invoke) return;
+        try {
+          var msg = Array.prototype.map.call(args, function(a) {
+            if (a instanceof Error) return a.stack || a.message;
+            if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+            return String(a);
+          }).join(' ');
+          invoke('log_frontend', { args: { level: level, message: msg } });
+        } catch(e) {}
+      }
+      ['log','info','warn','error','debug'].forEach(function(level) {
+        var orig = console[level] ? console[level].bind(console) : function(){};
+        console[level] = function() { send(level, arguments); orig.apply(console, arguments); };
+      });
+      window.addEventListener('error', function(e) {
+        send('error', ['Uncaught: ' + (e.error && e.error.stack ? e.error.stack : e.message + ' @ ' + e.filename + ':' + e.lineno + ':' + e.colno)]);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var r = e.reason;
+        send('error', ['UnhandledRejection: ' + (r && r.stack ? r.stack : (r && r.message ? r.message : String(r)))]);
+      });
+    })();
+  </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Grok Build</title>
   </head>
-  <body class="bg-gb-bg text-gb-text">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
