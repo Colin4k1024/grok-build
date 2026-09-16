@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 
 interface Automation {
   id: string;
   name: string;
-  trigger: "interval" | "event";
+  trigger: "interval";
   schedule: string;
   prompt: string;
   createdAt: number;
@@ -30,6 +30,66 @@ function saveAutomations(list: Automation[]) {
   }
 }
 
+/** Parse a 5-field cron expression and return the next run time (ms epoch),
+ *  or null if the expression is invalid or yields no future run within the
+ *  next year. Only supports asterisk, single numbers, and step forms like
+ *  asterisk-slash-N. */
+export function nextCronRun(expr: string, fromMs: number = Date.now()): number | null {
+  const fields = expr.trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+
+  const parseField = (f: string, min: number, max: number): number[] | null => {
+    if (f === "*") {
+      const arr: number[] = [];
+      for (let i = min; i <= max; i++) arr.push(i);
+      return arr;
+    }
+    if (f.startsWith("*/")) {
+      const step = parseInt(f.slice(2), 10);
+      if (!Number.isFinite(step) || step <= 0) return null;
+      const arr: number[] = [];
+      for (let i = min; i <= max; i += step) arr.push(i);
+      return arr;
+    }
+    // Single number or comma list.
+    const parts = f.split(",").map((p) => parseInt(p, 10));
+    if (parts.some((n) => !Number.isFinite(n) || n < min || n > max)) return null;
+    return parts;
+  };
+
+  const minutes = parseField(fields[0], 0, 59);
+  const hours = parseField(fields[1], 0, 23);
+  const days = parseField(fields[2], 1, 31);
+  const months = parseField(fields[3], 1, 12);
+  const weekdays = parseField(fields[4], 0, 7);
+  if (!minutes || !hours || !days || !months || !weekdays) return null;
+
+  // Walk forward minute-by-minute from `fromMs` until we hit a match, with a
+  // hard cap so we don't loop forever on impossible combos (e.g. Feb 31).
+  const cap = fromMs + 366 * 24 * 60 * 60 * 1000;
+  let t = new Date(fromMs);
+  t.setSeconds(0, 0);
+  t = new Date(t.getTime() + 60_000); // next minute boundary
+  while (t.getTime() < cap) {
+    const m = t.getMinutes();
+    const h = t.getHours();
+    const d = t.getDate();
+    const mo = t.getMonth() + 1;
+    const w = t.getDay(); // 0 = Sunday
+    if (
+      minutes.includes(m) &&
+      hours.includes(h) &&
+      days.includes(d) &&
+      months.includes(mo) &&
+      (weekdays.includes(w) || (weekdays.includes(7) && w === 0))
+    ) {
+      return t.getTime();
+    }
+    t = new Date(t.getTime() + 60_000);
+  }
+  return null;
+}
+
 /**
  * Automations page — schedule prompts to run in the current session on an
  * interval or when an event fires. Codex parity: `automations-page`.
@@ -44,12 +104,48 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
+  // Tick every 30s; if any automation's next run is in the past, fire it.
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      setItems((prev) => {
+        let changed = false;
+        const next = prev.map((a) => {
+          // If we've never run or lastRun is before the previous scheduled
+          // tick, see if the schedule says we should have fired by now.
+          const baseline = a.lastRunAt ?? a.createdAt;
+          const nextRun = nextCronRun(a.schedule, baseline);
+          if (nextRun !== null && nextRun <= now) {
+            changed = true;
+            // Fire-and-forget: dispatch into the active session.
+            if (activeSessionId) {
+              window.dispatchEvent(
+                new CustomEvent("grok:automation-run", {
+                  detail: { automationId: a.id, sessionId: activeSessionId, prompt: a.prompt },
+                })
+              );
+            }
+            return { ...a, lastRunAt: now, runCount: a.runCount + 1 };
+          }
+          return a;
+        });
+        if (changed) saveAutomations(next);
+        return changed ? next : prev;
+      });
+    };
+    const t = setInterval(tick, 30_000);
+    return () => clearInterval(t);
+  }, [activeSessionId]);
+
   // Accept only plausible cron expressions: 5 space-separated fields with
-  // digits, '*', ',', '-', '/'. Rejects free text.
+  // digits, '*', ',', '-', '/'. Rejects free text. Then verify it actually
+  // yields a future run via nextCronRun so obvious dead combos (e.g.
+  // '99 99 99 99 99') are caught.
   const isValidCron = (expr: string): boolean => {
     const fields = expr.trim().split(/\s+/);
     if (fields.length !== 5) return false;
-    return fields.every((f) => /^[\d*,\-/]+$/.test(f));
+    if (!fields.every((f) => /^[\d*,\-/]+$/.test(f))) return false;
+    return nextCronRun(expr) !== null;
   };
 
   const handleCreate = () => {

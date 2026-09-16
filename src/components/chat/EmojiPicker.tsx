@@ -92,6 +92,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
               {g.emojis.map((e) => (
                 <button
                   key={e.char}
+                  type="button"
                   title={e.name}
                   onClick={() => {
                     onSelect(e.char);
