@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
 import { getNotificationEnabled, setNotificationEnabled } from "../../hooks/useNotifications";
 import { getThemeMode, setThemeMode } from "../../hooks/useTheme";
+import { useUpdater } from "../../hooks/useUpdater";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(getNotificationEnabled());
   const [themeMode, setThemeModeState] = useState(getThemeMode());
+  const updater = useUpdater();
 
   useEffect(() => {
     isAutostartEnabled()
@@ -34,6 +36,46 @@ export function GeneralSettings() {
 
   return (
     <div className="space-y-6 p-4">
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">Updates</h3>
+        <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
+          {updater.updateAvailable ? (
+            <div>
+              <p className="text-xs font-medium text-gb-text">Update available — v{updater.version}</p>
+              <p className="mt-0.5 text-[11px] text-gb-muted">Click to download and install. The app will restart.</p>
+              <button
+                onClick={() => updater.downloadAndInstall()}
+                disabled={updater.downloading}
+                className="mt-2 rounded bg-gb-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              >
+                {updater.downloading ? "Downloading..." : "Download & Install"}
+              </button>
+            </div>
+          ) : updater.installed ? (
+            <p className="text-xs text-gb-green">Update installed. Restarting...</p>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gb-text">
+                  {updater.checking ? "Checking for updates..." : "Up to date"}
+                </p>
+                <p className="mt-0.5 text-[11px] text-gb-muted">Version 0.1.0</p>
+              </div>
+              <button
+                onClick={() => updater.checkForUpdates(false)}
+                disabled={updater.checking}
+                className="rounded border border-gb-border px-3 py-1.5 text-xs text-gb-muted hover:text-gb-text disabled:opacity-50"
+              >
+                Check Now
+              </button>
+            </div>
+          )}
+          {updater.error && (
+            <p className="mt-1 text-[10px] text-gb-muted">Update check requires a configured endpoint</p>
+          )}
+        </div>
+      </section>
+
       <section>
         <h3 className="mb-3 text-sm font-semibold text-gb-text">Appearance</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">

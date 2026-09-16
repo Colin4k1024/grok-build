@@ -13,6 +13,8 @@
     "clipboard-manager:allow-write-text",
     "notification:default",
     "global-shortcut:default",
-    "autostart:default"
+    "autostart:default",
+    "updater:default",
+    "process:default"
   ]
 }
