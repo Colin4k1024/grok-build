@@ -5,6 +5,7 @@ import { useVoiceInput } from "../../hooks/useVoiceInput";
 import { useImagePaste } from "../../hooks/useImagePaste";
 import { ProjectSelector } from "./ProjectSelector";
 import { ComposerEditor, type ComposerApi } from "./ComposerEditor";
+import { MentionComplete, type MentionItem } from "./MentionComplete";
 
 interface Props {
   onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
@@ -63,6 +64,11 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSw
     []
   );
 
+  const handleMentionSelect = useCallback((item: MentionItem) => {
+    composerApiRef.current?.insertMention(item.kind, item.id, item.label);
+    setMentionQuery(null);
+  }, []);
+
   return (
     <div className="relative px-4 pb-3 pt-2" onDrop={onDrop} onDragOver={onDragOver}>
       {slashQuery !== null && (
@@ -70,6 +76,16 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSw
           query={slashQuery}
           onSelect={handleSlashSelect}
           onClose={() => setSlashQuery(null)}
+          anchorBottom={140}
+        />
+      )}
+
+      {mentionQuery !== null && (
+        <MentionComplete
+          query={mentionQuery}
+          cwd={cwd || "."}
+          onSelect={handleMentionSelect}
+          onClose={() => setMentionQuery(null)}
           anchorBottom={140}
         />
       )}
