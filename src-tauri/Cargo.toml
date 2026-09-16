@@ -35,6 +35,7 @@ xai-dirs = { workspace = true }
 uuid = { workspace = true }
 keyring = { workspace = true }
 tokio-util = { workspace = true }
+toml = { workspace = true }
 dunce = { workspace = true }
 
 [features]

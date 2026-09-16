@@ -4,3 +4,5 @@ pub mod auth;
 pub mod apikey;
 
 pub mod autostart;
+
+pub mod mcp;

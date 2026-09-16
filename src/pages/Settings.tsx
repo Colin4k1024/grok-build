@@ -2,8 +2,9 @@ import { useState } from "react";
 import { ModelManager } from "../components/settings/ModelManager";
 import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 import { GeneralSettings } from "../components/settings/GeneralSettings";
+import { McpManager } from "../components/settings/McpManager";
 
-type SettingsTab = "models" | "apikeys" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
@@ -11,6 +12,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "models", label: "Models" },
     { id: "apikeys", label: "API Keys" },
+    { id: "mcp", label: "MCP Servers" },
     { id: "general", label: "General" },
     { id: "about", label: "About" },
   ];
@@ -49,6 +51,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         <div className="flex-1 overflow-y-auto">
           {tab === "models" && <ModelManager />}
           {tab === "apikeys" && <ApiKeyManager />}
+          {tab === "mcp" && <McpManager />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && (
             <div className="p-4">

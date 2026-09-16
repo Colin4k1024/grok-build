@@ -128,6 +128,10 @@ fn main() {
             commands::autostart::autostart_enable,
             commands::autostart::autostart_disable,
             commands::autostart::autostart_is_enabled,
+            commands::mcp::get_mcp_servers,
+            commands::mcp::save_mcp_server,
+            commands::mcp::delete_mcp_server,
+            commands::mcp::toggle_mcp_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

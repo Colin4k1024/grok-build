@@ -210,3 +210,42 @@ export function onTrayAction(handler: (action: string) => void): Promise<Unliste
 export async function updateTrayBadge(unread: number): Promise<void> {
   return invoke("update_tray_badge", { unread });
 }
+
+// --- MCP Server Management ---
+
+export interface McpServerInfo {
+  name: string;
+  enabled: boolean;
+  transport_type: string;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: [string, string][];
+  startup_timeout_sec: number | null;
+  tool_timeout_sec: number | null;
+}
+
+export async function getMcpServers(): Promise<McpServerInfo[]> {
+  return invoke<McpServerInfo[]>("get_mcp_servers");
+}
+
+export async function saveMcpServer(args: {
+  name: string;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: [string, string][];
+  enabled?: boolean;
+  startup_timeout_sec?: number;
+  tool_timeout_sec?: number;
+}): Promise<void> {
+  return invoke("save_mcp_server", { args });
+}
+
+export async function deleteMcpServer(name: string): Promise<void> {
+  return invoke("delete_mcp_server", { name });
+}
+
+export async function toggleMcpServer(name: string, enabled: boolean): Promise<void> {
+  return invoke("toggle_mcp_server", { name, enabled });
+}
