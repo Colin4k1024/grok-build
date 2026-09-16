@@ -1,16 +1,18 @@
 import { useState, type ReactNode } from "react";
+import { SubagentPanel } from "./SubagentPanel";
 
 interface RightPanelProps {
   collapsed: boolean;
 }
 
 export function RightPanel({ collapsed }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<"tools" | "diff" | "context">("tools");
+  const [activeTab, setActiveTab] = useState<"tools" | "subagents" | "diff" | "context">("tools");
 
   if (collapsed) return null;
 
   const tabs: { id: typeof activeTab; label: string }[] = [
     { id: "tools", label: "Tools" },
+    { id: "subagents", label: "Agents" },
     { id: "diff", label: "Diff" },
     { id: "context", label: "Context" },
   ];
@@ -23,6 +25,9 @@ export function RightPanel({ collapsed }: RightPanelProps) {
           No active tool calls.
         </p>
       );
+      break;
+    case "subagents":
+      content = <SubagentPanel />;
       break;
     case "diff":
       content = (

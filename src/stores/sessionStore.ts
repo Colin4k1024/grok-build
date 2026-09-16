@@ -10,6 +10,15 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface Subagent {
+  id: string;
+  name: string;
+  status: "spawning" | "running" | "done" | "failed";
+  summary: string;
+  toolCallId: string;
+  createdAt: number;
+}
+
 export interface PendingPermission {
   requestId: string;
   toolName: string;
@@ -32,6 +41,7 @@ interface SessionState {
   activeSessionId: string | null;
   messages: Record<string, ChatMessage[]>;
   pendingPermissions: Record<string, PendingPermission[]>;
+  subagents: Record<string, Subagent[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -45,6 +55,8 @@ interface SessionState {
   setTabEffort: (id: string, effort: SessionTab["reasoningEffort"]) => void;
   addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
   removePendingPermission: (sessionId: string, requestId: string) => void;
+  addSubagent: (sessionId: string, subagent: Subagent) => void;
+  updateSubagent: (sessionId: string, id: string, updates: Partial<Subagent>) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -62,6 +74,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   activeSessionId: null,
   messages: {},
   pendingPermissions: {},
+  subagents: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -140,6 +153,24 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     })),
 
+  addSubagent: (sessionId, subagent) =>
+    set((state) => ({
+      subagents: {
+        ...state.subagents,
+        [sessionId]: [...(state.subagents[sessionId] || []), subagent],
+      },
+    })),
+
+  updateSubagent: (sessionId, id, updates) =>
+    set((state) => ({
+      subagents: {
+        ...state.subagents,
+        [sessionId]: (state.subagents[sessionId] || []).map((s) =>
+          s.id === id ? { ...s, ...updates } : s
+        ),
+      },
+    })),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
@@ -208,6 +239,7 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => {
       const { [sessionId]: _, ...rest } = state.messages;
       const { [sessionId]: __, ...restPerm } = state.pendingPermissions;
-      return { messages: rest, pendingPermissions: restPerm };
+      const { [sessionId]: _sa, ...restSub } = state.subagents;
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub };
     }),
 }));
