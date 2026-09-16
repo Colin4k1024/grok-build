@@ -2,17 +2,19 @@ import { useState } from "react";
 import { ModelManager } from "../components/settings/ModelManager";
 import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 import { GeneralSettings } from "../components/settings/GeneralSettings";
+import { AppearanceSettings } from "../components/settings/AppearanceSettings";
 import { McpManager } from "../components/settings/McpManager";
 import { PluginManager } from "../components/settings/PluginManager";
 import { WorktreeManager } from "../components/settings/WorktreeManager";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "models", label: "Models" }, { id: "apikeys", label: "API Keys" }, { id: "mcp", label: "MCP Servers" },
-    { id: "plugins", label: "Plugins" }, { id: "worktrees", label: "Worktrees" }, { id: "general", label: "General" }, { id: "about", label: "About" },
+    { id: "plugins", label: "Plugins" }, { id: "worktrees", label: "Worktrees" },
+    { id: "appearance", label: "Appearance" }, { id: "general", label: "General" }, { id: "about", label: "About" },
   ];
 
   return (
@@ -33,6 +35,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === "mcp" && <McpManager />}
           {tab === "plugins" && <PluginManager />}
           {tab === "worktrees" && <WorktreeManager />}
+          {tab === "appearance" && <AppearanceSettings />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && <div className="p-6"><h3 className="mb-2 text-[15px] font-medium">Grok Build</h3><p className="text-[12px] text-gb-muted">Version 0.1.0</p></div>}
         </div>
