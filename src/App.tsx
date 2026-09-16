@@ -21,6 +21,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Home, type ComposerMode } from "./pages/Home";
 import { AuthHandoff } from "./pages/AuthHandoff";
 import { WorkspaceAgentsPage } from "./pages/WorkspaceAgentsPage";
+import { AutomationsPage } from "./pages/AutomationsPage";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
@@ -55,6 +56,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
   const [showAgentsPage, setShowAgentsPage] = useState(false);
+  const [showAutomations, setShowAutomations] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -410,6 +412,10 @@ export default function App() {
     );
   }
 
+  if (showAutomations) {
+    return <AutomationsPage onClose={() => setShowAutomations(false)} />;
+  }
+
   if (showAgentsPage) {
     return (
       <WorkspaceAgentsPage
@@ -458,6 +464,7 @@ export default function App() {
           onOpenSettings={() => setShowSettings(true)}
           onOpenDashboard={() => setShowDashboard(true)}
           onOpenAgentsPage={() => setShowAgentsPage(true)}
+          onOpenAutomations={() => setShowAutomations(true)}
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">

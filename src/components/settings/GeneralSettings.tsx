@@ -42,7 +42,35 @@ export function GeneralSettings() {
           {updater.updateAvailable ? (
             <div>
               <p className="text-xs font-medium text-gb-text">Update available — v{updater.version}</p>
+              {updater.releaseDate && (
+                <p className="mt-0.5 text-[10px] text-gb-muted">
+                  Released {new Date(updater.releaseDate).toLocaleDateString()}
+                </p>
+              )}
+              {updater.releaseNotes && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[11px] text-gb-accent hover:underline">
+                    Release notes
+                  </summary>
+                  <p className="mt-1 whitespace-pre-wrap rounded bg-gb-bg p-2 text-[10px] text-gb-text-secondary">
+                    {updater.releaseNotes}
+                  </p>
+                </details>
+              )}
               <p className="mt-0.5 text-[11px] text-gb-muted">Click to download and install. The app will restart.</p>
+              {updater.downloading && updater.progress !== null && (
+                <div className="mt-2">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-gb-bg">
+                    <div
+                      className="h-full bg-gb-accent transition-all"
+                      style={{ width: `${updater.progress}%` }}
+                    />
+                  </div>
+                  <p className="mt-0.5 text-[10px] tabular-nums text-gb-muted">
+                    {updater.progress}%
+                  </p>
+                </div>
+              )}
               <button
                 onClick={() => updater.downloadAndInstall()}
                 disabled={updater.downloading}

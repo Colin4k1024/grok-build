@@ -6,6 +6,7 @@ import { useImagePaste } from "../../hooks/useImagePaste";
 import { ProjectSelector } from "./ProjectSelector";
 import { ComposerEditor, type ComposerApi } from "./ComposerEditor";
 import { MentionComplete, type MentionItem } from "./MentionComplete";
+import { EmojiPicker } from "./EmojiPicker";
 
 interface Props {
   onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
@@ -22,6 +23,7 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSw
   const [resetKey, setResetKey] = useState(0);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
   const composerApiRef = useRef<ComposerApi | null>(null);
 
   const { images, onDrop, onDragOver, removeImage, clearImages } = useImagePaste();
@@ -140,6 +142,26 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSw
             <path d="M4 7a4 4 0 008 0M8 11v3" stroke="currentColor" strokeWidth="1.2" />
           </svg>
         </button>
+
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setShowEmoji((v) => !v)}
+            disabled={disabled}
+            aria-label="Insert emoji"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-gb-muted transition-colors hover:text-gb-text"
+          >
+            <span className="text-sm">😊</span>
+          </button>
+          {showEmoji && (
+            <EmojiPicker
+              onSelect={(emoji) => {
+                composerApiRef.current?.insertText(emoji);
+                composerApiRef.current?.focus();
+              }}
+              onClose={() => setShowEmoji(false)}
+            />
+          )}
+        </div>
 
         <ComposerEditor
           resetKey={resetKey}
