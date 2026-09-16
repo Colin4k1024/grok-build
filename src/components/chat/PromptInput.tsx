@@ -3,15 +3,20 @@ import { SlashComplete } from "./SlashComplete";
 import type { SlashCommand } from "../../data/slashCommands";
 import { useVoiceInput } from "../../hooks/useVoiceInput";
 import { useImagePaste } from "../../hooks/useImagePaste";
+import { ProjectSelector } from "./ProjectSelector";
 
 interface Props {
   onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
   onCancel: () => void;
   isStreaming: boolean;
   disabled?: boolean;
+  /** Active session cwd (project) shown in the bottom-left project selector. */
+  cwd?: string;
+  /** Called when the user picks a different project/worktree from the selector. */
+  onSwitchProject?: (newCwd: string) => void;
 }
 
-export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) {
+export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSwitchProject }: Props) {
   const [text, setText] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
@@ -91,6 +96,20 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
           </button>
         )}
       </div>
+
+      {/* Composer bottom toolbar — project selector on the left, hints on the right. */}
+      {(cwd !== undefined || onSwitchProject) && (
+        <div className="mt-1.5 flex items-center justify-between px-1">
+          <ProjectSelector
+            cwd={cwd || "."}
+            onSwitchProject={(p) => onSwitchProject?.(p)}
+            variant="full"
+          />
+          <span className="text-[10px] text-gb-muted">
+            ⏎ send · ⇧⏎ newline
+          </span>
+        </div>
+      )}
     </div>
   );
 }

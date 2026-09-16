@@ -74,6 +74,7 @@ interface SessionState {
   updateTabActivity: (id: string) => void;
   setTabModel: (id: string, model: string) => void;
   setTabEffort: (id: string, effort: SessionTab["reasoningEffort"]) => void;
+  setTabCwd: (id: string, cwd: string) => void;
   addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
   removePendingPermission: (sessionId: string, requestId: string) => void;
   addSubagent: (sessionId: string, subagent: Subagent) => void;
@@ -170,6 +171,11 @@ export const useSessionStore = create<SessionState>((set) => ({
   setTabEffort: (id, effort) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, reasoningEffort: effort } : t)),
+    })),
+
+  setTabCwd: (id, cwd) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
     })),
 
   addPendingPermission: (sessionId, perm) =>
