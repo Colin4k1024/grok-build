@@ -3,6 +3,7 @@ import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useTabShortcuts } from "./hooks/useTabShortcuts";
 import { useNotifications } from "./hooks/useNotifications";
+import { useTheme } from "./hooks/useTheme";
 import { useSessionStore } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { PromptInput } from "./components/chat/PromptInput";
@@ -151,6 +152,7 @@ export default function App() {
   });
 
   useNotifications();
+  useTheme();
 
   // Handle tray "new session" action
   useEffect(() => {

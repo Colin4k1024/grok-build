@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
 import { getNotificationEnabled, setNotificationEnabled } from "../../hooks/useNotifications";
+import { getThemeMode, setThemeMode } from "../../hooks/useTheme";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(getNotificationEnabled());
+  const [themeMode, setThemeModeState] = useState(getThemeMode());
 
   useEffect(() => {
     isAutostartEnabled()
@@ -32,6 +34,30 @@ export function GeneralSettings() {
 
   return (
     <div className="space-y-6 p-4">
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">Appearance</h3>
+        <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
+          <p className="mb-2 text-xs font-medium text-gb-text">Theme</p>
+          <div className="flex gap-2">
+            {(["dark", "light", "auto"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setThemeModeState(t);
+                  setThemeMode(t);
+                }}
+                className={`rounded px-3 py-1.5 text-xs ${
+                  themeMode === t ? "bg-gb-accent/15 text-gb-text" : "bg-gb-bg text-gb-muted"
+                }`}
+              >
+                {t === "dark" ? "🌙 Dark" : t === "light" ? "☀️ Light" : "🖥️ Auto"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-gb-muted">Auto follows your system theme preference</p>
+        </div>
+      </section>
+
       <section>
         <h3 className="mb-3 text-sm font-semibold text-gb-text">Startup</h3>
         <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
