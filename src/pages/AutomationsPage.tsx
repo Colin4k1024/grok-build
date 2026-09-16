@@ -45,13 +45,18 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
       return arr;
     }
     if (f.startsWith("*/")) {
-      const step = parseInt(f.slice(2), 10);
+      const stepStr = f.slice(2);
+      // Must be entirely digits — "5/x" or "9-" would silently mis-parse.
+      if (!/^\d+$/.test(stepStr)) return null;
+      const step = parseInt(stepStr, 10);
       if (!Number.isFinite(step) || step <= 0) return null;
       const arr: number[] = [];
       for (let i = min; i <= max; i += step) arr.push(i);
       return arr;
     }
-    // Support ranges like "1-5" and comma mixes like "1,5,9-11".
+    // Support ranges like "1-5" and comma mixes like "1,5,9-11". Reject
+    // compound "1-10/2" — we don't implement stepped ranges.
+    if (f.includes("/")) return null;
     const out: number[] = [];
     for (const part of f.split(",")) {
       const rangeMatch = /^(\d+)-(\d+)$/.exec(part);
@@ -64,6 +69,7 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
         for (let i = lo; i <= hi; i++) out.push(i);
         continue;
       }
+      if (!/^\d+$/.test(part)) return null;
       const n = parseInt(part, 10);
       if (!Number.isFinite(n) || n < min || n > max) return null;
       out.push(n);
@@ -90,13 +96,15 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
     const d = t.getDate();
     const mo = t.getMonth() + 1;
     const w = t.getDay(); // 0 = Sunday
-    if (
-      minutes.includes(m) &&
-      hours.includes(h) &&
-      days.includes(d) &&
-      months.includes(mo) &&
-      (weekdays.includes(w) || (weekdays.includes(7) && w === 0))
-    ) {
+    // Cron semantics: when BOTH day-of-month and day-of-week are restricted
+    // (not '*'), a match on EITHER fires the job. Implement OR for that case,
+    // AND when one is '*'.
+    const domRestricted = fields[2] !== "*";
+    const dowRestricted = fields[4] !== "*";
+    const domMatch = days.includes(d);
+    const dowMatch = weekdays.includes(w) || (weekdays.includes(7) && w === 0);
+    const dayOk = domRestricted && dowRestricted ? domMatch || dowMatch : domMatch && dowMatch;
+    if (minutes.includes(m) && hours.includes(h) && months.includes(mo) && dayOk) {
       return t.getTime();
     }
     t = new Date(t.getTime() + 60_000);
@@ -120,14 +128,16 @@ export function startAutomationScheduler(getActiveSessionId: () => string | null
     const now = Date.now();
     const activeSessionId = getActiveSessionId();
 
-    // Pure pass: compute next state.
+    // Pure pass: compute next state. Skip (don't bump counters) when there's
+    // no active session — otherwise the prompt would be silently discarded
+    // while the UI reports it as run.
     const updated: Automation[] = [];
     const toFire: Automation[] = [];
     let changed = false;
     for (const a of items) {
       const baseline = a.lastRunAt ?? a.createdAt;
       const nextRun = nextCronRun(a.schedule, baseline);
-      if (nextRun !== null && nextRun <= now) {
+      if (nextRun !== null && nextRun <= now && activeSessionId) {
         changed = true;
         const bumped = { ...a, lastRunAt: now, runCount: a.runCount + 1 };
         updated.push(bumped);
