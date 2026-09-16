@@ -51,8 +51,8 @@ export async function createSession(cwd: string): Promise<SessionInfo> {
   return invoke<SessionInfo>("session_create", { args: { cwd } });
 }
 
-export async function sendMessage(sessionId: string, message: string): Promise<void> {
-  return invoke("session_send", { args: { session_id: sessionId, message } });
+export async function sendMessage(sessionId: string, message: string, images: { data: string; mime_type: string }[] = []): Promise<void> {
+  return invoke("session_send", { args: { session_id: sessionId, message, images } });
 }
 
 export async function cancelSession(sessionId: string): Promise<void> {

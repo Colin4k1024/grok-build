@@ -66,6 +66,14 @@ pub async fn session_create(
 pub struct SendArgs {
     pub session_id: String,
     pub message: String,
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImageAttachment {
+    pub data: String,
+    pub mime_type: String,
 }
 
 #[tauri::command]
@@ -78,7 +86,16 @@ pub async fn session_send(state: tauri::State<'_, AppState>, args: SendArgs) -> 
             .ok_or_else(|| format!("Session {} not found", args.session_id))?
             .cmd_tx.clone()
     };
-    acp_bridge::send_prompt_cmd(&cmd_tx, args.message).await.map_err(|e| e.to_string())
+    let images: Vec<acp_bridge::AttachmentImage> = args.images
+        .iter()
+        .map(|i| acp_bridge::AttachmentImage {
+            data: i.data.clone(),
+            mime_type: i.mime_type.clone(),
+        })
+        .collect();
+    acp_bridge::send_prompt_cmd(&cmd_tx, args.message, images)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

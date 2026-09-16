@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { SlashComplete } from "./SlashComplete";
 import type { SlashCommand } from "../../data/slashCommands";
 import { useVoiceInput } from "../../hooks/useVoiceInput";
+import { useImagePaste } from "../../hooks/useImagePaste";
 
 interface Props {
-  onSend: (message: string) => void;
+  onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
   onCancel: () => void;
   isStreaming: boolean;
   disabled?: boolean;
@@ -17,6 +18,7 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
   const [showSlash, setShowSlash] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const { images, onDrop, onDragOver, removeImage, clearImages } = useImagePaste();
   const { isRecording, interimText, toggleRecording, stopRecording, language, setLanguage } =
     useVoiceInput((transcript, isFinal) => {
       setText((prev) => {
@@ -50,13 +52,15 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
+    if ((!trimmed && images.length === 0) || isStreaming) return;
     if (isRecording) stopRecording();
-    onSend(trimmed);
-    setHistory((prev) => [...prev, trimmed]);
+    const imgData = images.map((img) => ({ data: img.base64, mime_type: img.mimeType }));
+    onSend(trimmed, imgData);
+    if (trimmed) setHistory((prev) => [...prev, trimmed]);
     setHistoryIdx(-1);
     setText("");
     setShowSlash(false);
+    clearImages();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -126,7 +130,34 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
         </div>
       )}
 
-      <div className="flex items-end gap-2">
+      {images.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {images.map((img) => (
+            <div key={img.id} className="group relative">
+              <img
+                src={img.dataUrl}
+                alt={img.name}
+                className="h-20 w-20 rounded-lg border border-gb-border object-cover"
+              />
+              <button
+                className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-gb-red text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => removeImage(img.id)}
+              >
+                ✕
+              </button>
+              <span className="absolute bottom-0 left-0 right-0 truncate rounded-b-lg bg-black/50 px-1 py-0.5 text-[9px] text-white">
+                {img.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        className="flex items-end gap-2"
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+      >
         {/* Voice button */}
         <button
           className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded border transition-colors ${
@@ -176,7 +207,7 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled }: Props) 
           <button
             className="shrink-0 rounded bg-gb-accent px-4 py-2 text-sm text-white hover:opacity-80 disabled:opacity-40"
             onClick={handleSend}
-            disabled={!text.trim() || disabled}
+            disabled={(!text.trim() && images.length === 0) || disabled}
           >
             Send
           </button>

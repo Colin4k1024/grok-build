@@ -17,7 +17,7 @@ use xai_grok_shell::agent::config::Config as AgentConfig;
 
 /// Commands sent to the agent worker thread.
 pub enum SessionCommand {
-    SendPrompt { message: String, reply: oneshot::Sender<Result<(), String>> },
+    SendPrompt { message: String, images: Vec<AttachmentImage>, reply: oneshot::Sender<Result<(), String>> },
     SetModel { model_id: String, reply: oneshot::Sender<Result<(), String>> },
     RespondPermission {
         request_id: String,
@@ -26,6 +26,12 @@ pub enum SessionCommand {
     },
     Cancel,
     Shutdown,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AttachmentImage {
+    pub data: String,
+    pub mime_type: String,
 }
 
 /// A handle to a running ACP session.
@@ -294,8 +300,15 @@ async fn run_agent_loop(
             }
             cmd = cmd_rx.recv() => {
                 match cmd {
-                    Some(SessionCommand::SendPrompt { message, reply }) => {
-                        let blocks = vec![acp::ContentBlock::Text(acp::TextContent::new(message))];
+                    Some(SessionCommand::SendPrompt { message, images, reply }) => {
+                        let mut blocks: Vec<acp::ContentBlock> = Vec::new();
+                        if !message.is_empty() {
+                            blocks.push(acp::ContentBlock::Text(acp::TextContent::new(message)));
+                        }
+                        for img in &images {
+                            let mut ic = acp::ImageContent::new(img.data.clone(), img.mime_type.clone());
+                            blocks.push(acp::ContentBlock::Image(ic));
+                        }
                         let prompt_id = uuid::Uuid::new_v4().to_string();
                         let mut meta = serde_json::Map::new();
                         meta.insert("promptId".to_string(), serde_json::Value::String(prompt_id));
@@ -431,7 +444,7 @@ async fn forward_acp_message(
 /// Send a prompt to the agent via the command channel.
 pub async fn send_prompt(handle: &SessionHandle, message: String) -> anyhow::Result<()> {
     let (reply_tx, reply_rx) = oneshot::channel();
-    handle.cmd_tx.send(SessionCommand::SendPrompt { message, reply: reply_tx })
+    handle.cmd_tx.send(SessionCommand::SendPrompt { message, images: Vec::new(), reply: reply_tx })
         .map_err(|_| anyhow::anyhow!("Agent channel closed"))?;
     reply_rx.await
         .map_err(|_| anyhow::anyhow!("Agent thread not responding"))?
@@ -467,9 +480,10 @@ pub struct SessionPool {
 pub async fn send_prompt_cmd(
     cmd_tx: &mpsc::UnboundedSender<SessionCommand>,
     message: String,
+    images: Vec<AttachmentImage>,
 ) -> anyhow::Result<()> {
     let (reply_tx, reply_rx) = oneshot::channel();
-    cmd_tx.send(SessionCommand::SendPrompt { message, reply: reply_tx })
+    cmd_tx.send(SessionCommand::SendPrompt { message, images, reply: reply_tx })
         .map_err(|_| anyhow::anyhow!("Agent channel closed"))?;
     reply_rx.await
         .map_err(|_| anyhow::anyhow!("Agent thread not responding"))?

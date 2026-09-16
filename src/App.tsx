@@ -144,7 +144,7 @@ export default function App() {
     },
   });
 
-  const handleSend = useCallback(async (message: string) => {
+  const handleSend = useCallback(async (message: string, images: { data: string; mime_type: string }[] = []) => {
     if (!activeSessionId) return;
     addUserMessage(activeSessionId, message);
     const tab = tabs.find((t) => t.id === activeSessionId);
@@ -152,9 +152,10 @@ export default function App() {
       renameTab(activeSessionId, message.slice(0, 30) + (message.length > 30 ? "…" : ""));
     }
     setStreaming(true);
-    try { await sendMessage(activeSessionId, message); }
+    try { await sendMessage(activeSessionId, message, images); }
     catch (e) { setError(String(e)); setStreaming(false); }
   }, [activeSessionId, addUserMessage, setStreaming, tabs, renameTab]);
+
 
   const handleCancel = useCallback(async () => {
     if (!activeSessionId) return;
