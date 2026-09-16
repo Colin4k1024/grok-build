@@ -259,6 +259,16 @@ export default function App() {
     setActiveSession(null);
   }, [setActiveSession]);
 
+  // Switching project rebinds the active session's cwd. The ProjectSelector
+  // already updates the tab's cwd in the store; here we only surface failures.
+  const handleSwitchProject = useCallback((newCwd: string) => {
+    if (!activeSessionId) return;
+    // Update is already handled inside ProjectSelector via setTabCwd; nothing
+    // else to do for the chat path. Kept as a callback so callers can extend
+    // (e.g. spawn a new session on switch) without changing the selector.
+    void newCwd;
+  }, [activeSessionId]);
+
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
   if (!auth) {
     return (
@@ -370,6 +380,8 @@ export default function App() {
                 onCancel={handleCancel}
                 isStreaming={isStreaming}
                 disabled={!activeSessionId}
+                cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
+                onSwitchProject={handleSwitchProject}
               />
             </>
           )}
