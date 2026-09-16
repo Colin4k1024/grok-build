@@ -6,15 +6,17 @@ import { AppearanceSettings } from "../components/settings/AppearanceSettings";
 import { McpManager } from "../components/settings/McpManager";
 import { PluginManager } from "../components/settings/PluginManager";
 import { WorktreeManager } from "../components/settings/WorktreeManager";
+import { PermissionsManager } from "../components/settings/PermissionsManager";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "models", label: "Models" }, { id: "apikeys", label: "API Keys" }, { id: "mcp", label: "MCP Servers" },
     { id: "plugins", label: "Plugins" }, { id: "worktrees", label: "Worktrees" },
-    { id: "appearance", label: "Appearance" }, { id: "general", label: "General" }, { id: "about", label: "About" },
+    { id: "appearance", label: "Appearance" }, { id: "permissions", label: "Permissions" },
+    { id: "general", label: "General" }, { id: "about", label: "About" },
   ];
 
   return (
@@ -36,6 +38,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === "plugins" && <PluginManager />}
           {tab === "worktrees" && <WorktreeManager />}
           {tab === "appearance" && <AppearanceSettings />}
+          {tab === "permissions" && <PermissionsManager />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && <div className="p-6"><h3 className="mb-2 text-[15px] font-medium">Grok Build</h3><p className="text-[12px] text-gb-muted">Version 0.1.0</p></div>}
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { respondPermission, type PermissionOption } from "../../lib/tauri";
+import { usePermissionsStore } from "../../stores/permissionsStore";
 
 interface ApprovalCardProps {
   sessionId: string;
@@ -15,6 +16,7 @@ export function ApprovalCard({
 }: ApprovalCardProps) {
   const [responding, setResponding] = useState(false);
   const [remaining, setRemaining] = useState(30);
+  const addRule = usePermissionsStore((s) => s.addRule);
 
   const allowOption = options.find((o) => o.kind === "AllowOnce");
   const allowAlwaysOption = options.find((o) => o.kind === "AllowAlways");
@@ -47,13 +49,34 @@ export function ApprovalCard({
       optionId = options.find((o) => o.kind === "Deny")?.id || options[0]?.id || "";
     }
 
+    // Persist the decision so the boundary store can pre-approve next time.
+    // "remember" maps to AllowAlways → global allow. Deny is session-scoped
+    // (we don't want a one-off deny to permanently blacklist a command).
+    if (remember) {
+      addRule({
+        toolName,
+        commandPattern: command,
+        decision: "allow",
+        createdAt: Date.now(),
+        // No sessionId → global.
+      });
+    } else if (action === "deny") {
+      addRule({
+        toolName,
+        commandPattern: command,
+        decision: "deny",
+        createdAt: Date.now(),
+        sessionId,
+      });
+    }
+
     try {
       await respondPermission(sessionId, requestId, optionId, remember);
     } catch (e) {
       console.error("Failed to respond to permission:", e);
     }
     onResolved();
-  }, [sessionId, requestId, options, allowOption, allowAlwaysOption, onResolved]);
+  }, [sessionId, requestId, options, allowOption, allowAlwaysOption, onResolved, addRule, toolName, command]);
 
   return (
     <div className="mx-4 my-2 rounded-lg border border-gb-yellow/30 bg-gb-yellow/5 p-3">
