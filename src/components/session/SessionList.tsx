@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
 
 interface SessionListProps {
@@ -22,6 +22,37 @@ function formatRelativeTime(ts: number): string {
   if (hr < 24) return `${hr}h ago`;
   const days = Math.floor(hr / 24);
   return `${days}d ago`;
+}
+
+/** Wrap every case-insensitive occurrence of `query` in `text` with a
+ *  highlighted <mark>. Returns the original string when there's no query
+ *  so React doesn't allocate extra nodes for the common no-search case. */
+function highlightMatch(text: string, query: string): ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const parts: ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  while (i < text.length) {
+    const idx = lower.indexOf(needle, i);
+    if (idx === -1) {
+      parts.push(text.slice(i));
+      break;
+    }
+    if (idx > i) parts.push(text.slice(i, idx));
+    parts.push(
+      <mark
+        key={key++}
+        className="rounded-sm bg-gb-yellow/30 px-0.5 text-gb-text"
+      >
+        {text.slice(idx, idx + needle.length)}
+      </mark>
+    );
+    i = idx + needle.length;
+  }
+  return parts;
 }
 
 export function SessionList({ onForkSession, onCloseSession }: SessionListProps) {
@@ -105,7 +136,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
                 <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
               </svg>
-              <span className="truncate">{cwd}</span>
+              <span className="truncate">{highlightMatch(cwd, search)}</span>
               <span className="ml-auto rounded bg-gb-bg px-1 text-[9px]">{sessions.length}</span>
             </div>
             {sessions.map((tab) => (
@@ -121,7 +152,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
               >
                 <div className="flex items-center justify-between">
                   <span className={`truncate font-medium ${activeSessionId === tab.id ? "text-gb-text" : "text-gb-muted"}`}>
-                    {tab.title}
+                    {highlightMatch(tab.title, search)}
                   </span>
                   {tab.id === activeSessionId && useSessionStore.getState().isStreaming && (
                     <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" />
@@ -132,7 +163,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
                   {tab.model && (
                     <>
                       <span className="text-gb-border">·</span>
-                      <span className="truncate">{tab.model}</span>
+                      <span className="truncate">{highlightMatch(tab.model, search)}</span>
                     </>
                   )}
                 </div>
