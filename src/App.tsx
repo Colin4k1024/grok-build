@@ -63,7 +63,7 @@ export default function App() {
       listSessions().then((items) => {
         const item = items.find((s) => s.id === detachedSessionId);
         if (item) {
-          addTab({ id: item.id, title: "Detached", cwd: item.cwd, createdAt: Date.now() });
+          addTab({ id: item.id, title: "Detached", cwd: item.cwd, model: "", createdAt: Date.now(), lastActiveAt: Date.now() });
         }
       }).catch(() => {});
     } else {
@@ -80,7 +80,9 @@ export default function App() {
         id: info.id,
         title: `Session ${tabs.length + 1}`,
         cwd: info.cwd,
+        model: info.models[0]?.id || "",
         createdAt: Date.now(),
+        lastActiveAt: Date.now(),
       });
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
@@ -111,7 +113,9 @@ export default function App() {
         id: info.id,
         title: `Fork of ${sourceTab.title}`,
         cwd: info.cwd,
+        model: sourceTab.model,
         createdAt: Date.now(),
+        lastActiveAt: Date.now(),
       });
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
@@ -196,6 +200,8 @@ export default function App() {
           collapsed={responsiveSidebarCollapsed}
           onNewSession={handleNewSession}
           creating={creating}
+          onForkSession={handleForkSession}
+          onCloseSession={handleCloseSession}
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">

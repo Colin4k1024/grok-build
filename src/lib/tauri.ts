@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export interface SessionInfo {
   id: string;
   cwd: string;
+  acp_session_id: string;
+  models: { id: string; name: string }[];
 }
 
 export interface ModelInfo {

@@ -14,7 +14,9 @@ export interface SessionTab {
   id: string;
   title: string;
   cwd: string;
+  model: string;
   createdAt: number;
+  lastActiveAt: number;
 }
 
 interface SessionState {
@@ -29,20 +31,21 @@ interface SessionState {
   renameTab: (id: string, title: string) => void;
   closeOtherTabs: (keepId: string) => void;
   reorderTabs: (from: number, to: number) => void;
+  updateTabActivity: (id: string) => void;
+  setTabModel: (id: string, model: string) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
   addToolCall: (sessionId: string, toolName: string) => void;
   addToolResult: (sessionId: string, toolName: string, output: string, success: boolean) => void;
   clearMessages: (sessionId: string) => void;
-  getTabByIndex: (index: number) => SessionTab | undefined;
 }
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const useSessionStore = create<SessionState>((set, get) => ({
+export const useSessionStore = create<SessionState>((set) => ({
   tabs: [],
   activeSessionId: null,
   messages: {},
@@ -78,7 +81,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   closeOtherTabs: (keepId) =>
     set((state) => {
       const newTabs = state.tabs.filter((t) => t.id === keepId);
-
       const newMessages: Record<string, ChatMessage[]> = {};
       if (state.messages[keepId]) newMessages[keepId] = state.messages[keepId];
       return { tabs: newTabs, messages: newMessages, activeSessionId: keepId };
@@ -92,18 +94,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { tabs: newTabs };
     }),
 
+  updateTabActivity: (id) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, lastActiveAt: Date.now() } : t)),
+    })),
+
+  setTabModel: (id, model) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, model } : t)),
+    })),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [sessionId]: [
-          ...(state.messages[sessionId] || []),
-          { id: genId("msg"), role: "user" as const, content, timestamp: Date.now() },
-        ],
-      },
-    })),
+    set((state) => {
+      const tabs = state.tabs.map((t) =>
+        t.id === sessionId ? { ...t, lastActiveAt: Date.now() } : t
+      );
+      return {
+        tabs,
+        messages: {
+          ...state.messages,
+          [sessionId]: [
+            ...(state.messages[sessionId] || []),
+            { id: genId("msg"), role: "user" as const, content, timestamp: Date.now() },
+          ],
+        },
+      };
+    }),
 
   appendAssistantText: (sessionId, delta) =>
     set((state) => {
@@ -155,6 +173,4 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const { [sessionId]: _, ...rest } = state.messages;
       return { messages: rest };
     }),
-
-  getTabByIndex: (index) => get().tabs[index],
 }));
