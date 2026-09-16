@@ -29,6 +29,10 @@ xai-grok-config-types = { workspace = true }
 xai-grok-models = { workspace = true }
 xai-grok-auth = { workspace = true }
 xai-grok-login = { workspace = true }
+xai-grok-pager = { workspace = true }
+uuid = { workspace = true }
+tokio-util = { workspace = true }
+dunce = { workspace = true }
 
 [features]
 default = ["custom-protocol"]

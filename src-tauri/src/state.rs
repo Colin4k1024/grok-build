@@ -1,9 +1,8 @@
-use std::sync::Arc;
-use parking_lot::RwLock;
+use crate::acp_bridge::SessionPool;
 
 #[derive(Default)]
 pub struct AppState {
-    pub sessions: Arc<RwLock<Vec<crate::acp_bridge::SessionHandle>>>,
+    pub pool: SessionPool,
 }
 
 impl AppState {

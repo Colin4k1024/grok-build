@@ -5404,6 +5404,7 @@ version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "dunce",
  "parking_lot",
  "serde",
  "serde_json",
@@ -5416,13 +5417,16 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-shell",
  "tokio",
+ "tokio-util",
  "tracing",
+ "uuid",
  "xai-acp-lib",
  "xai-grok-auth",
  "xai-grok-config",
  "xai-grok-config-types",
  "xai-grok-login",
  "xai-grok-models",
+ "xai-grok-pager",
  "xai-grok-shell",
 ]
 
