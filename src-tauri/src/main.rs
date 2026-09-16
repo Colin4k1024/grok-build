@@ -30,6 +30,11 @@ fn main() {
             commands::auth::check_auth_status,
             commands::auth::login,
             commands::auth::logout,
+            commands::apikey::save_api_key,
+            commands::apikey::get_api_key,
+            commands::apikey::delete_api_key,
+            commands::apikey::list_api_keys,
+            commands::apikey::get_all_api_keys,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

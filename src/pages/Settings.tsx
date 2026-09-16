@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { ModelManager } from "../components/settings/ModelManager";
+import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 
-type SettingsTab = "models" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "models", label: "Models" },
+    { id: "apikeys", label: "API Keys" },
     { id: "general", label: "General" },
     { id: "about", label: "About" },
   ];
@@ -45,6 +47,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {tab === "models" && <ModelManager />}
+          {tab === "apikeys" && <ApiKeyManager />}
           {tab === "general" && (
             <div className="p-4 text-xs text-gb-muted">
               <p>General settings will be available in a later phase.</p>

@@ -32,6 +32,7 @@ xai-grok-login = { workspace = true }
 xai-grok-pager = { workspace = true }
 xai-dirs = { workspace = true }
 uuid = { workspace = true }
+keyring = { workspace = true }
 tokio-util = { workspace = true }
 dunce = { workspace = true }
 

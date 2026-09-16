@@ -116,6 +116,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 agent-client-protocol = { version = "0.10.4", features = ["unstable"] }
+keyring = "3"
 alacritty_terminal = "0.26.0"
 ansi-to-tui = "7.0.0"
 ansi-width = "0.1"
