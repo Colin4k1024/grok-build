@@ -78,3 +78,30 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 
 /* Selection */
 ::selection { background: rgba(74, 158, 255, 0.25); }
+
+/* ProseMirror composer */
+.gb-composer-host .gb-composer-editor {
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  min-height: 22px;
+}
+.gb-composer-host .gb-composer-editor p { margin: 0; }
+.gb-composer-host .gb-placeholder {
+  color: rgb(var(--gb-muted));
+  pointer-events: none;
+  user-select: none;
+}
+.gb-mention {
+  display: inline-block;
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 4px;
+  background: rgba(74, 158, 255, 0.18);
+  color: rgb(var(--gb-accent));
+  font-size: 0.92em;
+  line-height: 1.4;
+}
+.gb-mention-file { background: rgba(74, 158, 255, 0.18); }
+.gb-mention-project { background: rgba(52, 211, 153, 0.18); color: rgb(var(--gb-green)); }
+.gb-mention-skill { background: rgba(251, 191, 36, 0.18); color: rgb(var(--gb-yellow)); }
