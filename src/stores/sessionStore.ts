@@ -10,26 +10,88 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface SessionTab {
+  id: string;
+  title: string;
+  cwd: string;
+  createdAt: number;
+}
+
 interface SessionState {
-  messages: Record<string, ChatMessage[]>;
+  tabs: SessionTab[];
   activeSessionId: string | null;
+  messages: Record<string, ChatMessage[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
+  addTab: (tab: SessionTab) => void;
+  removeTab: (id: string) => void;
+  renameTab: (id: string, title: string) => void;
+  closeOtherTabs: (keepId: string) => void;
+  reorderTabs: (from: number, to: number) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
   addToolCall: (sessionId: string, toolName: string) => void;
   addToolResult: (sessionId: string, toolName: string, output: string, success: boolean) => void;
   clearMessages: (sessionId: string) => void;
+  getTabByIndex: (index: number) => SessionTab | undefined;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
-  messages: {},
+function genId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export const useSessionStore = create<SessionState>((set, get) => ({
+  tabs: [],
   activeSessionId: null,
+  messages: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
+
+  addTab: (tab) =>
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeSessionId: tab.id,
+    })),
+
+  removeTab: (id) =>
+    set((state) => {
+      const idx = state.tabs.findIndex((t) => t.id === id);
+      const newTabs = state.tabs.filter((t) => t.id !== id);
+      const { [id]: _, ...rest } = state.messages;
+      let newActive = state.activeSessionId;
+      if (state.activeSessionId === id) {
+        newActive = newTabs.length > 0
+          ? newTabs[Math.min(idx, newTabs.length - 1)].id
+          : null;
+      }
+      return { tabs: newTabs, messages: rest, activeSessionId: newActive };
+    }),
+
+  renameTab: (id, title) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, title } : t)),
+    })),
+
+  closeOtherTabs: (keepId) =>
+    set((state) => {
+      const newTabs = state.tabs.filter((t) => t.id === keepId);
+
+      const newMessages: Record<string, ChatMessage[]> = {};
+      if (state.messages[keepId]) newMessages[keepId] = state.messages[keepId];
+      return { tabs: newTabs, messages: newMessages, activeSessionId: keepId };
+    }),
+
+  reorderTabs: (from, to) =>
+    set((state) => {
+      const newTabs = [...state.tabs];
+      const [moved] = newTabs.splice(from, 1);
+      newTabs.splice(to, 0, moved);
+      return { tabs: newTabs };
+    }),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
@@ -38,12 +100,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         ...state.messages,
         [sessionId]: [
           ...(state.messages[sessionId] || []),
-          {
-            id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            role: "user" as const,
-            content,
-            timestamp: Date.now(),
-          },
+          { id: genId("msg"), role: "user" as const, content, timestamp: Date.now() },
         ],
       },
     })),
@@ -56,10 +113,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         return {
           messages: {
             ...state.messages,
-            [sessionId]: [
-              ...msgs.slice(0, -1),
-              { ...last, content: last.content + delta },
-            ],
+            [sessionId]: [...msgs.slice(0, -1), { ...last, content: last.content + delta }],
           },
         };
       }
@@ -68,13 +122,7 @@ export const useSessionStore = create<SessionState>((set) => ({
           ...state.messages,
           [sessionId]: [
             ...msgs,
-            {
-              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              role: "assistant" as const,
-              content: delta,
-              timestamp: Date.now(),
-              streaming: true,
-            },
+            { id: genId("msg"), role: "assistant" as const, content: delta, timestamp: Date.now(), streaming: true },
           ],
         },
       };
@@ -86,13 +134,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         ...state.messages,
         [sessionId]: [
           ...(state.messages[sessionId] || []),
-          {
-            id: `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            role: "tool" as const,
-            content: "",
-            toolName,
-            timestamp: Date.now(),
-          },
+          { id: genId("tool"), role: "tool" as const, content: "", toolName, timestamp: Date.now() },
         ],
       },
     })),
@@ -103,14 +145,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         ...state.messages,
         [sessionId]: [
           ...(state.messages[sessionId] || []),
-          {
-            id: `tool-result-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            role: "tool" as const,
-            content: output,
-            toolName,
-            toolSuccess: success,
-            timestamp: Date.now(),
-          },
+          { id: genId("tool-result"), role: "tool" as const, content: output, toolName, toolSuccess: success, timestamp: Date.now() },
         ],
       },
     })),
@@ -120,4 +155,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: _, ...rest } = state.messages;
       return { messages: rest };
     }),
+
+  getTabByIndex: (index) => get().tabs[index],
 }));

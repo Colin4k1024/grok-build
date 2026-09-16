@@ -20,6 +20,7 @@ fn main() {
             commands::session::session_send,
             commands::session::session_cancel,
             commands::session::session_close,
+            commands::session::session_list,
             commands::config::get_config,
             commands::config::save_config,
             commands::auth::check_auth_status,

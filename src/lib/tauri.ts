@@ -79,3 +79,28 @@ export function onAuthMessage(
 ): Promise<UnlistenFn> {
   return listen<string>("auth_message", (e) => handler(e.payload));
 }
+
+export interface SessionListItem {
+  id: string;
+  cwd: string;
+  acp_session_id: string;
+}
+
+export async function listSessions(): Promise<SessionListItem[]> {
+  return invoke<SessionListItem[]>("session_list");
+}
+
+export async function openSessionInNewWindow(sessionId: string, title: string): Promise<void> {
+  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const win = new WebviewWindow(`session-${sessionId}`, {
+    url: `index.html?session=${sessionId}`,
+    title: title || "Grok Build",
+    width: 900,
+    height: 700,
+    minWidth: 600,
+    minHeight: 400,
+  });
+  win.once("tauri://error", (e) => {
+    console.error("Failed to create window:", e);
+  });
+}

@@ -101,3 +101,23 @@ fn nanoid() -> String {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     format!("{nanos:x}")
 }
+
+#[derive(Debug, Serialize)]
+pub struct SessionListItem {
+    pub id: String,
+    pub cwd: String,
+    pub acp_session_id: String,
+}
+
+#[tauri::command]
+pub async fn session_list(state: tauri::State<'_, AppState>) -> Result<Vec<SessionListItem>, String> {
+    let sessions = state.pool.sessions.read();
+    Ok(sessions
+        .iter()
+        .map(|s| SessionListItem {
+            id: s.id.clone(),
+            cwd: s.cwd.clone(),
+            acp_session_id: s.acp_session_id.clone(),
+        })
+        .collect())
+}
