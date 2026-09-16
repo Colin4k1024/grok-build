@@ -5,8 +5,13 @@ const AGENT_AUTONOMOUS_KEY = "gb-agent-autonomous";
 
 export type AgentMode = "chat" | "agent";
 
+function isValidMode(v: string | null): v is AgentMode {
+  return v === "chat" || v === "agent";
+}
+
 export function getDefaultAgentMode(): AgentMode {
-  return (localStorage.getItem(AGENT_MODE_KEY) as AgentMode) || "chat";
+  const raw = localStorage.getItem(AGENT_MODE_KEY);
+  return isValidMode(raw) ? raw : "chat";
 }
 
 export function setDefaultAgentMode(mode: AgentMode) {
@@ -22,8 +27,9 @@ export function setAutonomousEnabled(v: boolean) {
 }
 
 export function AgentSettings() {
-  const [mode, setMode] = useState<AgentMode>(getDefaultAgentMode());
-  const [autonomous, setAutonomous] = useState(getAutonomousEnabled());
+  // Lazy initializers so we don't read localStorage on every render.
+  const [mode, setMode] = useState<AgentMode>(() => getDefaultAgentMode());
+  const [autonomous, setAutonomous] = useState(() => getAutonomousEnabled());
 
   useEffect(() => {
     setDefaultAgentMode(mode);

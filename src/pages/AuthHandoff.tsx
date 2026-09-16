@@ -46,6 +46,15 @@ export function AuthHandoff() {
     };
   }, []);
 
+  // Auto-redirect shortly after success so the "Redirecting…" copy is honest.
+  useEffect(() => {
+    if (status !== "success") return;
+    const t = setTimeout(() => {
+      window.location.href = "/";
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [status]);
+
   const handleFinish = () => {
     window.location.href = "/";
   };

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ModelManager } from "../components/settings/ModelManager";
 import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 import { GeneralSettings } from "../components/settings/GeneralSettings";
@@ -61,11 +61,19 @@ export function Settings({ onClose, initialTab }: { onClose: () => void; initial
   }, [query]);
 
   // If the active tab is filtered out, jump to the first visible one.
-  useMemo(() => {
+  useEffect(() => {
     if (!visibleTabs.includes(tab) && visibleTabs.length > 0) {
       setTab(visibleTabs[0]);
     }
   }, [visibleTabs, tab]);
+
+  // Honor deep-link changes while the page is open.
+  useEffect(() => {
+    if (initialTab && initialTab in TAB_LABELS && initialTab !== tab) {
+      setTab(initialTab as SettingsTab);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab]);
 
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
