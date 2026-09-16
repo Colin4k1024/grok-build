@@ -18,6 +18,9 @@ import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { CommandPalette } from "./components/layout/CommandPalette";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { useAutoReconnect } from "./hooks/useAutoReconnect";
+import { useAutoSave } from "./hooks/useAutoSave";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
@@ -153,6 +156,8 @@ export default function App() {
 
   useNotifications();
   useTheme();
+  useAutoReconnect();
+  useAutoSave();
 
   // Handle tray "new session" action
   useEffect(() => {
@@ -234,6 +239,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <TitleBar
         auth={auth}
@@ -367,5 +373,6 @@ export default function App() {
         onCompact={() => {}}
       />
     </div>
+    </ErrorBoundary>
   );
 }
