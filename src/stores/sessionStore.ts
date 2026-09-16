@@ -130,14 +130,32 @@ export const useSessionStore = create<SessionState>()(
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.id === id);
       const newTabs = state.tabs.filter((t) => t.id !== id);
-      const { [id]: _, ...rest } = state.messages;
+      const { [id]: _m, ...restMessages } = state.messages;
+      const { [id]: _pp, ...restPendingPermissions } = state.pendingPermissions;
+      const { [id]: _sa, ...restSubagents } = state.subagents;
+      const { [id]: _td, ...restTodos } = state.todos;
+      const { [id]: _tu, ...restTokenUsage } = state.tokenUsage;
+      const { [id]: _co, ...restCompacting } = state.compacting;
+      const { [id]: _cm, ...restCompactionMarkers } = state.compactionMarkers;
+      const { [id]: _pc, ...restPreCompactSnapshot } = state.preCompactSnapshot;
       let newActive = state.activeSessionId;
       if (state.activeSessionId === id) {
         newActive = newTabs.length > 0
           ? newTabs[Math.min(idx, newTabs.length - 1)].id
           : null;
       }
-      return { tabs: newTabs, messages: rest, activeSessionId: newActive };
+      return {
+        tabs: newTabs,
+        messages: restMessages,
+        pendingPermissions: restPendingPermissions,
+        subagents: restSubagents,
+        todos: restTodos,
+        tokenUsage: restTokenUsage,
+        compacting: restCompacting,
+        compactionMarkers: restCompactionMarkers,
+        preCompactSnapshot: restPreCompactSnapshot,
+        activeSessionId: newActive,
+      };
     }),
 
   renameTab: (id, title) =>

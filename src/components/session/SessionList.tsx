@@ -68,7 +68,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const renameTab = useSessionStore((s) => s.renameTab);
-  const messages = useSessionStore((s) => s.messages);
+  const isStreaming = useSessionStore((s) => s.isStreaming);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -140,7 +140,9 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
 
   const handleExport = useCallback(
     (tabId: string) => {
-      const msgs = messages[tabId] || [];
+      // Read the messages map imperatively — subscribing to it would re-render
+      // the sidebar on every streamed token.
+      const msgs = useSessionStore.getState().messages[tabId] || [];
       const lines = msgs.map((m) => {
         if (m.role === "user") return `## User\n${m.content}`;
         if (m.role === "assistant") return `## Assistant\n${m.content}`;
@@ -154,7 +156,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
       a.click();
       URL.revokeObjectURL(url);
     },
-    [messages]
+    []
   );
 
   const handleCopyLink = useCallback(async (tabId: string) => {
@@ -235,7 +237,7 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
             </span>
           </>
         )}
-        {tab.id === activeSessionId && useSessionStore.getState().isStreaming && (
+        {tab.id === activeSessionId && isStreaming && (
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" />
         )}
       </div>
