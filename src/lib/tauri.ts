@@ -14,11 +14,32 @@ export interface ModelInfo {
   base_url: string;
   api_backend: string;
   context_window: number;
+  description?: string;
+  max_completion_tokens?: number;
+  env_key: string[];
+  hidden: boolean;
 }
 
 export interface ConfigSnapshot {
   models: ModelInfo[];
   default_model: string;
+  web_search_model: string;
+  image_description_model: string;
+  session_summary_model: string;
+}
+
+export interface DefaultModels {
+  default: string;
+  web_search: string;
+  image_description: string;
+  session_summary: string;
+}
+
+export async function saveModels(
+  models: ModelInfo[],
+  defaults: DefaultModels
+): Promise<void> {
+  return invoke("save_models", { models, defaults });
 }
 
 export interface AuthStatus {

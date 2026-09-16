@@ -11,11 +11,13 @@ import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
 import { TabBar } from "./components/session/TabBar";
 import { SessionPicker } from "./components/session/SessionPicker";
+import { Settings } from "./pages/Settings";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
   type AuthStatus, type ConfigSnapshot,
 } from "./lib/tauri";
+import { listen } from "@tauri-apps/api/event";
 
 export default function App() {
   useAcpEventListener();
@@ -32,6 +34,7 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
@@ -61,7 +64,6 @@ export default function App() {
   useEffect(() => {
     refreshAuth();
     if (detachedSessionId) {
-      // Detached window: just load session metadata
       listSessions().then((items) => {
         const item = items.find((s) => s.id === detachedSessionId);
         if (item) {
@@ -72,6 +74,14 @@ export default function App() {
       getConfig().then(setConfig).catch((e) => setError(String(e)));
     }
   }, [refreshAuth, detachedSessionId, addTab]);
+
+  // Hot-reload config when models are saved
+  useEffect(() => {
+    const unlisten = listen("config_changed", () => {
+      getConfig().then(setConfig).catch(() => {});
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const handleNewSession = useCallback(async () => {
     setCreating(true);
@@ -185,6 +195,10 @@ export default function App() {
     );
   }
 
+  if (showSettings) {
+    return <Settings onClose={() => setShowSettings(false)} />;
+  }
+
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <TitleBar
@@ -204,6 +218,7 @@ export default function App() {
           creating={creating}
           onForkSession={handleForkSession}
           onCloseSession={handleCloseSession}
+          onOpenSettings={() => setShowSettings(true)}
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
