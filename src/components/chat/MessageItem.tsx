@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,7 +11,7 @@ interface Props {
   message: ChatMessage;
 }
 
-export function MessageItem({ message }: Props) {
+function MessageItemImpl({ message }: Props) {
   const [viewingImage, setViewingImage] = useState<{ src: string; alt: string } | null>(null);
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
@@ -63,3 +64,5 @@ export function MessageItem({ message }: Props) {
     </>
   );
 }
+
+export const MessageItem = memo(MessageItemImpl);

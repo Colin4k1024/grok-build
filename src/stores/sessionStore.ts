@@ -93,6 +93,10 @@ interface SessionState {
   clearMessages: (sessionId: string) => void;
 }
 
+// Streaming throttle buffers (module-level for persistence across renders)
+const streamBuffer: Record<string, string> = {};
+const streamFlushMap: Record<string, number> = {};
+
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -281,7 +285,23 @@ export const useSessionStore = create<SessionState>((set) => ({
       };
     }),
 
-  appendAssistantText: (sessionId, delta) =>
+  appendAssistantText: (sessionId, delta) => {
+    const now = Date.now();
+    const key = `_stream_${sessionId}`;
+    const lastFlush = streamFlushMap[key] || 0;
+    const STREAM_INTERVAL = 50;
+
+    if (now - lastFlush < STREAM_INTERVAL) {
+      streamBuffer[key] = (streamBuffer[key] || "") + delta;
+      return {};
+    }
+
+    const buffered = streamBuffer[key] || "";
+    streamBuffer[key] = "";
+    streamFlushMap[key] = now;
+    const combined = buffered + delta;
+    if (!combined) return {};
+
     set((state) => {
       const msgs = state.messages[sessionId] || [];
       const last = msgs[msgs.length - 1];
@@ -289,7 +309,7 @@ export const useSessionStore = create<SessionState>((set) => ({
         return {
           messages: {
             ...state.messages,
-            [sessionId]: [...msgs.slice(0, -1), { ...last, content: last.content + delta }],
+            [sessionId]: [...msgs.slice(0, -1), { ...last, content: last.content + combined }],
           },
         };
       }
@@ -298,11 +318,13 @@ export const useSessionStore = create<SessionState>((set) => ({
           ...state.messages,
           [sessionId]: [
             ...msgs,
-            { id: genId("msg"), role: "assistant" as const, content: delta, timestamp: Date.now(), streaming: true },
+            { id: genId("msg"), role: "assistant" as const, content: combined, timestamp: Date.now(), streaming: true },
           ],
         },
       };
-    }),
+    });
+    return {};
+  },
 
   addToolCall: (sessionId, toolName) =>
     set((state) => ({
