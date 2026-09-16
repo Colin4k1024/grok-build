@@ -48,6 +48,14 @@ export async function getAuthStatus(): Promise<AuthStatus> {
   return invoke<AuthStatus>("check_auth_status");
 }
 
+export async function login(): Promise<AuthStatus> {
+  return invoke<AuthStatus>("login");
+}
+
+export async function logout(): Promise<void> {
+  return invoke<void>("logout");
+}
+
 export function onAcpEvent(
   handler: (event: AcpEventPayload) => void
 ): Promise<UnlistenFn> {
@@ -64,4 +72,10 @@ export interface AcpEventPayload {
   output?: string;
   success?: boolean;
   message?: string;
+}
+
+export function onAuthMessage(
+  handler: (message: string) => void
+): Promise<UnlistenFn> {
+  return listen<string>("auth_message", (e) => handler(e.payload));
 }

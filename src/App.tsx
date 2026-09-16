@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
+import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useSessionStore } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { PromptInput } from "./components/chat/PromptInput";
-import { createSession, sendMessage, cancelSession, getAuthStatus, getConfig, type AuthStatus, type ConfigSnapshot } from "./lib/tauri";
+import { createSession, sendMessage, cancelSession, getAuthStatus, logout, getConfig, type AuthStatus, type ConfigSnapshot } from "./lib/tauri";
 
 export default function App() {
   useAcpEventListener();
@@ -14,10 +15,19 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    getAuthStatus().then(setAuth).catch((e) => setError(String(e)));
-    getConfig().then(setConfig).catch((e) => setError(String(e)));
+  const refreshAuth = useCallback(async () => {
+    try {
+      const status = await getAuthStatus();
+      setAuth(status);
+    } catch (e) {
+      setError(String(e));
+    }
   }, []);
+
+  useEffect(() => {
+    refreshAuth();
+    getConfig().then(setConfig).catch((e) => setError(String(e)));
+  }, [refreshAuth]);
 
   const handleNewSession = useCallback(async () => {
     setCreating(true);
@@ -55,6 +65,30 @@ export default function App() {
     setStreaming(false);
   }, [activeSessionId, setStreaming]);
 
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout();
+      setAuth({ authenticated: false, username: null });
+      setActiveSession(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [setActiveSession]);
+
+  // Show login page if not authenticated
+  if (auth && !auth.authenticated) {
+    return <Login onLoginSuccess={refreshAuth} />;
+  }
+
+  // Loading state while checking auth
+  if (!auth) {
+    return (
+      <div className="flex h-full items-center justify-center bg-gb-bg">
+        <p className="text-gb-muted">Loading...</p>
+      </div>
+    );
+  }
+
   const currentMessages = activeSessionId ? (messages[activeSessionId] || []) : [];
 
   return (
@@ -68,10 +102,8 @@ export default function App() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          {auth?.authenticated ? (
-            <span className="text-xs text-gb-green">● Connected</span>
-          ) : (
-            <span className="text-xs text-gb-yellow">● Not logged in</span>
+          {auth.authenticated && (
+            <span className="text-xs text-gb-green">● {auth.username || "Connected"}</span>
           )}
           <button
             className="rounded bg-gb-accent px-3 py-1 text-xs text-white hover:opacity-80 disabled:opacity-40"
@@ -79,6 +111,12 @@ export default function App() {
             disabled={creating}
           >
             {creating ? "Starting..." : "+ New Session"}
+          </button>
+          <button
+            className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface"
+            onClick={handleLogout}
+          >
+            Logout
           </button>
         </div>
       </header>

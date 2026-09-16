@@ -5421,6 +5421,7 @@ dependencies = [
  "tracing",
  "uuid",
  "xai-acp-lib",
+ "xai-dirs",
  "xai-grok-auth",
  "xai-grok-config",
  "xai-grok-config-types",
