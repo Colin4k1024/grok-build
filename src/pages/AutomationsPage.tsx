@@ -35,15 +35,30 @@ function saveAutomations(list: Automation[]) {
  * interval or when an event fires. Codex parity: `automations-page`.
  */
 export function AutomationsPage({ onClose }: { onClose: () => void }) {
-  const [items, setItems] = useState<Automation[]>(loadAutomations());
+  // Lazy initializer so we don't re-parse localStorage on every render.
+  const [items, setItems] = useState<Automation[]>(() => loadAutomations());
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState("0 9 * * *");
   const [prompt, setPrompt] = useState("");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+
+  // Accept only plausible cron expressions: 5 space-separated fields with
+  // digits, '*', ',', '-', '/'. Rejects free text.
+  const isValidCron = (expr: string): boolean => {
+    const fields = expr.trim().split(/\s+/);
+    if (fields.length !== 5) return false;
+    return fields.every((f) => /^[\d*,\-/]+$/.test(f));
+  };
 
   const handleCreate = () => {
     if (!name.trim() || !prompt.trim()) return;
+    if (!isValidCron(schedule)) {
+      setScheduleError("Invalid cron expression — expected 'min hour day month weekday' (e.g. '0 9 * * *').");
+      return;
+    }
+    setScheduleError(null);
     const next: Automation = {
       id: `auto-${Date.now()}`,
       name: name.trim(),
@@ -60,6 +75,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
     setShowForm(false);
     setName("");
     setPrompt("");
+    setSchedule("0 9 * * *");
   };
 
   const handleDelete = (id: string) => {
@@ -116,10 +132,18 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
             />
             <input
               value={schedule}
-              onChange={(e) => setSchedule(e.target.value)}
+              onChange={(e) => {
+                setSchedule(e.target.value);
+                setScheduleError(null);
+              }}
               placeholder="Cron schedule (e.g. 0 9 * * *)"
-              className="w-full rounded border border-gb-border bg-gb-bg px-3 py-1.5 font-mono text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
+              className={`w-full rounded border bg-gb-bg px-3 py-1.5 font-mono text-[12px] text-gb-text outline-none ${
+                scheduleError ? "border-gb-red/50" : "border-gb-border focus:border-gb-accent/50"
+              }`}
             />
+            {scheduleError && (
+              <p className="text-[11px] text-gb-red">{scheduleError}</p>
+            )}
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

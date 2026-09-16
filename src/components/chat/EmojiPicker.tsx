@@ -1,10 +1,34 @@
 import { useState, useRef, useEffect } from "react";
 
-const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
-  { label: "Smileys", emojis: ["😀", "😄", "😂", "🤣", "😊", "😍", "🤔", "🙃", "😴", "🤯"] },
-  { label: "Gestures", emojis: ["👍", "👎", "👏", "🙌", "🙏", "💪", "🤝", "✌️", "👌", "🫡"] },
-  { label: "Objects", emojis: ["💡", "🔥", "✨", "🎉", "🎊", "📌", "📎", "🔧", "🔨", "🐛"] },
-  { label: "Symbols", emojis: ["❤️", "💯", "✅", "❌", "⚠️", "🚀", "⭐", "🔔", "🏁", "🎯"] },
+const EMOJI_GROUPS: { label: string; emojis: { char: string; name: string }[] }[] = [
+  { label: "Smileys", emojis: [
+    { char: "😀", name: "grinning" }, { char: "😄", name: "smile happy" },
+    { char: "😂", name: "joy laugh tears" }, { char: "🤣", name: "rofl rolling" },
+    { char: "😊", name: "blush smile" }, { char: "😍", name: "heart eyes love" },
+    { char: "🤔", name: "thinking hmm" }, { char: "🙃", name: "upside down silly" },
+    { char: "😴", name: "sleeping tired" }, { char: "🤯", name: "mind blown exploding" },
+  ]},
+  { label: "Gestures", emojis: [
+    { char: "👍", name: "thumbs up yes approve" }, { char: "👎", name: "thumbs down no" },
+    { char: "👏", name: "clap applause" }, { char: "🙌", name: "raise hands celebrate" },
+    { char: "🙏", name: "pray thanks please" }, { char: "💪", name: "muscle strong flex" },
+    { char: "🤝", name: "handshake deal" }, { char: "✌️", name: "peace victory" },
+    { char: "👌", name: "ok perfect" }, { char: "🫡", name: "salute respect" },
+  ]},
+  { label: "Objects", emojis: [
+    { char: "💡", name: "lightbulb idea" }, { char: "🔥", name: "fire hot lit" },
+    { char: "✨", name: "sparkles sparkle magic" }, { char: "🎉", name: "party tada celebrate" },
+    { char: "🎊", name: "confetti celebrate" }, { char: "📌", name: "pin pushpin" },
+    { char: "📎", name: "paperclip attach" }, { char: "🔧", name: "wrench tool fix" },
+    { char: "🔨", name: "hammer build" }, { char: "🐛", name: "bug insect" },
+  ]},
+  { label: "Symbols", emojis: [
+    { char: "❤️", name: "red heart love" }, { char: "💯", name: "hundred points perfect" },
+    { char: "✅", name: "check mark done" }, { char: "❌", name: "cross mark no" },
+    { char: "⚠️", name: "warning caution" }, { char: "🚀", name: "rocket launch ship" },
+    { char: "⭐", name: "star favorite" }, { char: "🔔", name: "bell notification" },
+    { char: "🏁", name: "checkered flag finish" }, { char: "🎯", name: "target bullseye" },
+  ]},
 ];
 
 interface EmojiPickerProps {
@@ -32,10 +56,13 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const filtered = search
+  const q = search.trim().toLowerCase();
+  const filtered = q
     ? EMOJI_GROUPS.map((g) => ({
         ...g,
-        emojis: g.emojis.filter((e) => e.includes(search)),
+        emojis: g.emojis.filter(
+          (e) => e.char.includes(q) || e.name.toLowerCase().includes(q)
+        ),
       })).filter((g) => g.emojis.length > 0)
     : EMOJI_GROUPS;
 
@@ -64,14 +91,15 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             <div className="grid grid-cols-8 gap-0.5">
               {g.emojis.map((e) => (
                 <button
-                  key={e}
+                  key={e.char}
+                  title={e.name}
                   onClick={() => {
-                    onSelect(e);
+                    onSelect(e.char);
                     onClose();
                   }}
                   className="rounded p-1 text-base hover:bg-gb-surface-hover"
                 >
-                  {e}
+                  {e.char}
                 </button>
               ))}
             </div>
