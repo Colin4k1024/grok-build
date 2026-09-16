@@ -99,6 +99,8 @@ export interface AcpEventPayload {
   command?: string;
   options?: PermissionOption[];
   entries?: { content: string; status: string; priority: string }[];
+  used?: number;
+  size?: number;
 }
 
 export function onAuthMessage(

@@ -9,6 +9,7 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
 import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
+import { ContextBar } from "./components/panels/ContextBar";
 import { TabBar } from "./components/session/TabBar";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";
@@ -275,6 +276,7 @@ export default function App() {
                   onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
                 />
               ))}
+              <ContextBar />
               <PromptInput
                 onSend={handleSend}
                 onCancel={handleCancel}

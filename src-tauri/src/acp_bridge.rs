@@ -63,6 +63,11 @@ pub enum AcpEvent {
         session_id: String,
         entries: Vec<PlanEntryDto>,
     },
+    UsageUpdate {
+        session_id: String,
+        used: u64,
+        size: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -419,6 +424,13 @@ async fn forward_acp_message(
                     let _ = event_tx.send(AcpEvent::PlanUpdate {
                         session_id: session_id.to_string(),
                         entries,
+                    });
+                }
+                acp::SessionUpdate::UsageUpdate(usage) => {
+                    let _ = event_tx.send(AcpEvent::UsageUpdate {
+                        session_id: session_id.to_string(),
+                        used: usage.used,
+                        size: usage.size,
                     });
                 }
                 _ => {}

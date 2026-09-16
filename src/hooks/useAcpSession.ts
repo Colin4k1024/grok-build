@@ -19,6 +19,7 @@ export function useAcpEventListener() {
   const addSubagent = useSessionStore((s) => s.addSubagent);
   const updateSubagent = useSessionStore((s) => s.updateSubagent);
   const setTodos = useSessionStore((s) => s.setTodos);
+  const setTokenUsage = useSessionStore((s) => s.setTokenUsage);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
@@ -82,6 +83,11 @@ export function useAcpEventListener() {
             })));
           }
           break;
+        case "UsageUpdate":
+          if (event.used !== undefined && event.size !== undefined) {
+            setTokenUsage(sid, event.used, event.size);
+          }
+          break;
         case "PermissionRequest":
           if (event.request_id) {
             addPendingPermission(sid, {
@@ -100,6 +106,6 @@ export function useAcpEventListener() {
     };
   }, [
     appendAssistantText, addToolCall, addToolResult, setStreaming,
-    addPendingPermission, addSubagent, updateSubagent, setTodos,
+    addPendingPermission, addSubagent, updateSubagent, setTodos, setTokenUsage,
   ]);
 }

@@ -50,6 +50,7 @@ interface SessionState {
   pendingPermissions: Record<string, PendingPermission[]>;
   subagents: Record<string, Subagent[]>;
   todos: Record<string, TodoItem[]>;
+  tokenUsage: Record<string, { used: number; size: number }>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -67,6 +68,7 @@ interface SessionState {
   updateSubagent: (sessionId: string, id: string, updates: Partial<Subagent>) => void;
   setTodos: (sessionId: string, todos: TodoItem[]) => void;
   toggleTodo: (sessionId: string, id: string) => void;
+  setTokenUsage: (sessionId: string, used: number, size: number) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -86,6 +88,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   pendingPermissions: {},
   subagents: {},
   todos: {},
+  tokenUsage: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -199,6 +202,11 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     })),
 
+  setTokenUsage: (sessionId, used, size) =>
+    set((state) => ({
+      tokenUsage: { ...state.tokenUsage, [sessionId]: { used, size } },
+    })),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
@@ -269,6 +277,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: __, ...restPerm } = state.pendingPermissions;
       const { [sessionId]: _sa, ...restSub } = state.subagents;
       const { [sessionId]: _td, ...restTodos } = state.todos;
-      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos };
+      const { [sessionId]: _tu, ...restUsage } = state.tokenUsage;
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage };
     }),
 }));
