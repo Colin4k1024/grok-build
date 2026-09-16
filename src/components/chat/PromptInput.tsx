@@ -67,6 +67,7 @@ export function PromptInput({ onSend, onCancel, isStreaming, disabled, cwd, onSw
   const handleMentionSelect = useCallback((item: MentionItem) => {
     composerApiRef.current?.insertMention(item.kind, item.id, item.label);
     setMentionQuery(null);
+    composerApiRef.current?.focus();
   }, []);
 
   return (

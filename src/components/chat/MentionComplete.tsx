@@ -78,7 +78,10 @@ export function MentionComplete({ query, onSelect, onClose, anchorBottom = 140, 
   useEffect(() => setSelectedIdx(0), [query]);
 
   useEffect(() => {
+    if (items.length === 0) return; // don't hijack keys when nothing to pick
     const handler = (e: KeyboardEvent) => {
+      // Let IME composition (e.g. CJK candidate selection) pass through.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIdx((i) => Math.min(items.length - 1, i + 1));
