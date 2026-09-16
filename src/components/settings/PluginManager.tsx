@@ -116,6 +116,7 @@ export function PluginManager() {
   const [category, setCategory] = useState("All");
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [detailEntry, setDetailEntry] = useState<CatalogEntry | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -235,7 +236,19 @@ export function PluginManager() {
             {filtered.map((entry) => {
               const installed = installedNames.has(entry.name);
               return (
-                <div key={entry.name} className="rounded-lg border border-gb-border bg-gb-surface p-3">
+                <div
+                  key={entry.name}
+                  className="cursor-pointer rounded-lg border border-gb-border bg-gb-surface p-3 transition-colors hover:border-gb-accent/40"
+                  onClick={() => setDetailEntry(entry)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setDetailEntry(entry);
+                    }
+                  }}
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">{entry.icon}</span>
@@ -248,7 +261,10 @@ export function PluginManager() {
                       <span className="rounded bg-gb-green/10 px-1.5 py-0.5 text-[9px] text-gb-green">INSTALLED</span>
                     ) : (
                       <button
-                        onClick={() => handleInstall(entry)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleInstall(entry);
+                        }}
                         disabled={installing === entry.name}
                         className="rounded bg-gb-accent px-2 py-1 text-[10px] text-white disabled:opacity-50"
                       >
@@ -265,8 +281,7 @@ export function PluginManager() {
             })}
           </div>
         </>
-      ) : (
-        <div className="space-y-2">
+      ) : (        <div className="space-y-2">
           {loading ? (
             <p className="text-xs text-gb-muted">Loading...</p>
           ) : servers.length === 0 ? (
@@ -312,6 +327,129 @@ export function PluginManager() {
           )}
         </div>
       )}
+
+      {detailEntry && (
+        <PluginDetailModal
+          entry={detailEntry}
+          installed={installedNames.has(detailEntry.name)}
+          installing={installing === detailEntry.name}
+          onInstall={(e) => {
+            handleInstall(e);
+            setDetailEntry(null);
+          }}
+          onClose={() => setDetailEntry(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Detail modal for a catalog entry — shows full description, command,
+ *  required env keys, and a primary action (Install / Open installed). */
+function PluginDetailModal({
+  entry,
+  installed,
+  installing,
+  onInstall,
+  onClose,
+}: {
+  entry: CatalogEntry;
+  installed: boolean;
+  installing: boolean;
+  onInstall: (e: CatalogEntry) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${entry.name} plugin details`}
+    >
+      <div
+        className="w-[480px] max-w-[90vw] rounded-lg border border-gb-border bg-gb-surface-solid p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start gap-3">
+          <span className="text-3xl">{entry.icon}</span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base font-semibold text-gb-text">{entry.name}</h2>
+            <p className="text-[11px] text-gb-muted">{entry.category}</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close details"
+            className="rounded p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="mb-4 text-[12px] leading-relaxed text-gb-text-secondary">
+          {entry.description}
+        </p>
+
+        <div className="mb-4 space-y-2 text-[11px]">
+          <div>
+            <p className="text-gb-muted">Command</p>
+            <code className="block rounded bg-gb-bg px-2 py-1 font-mono text-gb-text">
+              {entry.command} {entry.args.join(" ")}
+            </code>
+          </div>
+          {entry.url && (
+            <div>
+              <p className="text-gb-muted">URL</p>
+              <code className="block truncate rounded bg-gb-bg px-2 py-1 font-mono text-gb-text">
+                {entry.url}
+              </code>
+            </div>
+          )}
+          {entry.envKeys.length > 0 && (
+            <div>
+              <p className="text-gb-muted">Required environment variables</p>
+              <ul className="list-disc pl-5 text-gb-yellow">
+                {entry.envKeys.map((k) => (
+                  <li key={k}>
+                    <code>{k}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded border border-gb-border/20 px-3 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover"
+          >
+            Close
+          </button>
+          {!installed && (
+            <button
+              onClick={() => onInstall(entry)}
+              disabled={installing}
+              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-85 disabled:opacity-40"
+            >
+              {installing ? "Installing…" : "Install"}
+            </button>
+          )}
+          {installed && (
+            <span className="rounded bg-gb-green/15 px-3 py-1.5 text-[12px] font-medium text-gb-green">
+              Installed
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
