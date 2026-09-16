@@ -3,8 +3,9 @@ import { ModelManager } from "../components/settings/ModelManager";
 import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 import { GeneralSettings } from "../components/settings/GeneralSettings";
 import { McpManager } from "../components/settings/McpManager";
+import { PluginManager } from "../components/settings/PluginManager";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
@@ -13,6 +14,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
     { id: "models", label: "Models" },
     { id: "apikeys", label: "API Keys" },
     { id: "mcp", label: "MCP Servers" },
+    { id: "plugins", label: "Plugins" },
     { id: "general", label: "General" },
     { id: "about", label: "About" },
   ];
@@ -52,6 +54,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === "models" && <ModelManager />}
           {tab === "apikeys" && <ApiKeyManager />}
           {tab === "mcp" && <McpManager />}
+          {tab === "plugins" && <PluginManager />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && (
             <div className="p-4">
