@@ -1,8 +1,62 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   getConfig, saveModels,
   type ConfigSnapshot, type ModelInfo, type DefaultModels,
 } from "../../lib/tauri";
+
+/** Infer a vendor bucket from the model's backend / base_url / id. */
+function vendorOf(model: ModelInfo): string {
+  const hay = `${model.api_backend} ${(model as { base_url?: string }).base_url ?? ""} ${model.id}`.toLowerCase();
+  if (hay.includes("openai") || hay.includes("gpt")) return "OpenAI";
+  if (hay.includes("anthropic") || hay.includes("claude")) return "Anthropic";
+  if (hay.includes("dashscope") || hay.includes("qwen") || hay.includes("aliyun")) return "Alibaba";
+  if (hay.includes("grok") || hay.includes("xai") || hay.includes("x.ai")) return "xAI";
+  if (hay.includes("deepseek")) return "DeepSeek";
+  if (hay.includes("ollama") || hay.includes("localhost") || hay.includes("127.0.0.1")) return "Local";
+  if (hay.includes("google") || hay.includes("gemini")) return "Google";
+  if (hay.includes("mistral")) return "Mistral";
+  return "Other";
+}
+
+const VENDOR_ICONS: Record<string, string> = {
+  OpenAI: "🤖",
+  Anthropic: "🧠",
+  Alibaba: "☁️",
+  xAI: "𝕏",
+  DeepSeek: "🔍",
+  Local: "💻",
+  Google: "🌐",
+  Mistral: "🌬️",
+  Other: "📦",
+};
+
+interface TestResult {
+  ok: boolean;
+  message: string;
+}
+
+/** Lightweight connectivity check — we only verify that the endpoint is
+ *  reachable; actually calling the model would require a paid API request. */
+async function testModelConnection(model: ModelInfo): Promise<TestResult> {
+  const url = (model as { base_url?: string }).base_url;
+  if (!url) return { ok: false, message: "No base_url configured" };
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    // HEAD keeps the payload tiny; some providers don't allow it so fall back
+    // to GET on 405.
+    let res = await fetch(url, { method: "HEAD", signal: controller.signal }).catch(() => null);
+    if (res && res.status === 405) {
+      res = await fetch(url, { method: "GET", signal: controller.signal }).catch(() => null);
+    }
+    clearTimeout(timer);
+    if (!res) return { ok: false, message: "Unreachable" };
+    if (res.status >= 500) return { ok: false, message: `Server error ${res.status}` };
+    return { ok: true, message: `Reachable (${res.status})` };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 export function ModelManager() {
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
@@ -13,6 +67,59 @@ export function ModelManager() {
   const [defaults, setDefaults] = useState<DefaultModels>({
     default: "", web_search: "", image_description: "", session_summary: "",
   });
+
+  const [testResults, setTestResults] = useState<Record<string, TestResult | "testing">>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const groupedModels = useMemo(() => {
+    const map = new Map<string, ModelInfo[]>();
+    for (const m of config?.models ?? []) {
+      const vendor = vendorOf(m);
+      if (!map.has(vendor)) map.set(vendor, []);
+      map.get(vendor)!.push(m);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [config?.models]);
+
+  const handleTestConnection = useCallback(async (model: ModelInfo) => {
+    setTestResults((prev) => ({ ...prev, [model.id]: "testing" }));
+    const result = await testModelConnection(model);
+    setTestResults((prev) => ({ ...prev, [model.id]: result }));
+  }, []);
+
+  const handleExport = useCallback(() => {
+    if (!config) return;
+    const blob = new Blob([JSON.stringify({ models: config.models, defaults }, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `grok-build-models-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [config, defaults]);
+
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !config) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result)) as {
+          models?: ModelInfo[];
+          defaults?: DefaultModels;
+        };
+        if (parsed.models) setConfig({ ...config, models: parsed.models });
+        if (parsed.defaults) setDefaults(parsed.defaults);
+        setError(null);
+      } catch (err) {
+        setError(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }, [config]);
 
   useEffect(() => {
     getConfig()
@@ -84,49 +191,120 @@ export function ModelManager() {
         </div>
       </div>
 
-      {/* Model list */}
+      {/* Model list — grouped by vendor */}
       <div className="rounded-lg border border-gb-border bg-gb-surface">
         <div className="flex items-center justify-between border-b border-gb-border px-3 py-2">
           <h3 className="text-xs font-semibold text-gb-text">Models ({config.models.length})</h3>
-          <button
-            className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white hover:opacity-80"
-            onClick={() => setIsAdding(true)}
-          >
-            + Add Model
-          </button>
+          <div className="flex gap-1">
+            <button
+              className="rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:text-gb-text"
+              onClick={handleExport}
+              title="Export models to JSON"
+            >
+              Export
+            </button>
+            <label className="cursor-pointer rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:text-gb-text">
+              Import
+              <input
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={handleImport}
+              />
+            </label>
+            <button
+              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white hover:opacity-80"
+              onClick={() => setIsAdding(true)}
+            >
+              + Add Model
+            </button>
+          </div>
         </div>
-        <div className="divide-y divide-gb-border">
-          {config.models.map((model) => (
-            <div key={model.id} className="flex items-center justify-between px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gb-text">{model.name}</span>
-                  {model.hidden && (
-                    <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-yellow">hidden</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-gb-muted">
-                  <span className="rounded bg-gb-bg px-1.5 py-0.5">{model.id}</span>
-                  <span>{model.api_backend}</span>
-                  <span>{(model.context_window / 1024).toFixed(0)}k ctx</span>
-                </div>
-              </div>
-              <div className="flex gap-1">
+        <div>
+          {groupedModels.map(([vendor, models]) => {
+            const collapsed = collapsedGroups.has(vendor);
+            return (
+              <div key={vendor} className="border-b border-gb-border/10 last:border-b-0">
                 <button
-                  className="rounded px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
-                  onClick={() => setEditingModel(model)}
+                  onClick={() =>
+                    setCollapsedGroups((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(vendor)) next.delete(vendor);
+                      else next.add(vendor);
+                      return next;
+                    })
+                  }
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-medium uppercase text-gb-muted hover:text-gb-text"
                 >
-                  Edit
+                  <svg
+                    width="8"
+                    height="8"
+                    viewBox="0 0 8 8"
+                    fill="currentColor"
+                    className={`shrink-0 transition-transform ${collapsed ? "" : "rotate-90"}`}
+                  >
+                    <path d="M2 1l4 3-4 3V1z" />
+                  </svg>
+                  <span className="text-sm">{VENDOR_ICONS[vendor] ?? VENDOR_ICONS.Other}</span>
+                  <span>{vendor}</span>
+                  <span className="ml-auto rounded bg-gb-bg px-1.5 py-0.5 text-[9px]">{models.length}</span>
                 </button>
-                <button
-                  className="rounded px-2 py-1 text-[10px] text-gb-red hover:bg-gb-red/10"
-                  onClick={() => handleDelete(model.id)}
-                >
-                  Delete
-                </button>
+                {!collapsed &&
+                  models.map((model) => {
+                    const test = testResults[model.id];
+                    return (
+                      <div key={model.id} className="flex items-center justify-between border-t border-gb-border/5 px-3 py-2 pl-8">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gb-text">{model.name}</span>
+                            {model.hidden && (
+                              <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-yellow">hidden</span>
+                            )}
+                            {test === "testing" && (
+                              <span className="text-[10px] text-gb-muted">testing…</span>
+                            )}
+                            {test && test !== "testing" && (
+                              <span
+                                className={`text-[10px] ${test.ok ? "text-gb-green" : "text-gb-red"}`}
+                                title={test.message}
+                              >
+                                {test.ok ? "✓ reachable" : "✗ failed"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-gb-muted">
+                            <span className="rounded bg-gb-bg px-1.5 py-0.5">{model.id}</span>
+                            <span>{model.api_backend}</span>
+                            <span>{(model.context_window / 1024).toFixed(0)}k ctx</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            className="rounded px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
+                            onClick={() => handleTestConnection(model)}
+                            disabled={test === "testing"}
+                          >
+                            Test
+                          </button>
+                          <button
+                            className="rounded px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
+                            onClick={() => setEditingModel(model)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="rounded px-2 py-1 text-[10px] text-gb-red hover:bg-gb-red/10"
+                            onClick={() => handleDelete(model.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {config.models.length === 0 && (
             <div className="py-4 text-center text-xs text-gb-muted">No models configured</div>
           )}
