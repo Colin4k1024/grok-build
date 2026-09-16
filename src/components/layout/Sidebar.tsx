@@ -8,9 +8,10 @@ interface SidebarProps {
   onCloseSession: (id: string) => void;
   onOpenSettings: () => void;
   onOpenDashboard: () => void;
+  onOpenAgentsPage: () => void;
 }
 
-export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard }: SidebarProps) {
+export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage }: SidebarProps) {
   if (collapsed) return null;
 
   return (
@@ -23,6 +24,10 @@ export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCl
       </div>
       <SessionList onForkSession={onForkSession} onCloseSession={onCloseSession} />
       <div className="border-t border-gb-border/8 p-1">
+        <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenAgentsPage}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="5" r="2" /><circle cx="11" cy="5" r="2" /><circle cx="8" cy="11" r="2" /></svg>
+          Agents
+        </button>
         <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenDashboard}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h5v5H2V4zm7 0h5v2H9V4zm0 4h5v6H9V8zM2 11h5v2H2v-2z" /></svg>
           Dashboard

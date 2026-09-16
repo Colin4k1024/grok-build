@@ -20,6 +20,7 @@ import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { Home, type ComposerMode } from "./pages/Home";
 import { AuthHandoff } from "./pages/AuthHandoff";
+import { WorkspaceAgentsPage } from "./pages/WorkspaceAgentsPage";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
@@ -53,6 +54,7 @@ export default function App() {
   const [showPicker, setShowPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
+  const [showAgentsPage, setShowAgentsPage] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -408,6 +410,18 @@ export default function App() {
     );
   }
 
+  if (showAgentsPage) {
+    return (
+      <WorkspaceAgentsPage
+        onClose={() => setShowAgentsPage(false)}
+        onOpenSession={(id) => {
+          setActiveSession(id);
+          setShowAgentsPage(false);
+        }}
+      />
+    );
+  }
+
   if (showDashboard) {
     return (
       <Dashboard
@@ -443,6 +457,7 @@ export default function App() {
           onCloseSession={handleCloseSession}
           onOpenSettings={() => setShowSettings(true)}
           onOpenDashboard={() => setShowDashboard(true)}
+          onOpenAgentsPage={() => setShowAgentsPage(true)}
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
