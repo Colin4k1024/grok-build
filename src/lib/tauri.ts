@@ -95,6 +95,9 @@ export interface AcpEventPayload {
   output?: string;
   success?: boolean;
   message?: string;
+  request_id?: string;
+  command?: string;
+  options?: PermissionOption[];
 }
 
 export function onAuthMessage(
@@ -153,4 +156,21 @@ export async function getSessionHistory(sessionId: string, cwd: string): Promise
 
 export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {
   return invoke("session_set_model", { args: { session_id: sessionId, model_id: modelId } });
+}
+
+export interface PermissionOption {
+  id: string;
+  label: string;
+  kind: string;
+}
+
+export async function respondPermission(
+  sessionId: string,
+  requestId: string,
+  optionId: string,
+  remember: boolean
+): Promise<void> {
+  return invoke("respond_permission", {
+    args: { session_id: sessionId, request_id: requestId, option_id: optionId, remember }
+  });
 }

@@ -19,6 +19,11 @@ use xai_grok_shell::agent::config::Config as AgentConfig;
 pub enum SessionCommand {
     SendPrompt { message: String, reply: oneshot::Sender<Result<(), String>> },
     SetModel { model_id: String, reply: oneshot::Sender<Result<(), String>> },
+    RespondPermission {
+        request_id: String,
+        option_id: String,
+        remember: bool,
+    },
     Cancel,
     Shutdown,
 }
@@ -41,6 +46,20 @@ pub enum AcpEvent {
     TurnComplete { session_id: String },
     Error { session_id: String, message: String },
     SessionReady { session_id: String, models: Vec<ModelSummary> },
+    PermissionRequest {
+        session_id: String,
+        request_id: String,
+        tool_name: String,
+        command: String,
+        options: Vec<PermissionOption>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionOption {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,14 +238,38 @@ async fn run_agent_loop(
     // 4. Main loop: forward ACP events + handle commands
     let fwd_session_id = session_id.clone();
     let session_id_for_loop = session_id.clone();
+    use std::collections::HashMap;
+    let mut pending_permissions: HashMap<String, oneshot::Sender<acp::Result<acp::RequestPermissionResponse>>> = HashMap::new();
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
             msg = acp_rx.recv() => {
                 match msg {
                     Some(acp_msg) => {
-                        if let Err(e) = forward_acp_message(&event_tx, &fwd_session_id, acp_msg, &acp_tx).await {
-                            tracing::warn!("Failed to forward ACP message: {e}");
+                        // Intercept permission requests for inline approval UI
+                        if let xai_acp_lib::AcpClientMessage::RequestPermission(args) = acp_msg {
+                            let perm = &args.request;
+                            let request_id = uuid::Uuid::new_v4().to_string();
+                            let tool_name = perm.tool_call.fields.title.clone().unwrap_or_default();
+                            let options: Vec<PermissionOption> = perm.options.iter().map(|o| PermissionOption {
+                                id: o.option_id.0.to_string(),
+                                label: o.name.clone(),
+                                kind: format!("{:?}", o.kind),
+                            }).collect();
+                            let _ = event_tx.send(AcpEvent::PermissionRequest {
+                                session_id: fwd_session_id.clone(),
+                                request_id: request_id.clone(),
+                                tool_name,
+                                command: perm.options.iter()
+                                    .filter_map(|o| if matches!(o.kind, acp::PermissionOptionKind::AllowOnce) { Some(o.name.clone()) } else { None })
+                                    .next().unwrap_or_default(),
+                                options,
+                            });
+                            pending_permissions.insert(request_id, args.response_tx);
+                        } else {
+                            if let Err(e) = forward_acp_message(&event_tx, &fwd_session_id, acp_msg, &acp_tx).await {
+                                tracing::warn!("Failed to forward ACP message: {e}");
+                            }
                         }
                     }
                     None => {
@@ -264,6 +307,19 @@ async fn run_agent_loop(
                             .map(|_: acp::SetSessionModelResponse| ())
                             .map_err(|e| e.to_string());
                         let _ = reply.send(result);
+                    }
+                    Some(SessionCommand::RespondPermission { request_id, option_id, remember }) => {
+                        if let Some(tx) = pending_permissions.remove(&request_id) {
+                            let outcome = acp::RequestPermissionOutcome::Selected(
+                                acp::SelectedPermissionOutcome::new(
+                                    acp::PermissionOptionId::new(option_id),
+                                ),
+                            );
+                            let _ = tx.send(Ok(acp::RequestPermissionResponse::new(outcome)));
+                            if remember {
+                                tracing::info!("User selected 'always approve' for permission request");
+                            }
+                        }
                     }
                     Some(SessionCommand::Cancel) => {
                         cancel.cancel();
@@ -333,19 +389,8 @@ async fn forward_acp_message(
                 _ => {}
             }
         }
-        M::RequestPermission(args) => {
-            let perm = &args.request;
-            if let Some(allow) = perm.options.iter().find(|o| o.kind == acp::PermissionOptionKind::AllowOnce) {
-                let _ = args.response_tx.send(Ok(acp::RequestPermissionResponse::new(
-                    acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
-                        allow.option_id.clone(),
-                    )),
-                )));
-            } else {
-                let _ = args.response_tx.send(Ok(acp::RequestPermissionResponse::new(
-                    acp::RequestPermissionOutcome::Cancelled,
-                )));
-            }
+        M::RequestPermission(_) => {
+            // Handled in the agent loop before forward_acp_message is called.
         }
         M::ReadTextFile(args) => {
             let _ = args.response_tx.send(Ok(acp::ReadTextFileResponse::new("")));

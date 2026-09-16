@@ -10,6 +10,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
 import { TabBar } from "./components/session/TabBar";
+import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
 import {
@@ -26,6 +27,7 @@ export default function App() {
     tabs, messages, activeSessionId, isStreaming,
     setActiveSession, addTab, removeTab, renameTab,
     setStreaming, addUserMessage,
+    pendingPermissions, removePendingPermission,
   } = useSessionStore();
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -261,6 +263,17 @@ export default function App() {
           ) : (
             <>
               <MessageList messages={currentMessages} />
+              {activeSessionId && (pendingPermissions[activeSessionId] || []).map((perm) => (
+                <ApprovalCard
+                  key={perm.requestId}
+                  sessionId={activeSessionId}
+                  requestId={perm.requestId}
+                  toolName={perm.toolName}
+                  command={perm.command}
+                  options={perm.options}
+                  onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
+                />
+              ))}
               <PromptInput
                 onSend={handleSend}
                 onCancel={handleCancel}

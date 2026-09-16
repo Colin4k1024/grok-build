@@ -7,6 +7,7 @@ export function useAcpEventListener() {
   const addToolCall = useSessionStore((s) => s.addToolCall);
   const addToolResult = useSessionStore((s) => s.addToolResult);
   const setStreaming = useSessionStore((s) => s.setStreaming);
+  const addPendingPermission = useSessionStore((s) => s.addPendingPermission);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
@@ -34,11 +35,21 @@ export function useAcpEventListener() {
         case "Error":
           setStreaming(false);
           break;
+        case "PermissionRequest":
+          if (event.request_id) {
+            addPendingPermission(sid, {
+              requestId: event.request_id,
+              toolName: event.tool_name || "Unknown",
+              command: event.command || "",
+              options: event.options || [],
+            });
+          }
+          break;
       }
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [appendAssistantText, addToolCall, addToolResult, setStreaming]);
+  }, [appendAssistantText, addToolCall, addToolResult, setStreaming, addPendingPermission]);
 }

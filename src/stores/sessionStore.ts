@@ -10,6 +10,13 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface PendingPermission {
+  requestId: string;
+  toolName: string;
+  command: string;
+  options: { id: string; label: string; kind: string }[];
+}
+
 export interface SessionTab {
   id: string;
   title: string;
@@ -24,6 +31,7 @@ interface SessionState {
   tabs: SessionTab[];
   activeSessionId: string | null;
   messages: Record<string, ChatMessage[]>;
+  pendingPermissions: Record<string, PendingPermission[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -35,6 +43,8 @@ interface SessionState {
   updateTabActivity: (id: string) => void;
   setTabModel: (id: string, model: string) => void;
   setTabEffort: (id: string, effort: SessionTab["reasoningEffort"]) => void;
+  addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
+  removePendingPermission: (sessionId: string, requestId: string) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -51,6 +61,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   tabs: [],
   activeSessionId: null,
   messages: {},
+  pendingPermissions: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -109,6 +120,24 @@ export const useSessionStore = create<SessionState>((set) => ({
   setTabEffort: (id, effort) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, reasoningEffort: effort } : t)),
+    })),
+
+  addPendingPermission: (sessionId, perm) =>
+    set((state) => ({
+      pendingPermissions: {
+        ...state.pendingPermissions,
+        [sessionId]: [...(state.pendingPermissions[sessionId] || []), perm],
+      },
+    })),
+
+  removePendingPermission: (sessionId, requestId) =>
+    set((state) => ({
+      pendingPermissions: {
+        ...state.pendingPermissions,
+        [sessionId]: (state.pendingPermissions[sessionId] || []).filter(
+          (p) => p.requestId !== requestId
+        ),
+      },
     })),
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),
@@ -178,6 +207,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   clearMessages: (sessionId) =>
     set((state) => {
       const { [sessionId]: _, ...rest } = state.messages;
-      return { messages: rest };
+      const { [sessionId]: __, ...restPerm } = state.pendingPermissions;
+      return { messages: rest, pendingPermissions: restPerm };
     }),
 }));

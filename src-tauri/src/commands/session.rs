@@ -296,3 +296,29 @@ pub async fn session_set_model(state: tauri::State<'_, AppState>, args: SetModel
         .await
         .map_err(|e| e.to_string())
 }
+
+#[derive(Debug, Deserialize)]
+pub struct RespondPermissionArgs {
+    pub session_id: String,
+    pub request_id: String,
+    pub option_id: String,
+    pub remember: bool,
+}
+
+#[tauri::command]
+pub async fn respond_permission(state: tauri::State<'_, AppState>, args: RespondPermissionArgs) -> Result<(), String> {
+    let cmd_tx = {
+        let sessions = state.pool.sessions.read();
+        sessions
+            .iter()
+            .find(|s| s.id == args.session_id)
+            .ok_or_else(|| format!("Session {} not found", args.session_id))?
+            .cmd_tx.clone()
+    };
+    let _ = cmd_tx.send(acp_bridge::SessionCommand::RespondPermission {
+        request_id: args.request_id,
+        option_id: args.option_id,
+        remember: args.remember,
+    });
+    Ok(())
+}
