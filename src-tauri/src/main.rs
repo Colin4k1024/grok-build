@@ -23,6 +23,7 @@ fn main() {
             commands::session::session_list,
             commands::session::session_list_history,
             commands::session::session_get_history,
+            commands::session::session_set_model,
             commands::config::get_config,
             commands::config::save_config,
             commands::config::save_models,

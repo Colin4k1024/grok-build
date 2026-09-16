@@ -150,3 +150,7 @@ export async function listHistorySessions(): Promise<HistorySession[]> {
 export async function getSessionHistory(sessionId: string, cwd: string): Promise<ChatHistoryEntry[]> {
   return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
 }
+
+export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {
+  return invoke("session_set_model", { args: { session_id: sessionId, model_id: modelId } });
+}

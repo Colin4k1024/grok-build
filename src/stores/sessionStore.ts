@@ -15,6 +15,7 @@ export interface SessionTab {
   title: string;
   cwd: string;
   model: string;
+  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
   createdAt: number;
   lastActiveAt: number;
 }
@@ -33,6 +34,7 @@ interface SessionState {
   reorderTabs: (from: number, to: number) => void;
   updateTabActivity: (id: string) => void;
   setTabModel: (id: string, model: string) => void;
+  setTabEffort: (id: string, effort: SessionTab["reasoningEffort"]) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -102,6 +104,11 @@ export const useSessionStore = create<SessionState>((set) => ({
   setTabModel: (id, model) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, model } : t)),
+    })),
+
+  setTabEffort: (id, effort) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, reasoningEffort: effort } : t)),
     })),
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),

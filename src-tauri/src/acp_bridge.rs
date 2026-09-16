@@ -18,6 +18,7 @@ use xai_grok_shell::agent::config::Config as AgentConfig;
 /// Commands sent to the agent worker thread.
 pub enum SessionCommand {
     SendPrompt { message: String, reply: oneshot::Sender<Result<(), String>> },
+    SetModel { model_id: String, reply: oneshot::Sender<Result<(), String>> },
     Cancel,
     Shutdown,
 }
@@ -254,6 +255,16 @@ async fn run_agent_loop(
                             .map_err(|e| e.to_string());
                         let _ = reply.send(result);
                     }
+                    Some(SessionCommand::SetModel { model_id, reply }) => {
+                        let req = acp::SetSessionModelRequest::new(
+                            new_resp.session_id.clone(),
+                            acp::ModelId::new(model_id.clone()),
+                        );
+                        let result = acp_send(req, &acp_tx).await
+                            .map(|_: acp::SetSessionModelResponse| ())
+                            .map_err(|e| e.to_string());
+                        let _ = reply.send(result);
+                    }
                     Some(SessionCommand::Cancel) => {
                         cancel.cancel();
                     }
@@ -364,6 +375,20 @@ pub async fn send_prompt(handle: &SessionHandle, message: String) -> anyhow::Res
 /// Cancel the current turn.
 pub fn cancel_turn(handle: &SessionHandle) {
     let _ = handle.cmd_tx.send(SessionCommand::Cancel);
+}
+
+/// Change the model for a session via ACP SetSessionModel.
+pub async fn set_model_cmd(
+    cmd_tx: &mpsc::UnboundedSender<SessionCommand>,
+    model_id: String,
+) -> anyhow::Result<()> {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    cmd_tx.send(SessionCommand::SetModel { model_id, reply: reply_tx })
+        .map_err(|_| anyhow::anyhow!("Agent channel closed"))?;
+    reply_rx.await
+        .map_err(|_| anyhow::anyhow!("Agent thread not responding"))?
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(())
 }
 
 #[derive(Default)]

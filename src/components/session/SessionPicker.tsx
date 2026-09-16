@@ -81,6 +81,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
         title: session.title.slice(0, 40) + (session.title.length > 40 ? "…" : ""),
         cwd: session.cwd,
         model: session.model,
+        reasoningEffort: "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });

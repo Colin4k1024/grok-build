@@ -67,7 +67,7 @@ export default function App() {
       listSessions().then((items) => {
         const item = items.find((s) => s.id === detachedSessionId);
         if (item) {
-          addTab({ id: item.id, title: "Detached", cwd: item.cwd, model: "", createdAt: Date.now(), lastActiveAt: Date.now() });
+          addTab({ id: item.id, title: "Detached", cwd: item.cwd, model: "", reasoningEffort: "medium", createdAt: Date.now(), lastActiveAt: Date.now() });
         }
       }).catch(() => {});
     } else {
@@ -93,6 +93,7 @@ export default function App() {
         title: `Session ${tabs.length + 1}`,
         cwd: info.cwd,
         model: info.models[0]?.id || "",
+        reasoningEffort: "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
@@ -126,6 +127,7 @@ export default function App() {
         title: `Fork of ${sourceTab.title}`,
         cwd: info.cwd,
         model: sourceTab.model,
+        reasoningEffort: sourceTab.reasoningEffort,
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });

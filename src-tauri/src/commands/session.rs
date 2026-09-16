@@ -275,3 +275,24 @@ pub async fn session_get_history(session_id: String, cwd: String) -> Result<Vec<
 
     Ok(entries)
 }
+
+#[derive(Debug, Deserialize)]
+pub struct SetModelArgs {
+    pub session_id: String,
+    pub model_id: String,
+}
+
+#[tauri::command]
+pub async fn session_set_model(state: tauri::State<'_, AppState>, args: SetModelArgs) -> Result<(), String> {
+    let cmd_tx = {
+        let sessions = state.pool.sessions.read();
+        sessions
+            .iter()
+            .find(|s| s.id == args.session_id)
+            .ok_or_else(|| format!("Session {} not found", args.session_id))?
+            .cmd_tx.clone()
+    };
+    acp_bridge::set_model_cmd(&cmd_tx, args.model_id)
+        .await
+        .map_err(|e| e.to_string())
+}
