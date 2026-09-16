@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-type ThemeMode = "dark" | "light" | "auto";
+export type ThemeMode = "dark" | "light" | "auto";
 const THEME_KEY = "gb-theme-mode";
 
 function getSystemTheme(): "dark" | "light" {
