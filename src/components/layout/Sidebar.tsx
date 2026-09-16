@@ -8,9 +8,10 @@ interface SidebarProps {
   onForkSession: (id: string) => void;
   onCloseSession: (id: string) => void;
   onOpenSettings: () => void;
+  onOpenDashboard: () => void;
 }
 
-export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings }: SidebarProps) {
+export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard }: SidebarProps) {
   const [activeView, setActiveView] = useState<"sessions" | "settings">("sessions");
 
   if (collapsed) return null;
@@ -27,6 +28,12 @@ export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCl
           onClick={() => setActiveView("sessions")}
         >
           Sessions
+        </button>
+        <button
+          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors text-gb-muted hover:text-gb-text`}
+          onClick={onOpenDashboard}
+        >
+          ◧ Dashboard
         </button>
         <button
           className={`flex-1 px-3 py-2 text-xs font-medium transition-colors text-gb-muted hover:text-gb-text`}

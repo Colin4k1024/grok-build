@@ -15,6 +15,7 @@ import { TabBar } from "./components/session/TabBar";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";
 import { Settings } from "./pages/Settings";
+import { Dashboard } from "./pages/Dashboard";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
@@ -40,6 +41,7 @@ export default function App() {
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
@@ -215,6 +217,15 @@ export default function App() {
     );
   }
 
+  if (showDashboard) {
+    return (
+      <Dashboard
+        onClose={() => setShowDashboard(false)}
+        onOpenSession={() => setShowDashboard(false)}
+      />
+    );
+  }
+
   if (showSettings) {
     return <Settings onClose={() => setShowSettings(false)} />;
   }
@@ -239,6 +250,7 @@ export default function App() {
           onForkSession={handleForkSession}
           onCloseSession={handleCloseSession}
           onOpenSettings={() => setShowSettings(true)}
+          onOpenDashboard={() => setShowDashboard(true)}
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
