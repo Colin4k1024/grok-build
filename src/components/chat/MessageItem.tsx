@@ -1,4 +1,4 @@
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, type CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -24,14 +24,44 @@ function MessageItemImpl({ message }: Props) {
 
   if (isTool) return <ToolCallCard message={message} />;
 
+  // Codex-style conversation blocks:
+  //   - user messages render as a right-aligned superellipse bubble whose
+  //     width is min(70%, 456px) of the thread viewport
+  //   - assistant messages render full-width without a bubble
+  const userBubbleStyle: CSSProperties = {
+    width: "fit-content",
+    maxWidth: "min(70%, 456px)",
+    // Superellipse-ish: bigger corner radius on the user side, smaller on
+    // the side that faces the avatar, giving the Codex "squircle" look.
+    borderRadius: "18px 18px 4px 18px",
+  };
+
   return (
     <>
-      <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"} animate-fade-in`}>
-        <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-medium ${isUser ? "bg-gb-accent text-white" : "bg-gb-surface-hover text-gb-text-secondary"}`}>
+      <div
+        className={`flex gap-3 animate-fade-in ${isUser ? "flex-row-reverse" : "flex-row"}`}
+      >
+        <div
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-medium ${
+            isUser
+              ? "bg-gb-accent text-white"
+              : "bg-gb-surface-hover text-gb-text-secondary"
+          }`}
+        >
           {isUser ? "U" : "G"}
         </div>
-        <div className={`max-w-[80%] ${isUser ? "items-end" : "items-start"}`}>
-          <div className={`rounded-lg px-3.5 py-2 text-[13px] leading-relaxed ${isUser ? "bg-gb-surface text-gb-text" : "text-gb-text"}`}>
+        <div
+          className={isUser ? "flex justify-end" : "flex-1 min-w-0"}
+          style={isUser ? { flex: "1 1 0%", minWidth: 0 } : undefined}
+        >
+          <div
+            className={
+              isUser
+                ? "bg-gb-surface px-3.5 py-2 text-[13px] leading-relaxed text-gb-text"
+                : "px-0 py-0 text-[13px] leading-relaxed text-gb-text"
+            }
+            style={isUser ? userBubbleStyle : undefined}
+          >
             <div className="prose prose-sm prose-invert max-w-none">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -76,11 +106,19 @@ function MessageItemImpl({ message }: Props) {
                 {message.content || ""}
               </ReactMarkdown>
             </div>
-            {message.streaming && <span className="ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-gb-accent" />}
+            {message.streaming && (
+              <span className="ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-gb-accent" />
+            )}
           </div>
         </div>
       </div>
-      {viewingImage && <ImageViewer src={viewingImage.src} alt={viewingImage.alt} onClose={() => setViewingImage(null)} />}
+      {viewingImage && (
+        <ImageViewer
+          src={viewingImage.src}
+          alt={viewingImage.alt}
+          onClose={() => setViewingImage(null)}
+        />
+      )}
     </>
   );
 }
