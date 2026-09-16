@@ -9,8 +9,9 @@ import { WorktreeManager } from "../components/settings/WorktreeManager";
 import { PermissionsManager } from "../components/settings/PermissionsManager";
 import { AgentSettings } from "../components/settings/AgentSettings";
 import { TrustedFoldersManager } from "../components/settings/TrustedFoldersManager";
+import { VoiceSettings } from "../components/settings/VoiceSettings";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "agent" | "trusted" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "agent" | "trusted" | "voice" | "general" | "about";
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   models: "Models",
@@ -22,6 +23,7 @@ const TAB_LABELS: Record<SettingsTab, string> = {
   permissions: "Permissions",
   agent: "Agent",
   trusted: "Trusted Folders",
+  voice: "Voice",
   general: "General",
   about: "About",
 };
@@ -38,6 +40,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   permissions: ["permission", "allow", "deny", "approve", "boundary", "whitelist"],
   agent: ["agent", "subagent", "autonomous", "effort", "reasoning"],
   trusted: ["trust", "folder", "directory", "workspace", "safe"],
+  voice: ["voice", "speech", "stt", "tts", "microphone", "audio"],
   general: ["general", "startup", "autostart", "notification", "update", "shortcut", "tray"],
   about: ["about", "version", "info"],
 };
@@ -119,6 +122,7 @@ export function Settings({ onClose, initialTab }: { onClose: () => void; initial
           {tab === "permissions" && <PermissionsManager />}
           {tab === "agent" && <AgentSettings />}
           {tab === "trusted" && <TrustedFoldersManager />}
+          {tab === "voice" && <VoiceSettings />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && <div className="p-6"><h3 className="mb-2 text-[15px] font-medium">Grok Build</h3><p className="text-[12px] text-gb-muted">Version 0.1.0</p></div>}
         </div>

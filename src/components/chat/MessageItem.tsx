@@ -6,6 +6,7 @@ import { ToolCallCard } from "./ToolCallCard";
 import { ImageViewer } from "./ImageViewer";
 import { CodeBlock } from "./CodeBlock";
 import { DiffViewer } from "./DiffViewer";
+import { MessageReactions } from "./MessageReactions";
 import type { ChatMessage } from "../../stores/sessionStore";
 
 interface Props { message: ChatMessage; }
@@ -41,7 +42,7 @@ function MessageItemImpl({ message }: Props) {
     <>
       <div
         id={`msg-${message.id}`}
-        className={`flex gap-3 animate-fade-in ${isUser ? "flex-row-reverse" : "flex-row"}`}
+        className={`group flex gap-3 animate-fade-in ${isUser ? "flex-row-reverse" : "flex-row"}`}
       >
         <div
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-medium ${
@@ -116,6 +117,7 @@ function MessageItemImpl({ message }: Props) {
             {message.streaming && (
               <span className="ml-0.5 inline-block h-3 w-0.5 animate-pulse bg-gb-accent" />
             )}
+            {!message.streaming && <MessageReactions message={message} />}
           </div>
         </div>
       </div>
