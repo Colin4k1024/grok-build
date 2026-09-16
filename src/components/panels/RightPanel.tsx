@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { SubagentPanel } from "./SubagentPanel";
 import { TodoPanel } from "./TodoPanel";
+import { ThreadSummaryPanel } from "./ThreadSummaryPanel";
 import { getMcpServers, type McpServerInfo } from "../../lib/tauri";
 
 interface RightPanelProps {
@@ -120,21 +121,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
       );
       break;
     case "context":
-      content = (
-        <div className="space-y-3 p-3">
-          <div>
-            <p className="mb-1 text-[10px] uppercase text-gb-muted">Context Window</p>
-            <div className="h-2 overflow-hidden rounded-full bg-gb-bg">
-              <div className="h-full w-0 rounded-full bg-gb-accent" />
-            </div>
-            <p className="mt-1 text-[10px] text-gb-muted">0 / 0 tokens</p>
-          </div>
-          <div>
-            <p className="mb-1 text-[10px] uppercase text-gb-muted">Files in context</p>
-            <p className="text-xs text-gb-muted">None</p>
-          </div>
-        </div>
-      );
+      content = <ThreadSummaryPanel />;
       break;
     case "mcp":
       content = <McpPanel />;

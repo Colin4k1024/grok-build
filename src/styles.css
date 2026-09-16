@@ -105,3 +105,12 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 .gb-mention-file { background: rgba(74, 158, 255, 0.18); }
 .gb-mention-project { background: rgba(52, 211, 153, 0.18); color: rgb(var(--gb-green)); }
 .gb-mention-skill { background: rgba(251, 191, 36, 0.18); color: rgb(var(--gb-yellow)); }
+
+/* Jump-to-message highlight (ISS-009) */
+@keyframes gb-jump-flash {
+  0% { background: rgba(74, 158, 255, 0.18); }
+  100% { background: transparent; }
+}
+.gb-jump-highlight {
+  animation: gb-jump-flash 1.2s ease-out;
+}

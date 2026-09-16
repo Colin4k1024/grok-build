@@ -40,6 +40,7 @@ function MessageItemImpl({ message }: Props) {
   return (
     <>
       <div
+        id={`msg-${message.id}`}
         className={`flex gap-3 animate-fade-in ${isUser ? "flex-row-reverse" : "flex-row"}`}
       >
         <div

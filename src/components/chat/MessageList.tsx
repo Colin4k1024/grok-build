@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { MessageItem } from "./MessageItem";
 import { CompactionMarkerItem } from "./CompactionMarker";
+import { ThreadSearchRail } from "./ThreadSearchRail";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { ChatMessage, CompactionMarker } from "../../stores/sessionStore";
 
@@ -62,6 +63,8 @@ export function MessageList({ messages }: Props) {
 
   return (
     <div className="relative flex-1 overflow-hidden">
+      {/* In-thread search + marker rail (ISS-009) */}
+      <ThreadSearchRail />
       {/* Top fade — visible when there's scrollable content above. */}
       {scrollState.top && (
         <div
