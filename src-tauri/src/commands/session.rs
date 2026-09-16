@@ -121,3 +121,157 @@ pub async fn session_list(state: tauri::State<'_, AppState>) -> Result<Vec<Sessi
         })
         .collect())
 }
+
+// --- Session history ---
+
+#[derive(Debug, Serialize)]
+pub struct HistorySession {
+    pub id: String,
+    pub cwd: String,
+    pub title: String,
+    pub model: String,
+    pub created_at: String,
+    pub last_active_at: String,
+    pub num_messages: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatHistoryEntry {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Deserialize)]
+struct SummaryJson {
+    info: SummaryInfo,
+    #[serde(default)]
+    generated_title: Option<String>,
+    #[serde(default)]
+    session_summary: Option<String>,
+    #[serde(default)]
+    current_model_id: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    last_active_at: Option<String>,
+    #[serde(default)]
+    num_messages: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct SummaryInfo {
+    id: String,
+    cwd: String,
+}
+
+#[derive(Deserialize)]
+struct ChatHistoryLine {
+    #[serde(rename = "type")]
+    line_type: String,
+    #[serde(default)]
+    content: serde_json::Value,
+}
+
+fn extract_text(content: &serde_json::Value) -> String {
+    match content {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) => {
+            let texts: Vec<String> = arr
+                .iter()
+                .filter_map(|item| {
+                    item.get("text")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+            texts.join("\n")
+        }
+        _ => String::new(),
+    }
+}
+
+#[tauri::command]
+pub async fn session_list_history() -> Result<Vec<HistorySession>, String> {
+    let sessions_root = xai_dirs::grok_home().join("sessions");
+    if !sessions_root.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut sessions = Vec::new();
+
+    let cwd_dirs = std::fs::read_dir(&sessions_root)
+        .map_err(|e| format!("Failed to read sessions dir: {e}"))?;
+
+    for cwd_entry in cwd_dirs.flatten() {
+        if !cwd_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let cwd_path = cwd_entry.path();
+        let session_dirs = match std::fs::read_dir(&cwd_path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        for session_entry in session_dirs.flatten() {
+            if !session_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let summary_path = session_entry.path().join("summary.json");
+            let summary_str = match std::fs::read_to_string(&summary_path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let summary: SummaryJson = match serde_json::from_str(&summary_str) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            sessions.push(HistorySession {
+                id: summary.info.id.clone(),
+                cwd: summary.info.cwd.clone(),
+                title: summary
+                    .generated_title
+                    .or(summary.session_summary)
+                    .unwrap_or_else(|| "Untitled".to_string()),
+                model: summary.current_model_id.unwrap_or_default(),
+                created_at: summary.created_at.unwrap_or_default(),
+                last_active_at: summary.last_active_at.unwrap_or_default(),
+                num_messages: summary.num_messages.unwrap_or(0),
+            });
+        }
+    }
+
+    // Sort by last_active_at descending
+    sessions.sort_by(|a, b| b.last_active_at.cmp(&a.last_active_at));
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub async fn session_get_history(session_id: String, cwd: String) -> Result<Vec<ChatHistoryEntry>, String> {
+    let sessions_dir = xai_grok_config::sessions_cwd_dir(&cwd);
+    let history_path = sessions_dir.join(&session_id).join("chat_history.jsonl");
+
+    let content = std::fs::read_to_string(&history_path)
+        .map_err(|e| format!("Failed to read chat history: {e}"))?;
+
+    let mut entries = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let parsed: ChatHistoryLine = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Only show user and assistant messages (skip system)
+        if parsed.line_type == "system" {
+            continue;
+        }
+        entries.push(ChatHistoryEntry {
+            role: parsed.line_type.clone(),
+            content: extract_text(&parsed.content),
+        });
+    }
+
+    Ok(entries)
+}

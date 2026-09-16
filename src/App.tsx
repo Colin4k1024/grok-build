@@ -10,6 +10,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
 import { TabBar } from "./components/session/TabBar";
+import { SessionPicker } from "./components/session/SessionPicker";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions,
@@ -30,6 +31,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
@@ -223,13 +225,21 @@ export default function App() {
           {tabs.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center">
               <p className="mb-3 text-sm text-gb-muted">No active sessions</p>
-              <button
-                className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40"
-                onClick={handleNewSession}
-                disabled={creating}
-              >
-                {creating ? "Starting..." : "+ New Session"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40"
+                  onClick={handleNewSession}
+                  disabled={creating}
+                >
+                  {creating ? "Starting..." : "+ New Session"}
+                </button>
+                <button
+                  className="rounded-lg border border-gb-border px-4 py-2 text-sm font-medium text-gb-muted hover:bg-gb-surface hover:text-gb-text"
+                  onClick={() => setShowPicker(true)}
+                >
+                  ↻ Restore
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -254,6 +264,10 @@ export default function App() {
         sessionCount={tabs.length}
         streaming={isStreaming}
       />
+
+      {showPicker && (
+        <SessionPicker onClose={() => setShowPicker(false)} />
+      )}
 
       {confirmClose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

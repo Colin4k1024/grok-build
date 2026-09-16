@@ -106,3 +106,26 @@ export async function openSessionInNewWindow(sessionId: string, title: string): 
     console.error("Failed to create window:", e);
   });
 }
+
+export interface HistorySession {
+  id: string;
+  cwd: string;
+  title: string;
+  model: string;
+  created_at: string;
+  last_active_at: string;
+  num_messages: number;
+}
+
+export interface ChatHistoryEntry {
+  role: string;
+  content: string;
+}
+
+export async function listHistorySessions(): Promise<HistorySession[]> {
+  return invoke<HistorySession[]>("session_list_history");
+}
+
+export async function getSessionHistory(sessionId: string, cwd: string): Promise<ChatHistoryEntry[]> {
+  return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
+}
