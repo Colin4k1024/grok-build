@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useTabShortcuts } from "./hooks/useTabShortcuts";
@@ -26,10 +26,12 @@ import { useAutoReconnect } from "./hooks/useAutoReconnect";
 import { useAutoSave } from "./hooks/useAutoSave";
 import {
   createSession, sendMessage, cancelSession, closeSession,
-  getAuthStatus, logout, getConfig, listSessions,
+  getAuthStatus, logout, getConfig, listSessions, compactSession,
+  setSessionModel,
   type AuthStatus, type ConfigSnapshot,
   onTrayAction, onConfigChanged,
 } from "./lib/tauri";
+import type { Command } from "./components/layout/CommandPalette";
 
 export default function App() {
   useAcpEventListener();
@@ -269,6 +271,52 @@ export default function App() {
     void newCwd;
   }, [activeSessionId]);
 
+  // Commands surfaced in the command palette: per-session switches (open any
+  // open tab, jump to a recent model), plus global navigation helpers. The
+  // palette's built-ins (New Session / Close / Compact / Settings / Dashboard /
+  // toggle sidebars) are supplied via the dedicated onX props below.
+  const paletteCommands: Command[] = useMemo(() => {
+    const cmds: Command[] = [];
+
+    // Switch to each open session.
+    for (const tab of tabs) {
+      cmds.push({
+        id: `switch-${tab.id}`,
+        title: `Switch to: ${tab.title}`,
+        category: "Session",
+        action: () => setActiveSession(tab.id),
+      });
+    }
+
+    // Set model on the active session.
+    if (activeSessionId && config) {
+      const activeTab = tabs.find((t) => t.id === activeSessionId);
+      for (const m of config.models.filter((mm) => !mm.hidden)) {
+        if (m.id === activeTab?.model) continue;
+        cmds.push({
+          id: `model-${m.id}`,
+          title: `Use model: ${m.name}`,
+          category: "Model",
+          action: () => {
+            if (!activeSessionId) return;
+            useSessionStore.getState().setTabModel(activeSessionId, m.id);
+            setSessionModel(activeSessionId, m.id).catch(console.error);
+          },
+        });
+      }
+    }
+
+    // Go home (fresh composer).
+    cmds.push({
+      id: "go-home",
+      title: "Go Home",
+      category: "Navigation",
+      action: () => setShowHome(true),
+    });
+
+    return cmds;
+  }, [tabs, activeSessionId, config, setActiveSession]);
+
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
   if (!auth) {
     return (
@@ -428,14 +476,14 @@ export default function App() {
       )}
 
       <CommandPalette
-        commands={[]}
+        commands={paletteCommands}
         onNewSession={handleNewSession}
         onOpenSettings={() => setShowSettings(true)}
         onOpenDashboard={() => setShowDashboard(true)}
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
-        onCompact={() => {}}
+        onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}
       />
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
