@@ -132,6 +132,10 @@ fn main() {
             commands::mcp::save_mcp_server,
             commands::mcp::delete_mcp_server,
             commands::mcp::toggle_mcp_server,
+            commands::worktree::git_worktree_list,
+            commands::worktree::git_worktree_add,
+            commands::worktree::git_worktree_remove,
+            commands::worktree::git_list_branches,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

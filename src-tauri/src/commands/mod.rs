@@ -6,3 +6,4 @@ pub mod apikey;
 pub mod autostart;
 
 pub mod mcp;
+pub mod worktree;

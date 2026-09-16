@@ -249,3 +249,28 @@ export async function deleteMcpServer(name: string): Promise<void> {
 export async function toggleMcpServer(name: string, enabled: boolean): Promise<void> {
   return invoke("toggle_mcp_server", { name, enabled });
 }
+
+// --- Git Worktree ---
+
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  is_main: boolean;
+}
+
+export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
+  return invoke<WorktreeInfo[]>("git_worktree_list", { cwd });
+}
+
+export async function addWorktree(cwd: string, branch: string, path: string, newBranch: boolean): Promise<string> {
+  return invoke<string>("git_worktree_add", { args: { cwd, branch, path, new_branch: newBranch } });
+}
+
+export async function removeWorktree(cwd: string, path: string, force: boolean): Promise<void> {
+  return invoke("git_worktree_remove", { args: { cwd, path, force } });
+}
+
+export async function listBranches(cwd: string): Promise<string[]> {
+  return invoke<string[]>("git_list_branches", { cwd });
+}

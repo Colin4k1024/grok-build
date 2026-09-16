@@ -4,8 +4,9 @@ import { ApiKeyManager } from "../components/settings/ApiKeyManager";
 import { GeneralSettings } from "../components/settings/GeneralSettings";
 import { McpManager } from "../components/settings/McpManager";
 import { PluginManager } from "../components/settings/PluginManager";
+import { WorktreeManager } from "../components/settings/WorktreeManager";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "general" | "about";
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("models");
@@ -15,6 +16,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
     { id: "apikeys", label: "API Keys" },
     { id: "mcp", label: "MCP Servers" },
     { id: "plugins", label: "Plugins" },
+    { id: "worktrees", label: "Worktrees" },
     { id: "general", label: "General" },
     { id: "about", label: "About" },
   ];
@@ -55,6 +57,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           {tab === "apikeys" && <ApiKeyManager />}
           {tab === "mcp" && <McpManager />}
           {tab === "plugins" && <PluginManager />}
+          {tab === "worktrees" && <WorktreeManager />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && (
             <div className="p-4">
