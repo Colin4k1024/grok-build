@@ -122,7 +122,7 @@ export function ToolCallCard({ message }: Props) {
           <span className={`shrink-0 text-[10px] ${statusColor}`}>failed</span>
         )}
       </button>
-      {expanded && message.content && (
+      {expanded && (message.content || (message as ChatMessage & { toolInput?: string }).toolInput) && (
         <div className="border-t border-gb-border/8">
           {/* Input section if the message carries a separate input payload. */}
           {(message as ChatMessage & { toolInput?: string }).toolInput && (
@@ -133,16 +133,18 @@ export function ToolCallCard({ message }: Props) {
               </pre>
             </div>
           )}
-          <div className="p-2">
-            <p className="mb-1 px-1 text-[9px] font-medium uppercase text-gb-muted">Output</p>
-            {isTerminal ? (
-              <TerminalView content={message.content} />
-            ) : (
-              <pre className="max-h-64 overflow-auto rounded bg-black/25 p-2.5 text-[12px] text-gb-text-secondary">
-                <code>{message.content}</code>
-              </pre>
-            )}
-          </div>
+          {message.content && (
+            <div className="p-2">
+              <p className="mb-1 px-1 text-[9px] font-medium uppercase text-gb-muted">Output</p>
+              {isTerminal ? (
+                <TerminalView content={message.content} />
+              ) : (
+                <pre className="max-h-64 overflow-auto rounded bg-black/25 p-2.5 text-[12px] text-gb-text-secondary">
+                  <code>{message.content}</code>
+                </pre>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

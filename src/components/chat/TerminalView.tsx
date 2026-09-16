@@ -18,22 +18,23 @@ export function TerminalView({ content }: Props) {
   const fitRef = useRef<FitAddon | null>(null);
   const [fontSize, setFontSize] = useState(BASE_FONT_SIZE);
 
-  // Cmd/Ctrl+= / Cmd/Ctrl+- to zoom the terminal font.
+  // Cmd/Ctrl+= / Cmd/Ctrl+- to zoom the terminal font. Pure state update;
+  // the xterm mutation happens in a separate effect that watches fontSize.
   const handleZoom = useCallback((delta: number) => {
-    setFontSize((prev) => {
-      const next = Math.min(MAX_FONT, Math.max(MIN_FONT, prev + delta));
-      if (termRef.current) {
-        termRef.current.options.fontSize = next;
-        // Refit after the size change so rows/cols stay correct.
-        try {
-          fitRef.current?.fit();
-        } catch {
-          /* noop */
-        }
-      }
-      return next;
-    });
+    setFontSize((prev) => Math.min(MAX_FONT, Math.max(MIN_FONT, prev + delta)));
   }, []);
+
+  // Apply fontSize changes to the live xterm instance, then refit.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontSize = fontSize;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      /* noop */
+    }
+  }, [fontSize]);
 
   useEffect(() => {
     if (!containerRef.current) return;
