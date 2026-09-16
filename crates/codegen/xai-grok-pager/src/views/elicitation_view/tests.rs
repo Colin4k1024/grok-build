@@ -44,7 +44,9 @@ fn url_req(url: &str) -> McpElicitExtRequest {
 
 fn set_draft(state: &mut ElicitationViewState, idx: usize, draft: &str) {
     let form = state.form_mut().expect("form stage");
-    form.fields[idx].set_draft(draft);
+    if let Some(field) = form.fields.get_mut(idx) {
+        field.set_draft(draft);
+    }
 }
 
 fn buffer_text(buf: &Buffer) -> String {
@@ -74,14 +76,22 @@ fn form_accept_requires_email() {
     let mut state = ElicitationViewState::from_request(form_req(), None, None);
     assert!(state.try_accept().is_none());
     assert!(
-        state.form().unwrap().fields[0].error.is_some(),
+        state
+            .form()
+            .unwrap()
+            .fields
+            .first()
+            .is_some_and(|f| f.error.is_some()),
         "failed accept must set the field error"
     );
     set_draft(&mut state, 0, "a@b.com");
     let resp = state.try_accept().expect("accept");
     match resp {
         McpElicitExtResponse::Accept { content } => {
-            assert_eq!(content.unwrap()["email"], "a@b.com");
+            assert_eq!(
+                content.unwrap().get("email").and_then(|v| v.as_str()),
+                Some("a@b.com")
+            );
         }
         _ => panic!("expected accept"),
     }
@@ -130,12 +140,14 @@ fn server_escapes_never_reach_the_buffer() {
         }
     }
     assert_eq!(state.message, "read]52;c;c3RvbGVuthis");
-    let field = &state.form().unwrap().fields[0];
+    let Some(field) = state.form().unwrap().fields.first() else {
+        panic!("expected a field");
+    };
     assert_eq!(field.spec.title, "Ti[31mtle");
     let ElicitFieldKind::SingleSelect { ref options, .. } = field.spec.kind else {
         panic!("expected single-select field");
     };
-    assert_eq!(options[0].label, "o]52;c;xk");
+    assert_eq!(options.first().map(|o| o.label.as_str()), Some("o]52;c;xk"));
 }
 
 #[test]
@@ -144,7 +156,10 @@ fn append_char_rejects_control_and_unsafe_chars() {
     for c in "a\x1b@\u{202E}b\r".chars() {
         state.append_char(c);
     }
-    assert_eq!(state.form().unwrap().fields[0].draft(), "a@b");
+    assert_eq!(
+        state.form().unwrap().fields.first().map(|f| f.draft()),
+        Some("a@b")
+    );
 }
 
 fn two_field_req() -> McpElicitExtRequest {
@@ -367,8 +382,7 @@ fn url_check_rejects_unsafe_and_malformed() {
 fn url_check_flags_punycode_hosts() {
     let display = check_elicit_url("https://xn--80ak6aa92e.com/login").unwrap();
     assert!(display.punycode_host);
-    // The url crate normalizes Unicode hosts to Punycode, so spoofable
-    // Unicode domains render in their Punycode form and get flagged.
+    // The url crate normalizes Unicode hosts to Punycode, so spoofable Unicode domains render in their Punycode form and get flagged
     let display = check_elicit_url("https://аррӏе.com/login").unwrap();
     assert!(display.punycode_host, "IDN host must normalize + flag");
 }
@@ -446,8 +460,7 @@ fn url_accept_transitions_to_waiting_and_keeps_id() {
         resp,
         McpElicitExtResponse::Accept { content: None }
     ));
-    // No live responder in this fixture: delivery reports false, and the
-    // caller (the key handler) would dismiss instead of entering waiting.
+    // No live responder in this fixture: delivery reports false, and the caller (the key handler) would dismiss instead of entering waiting
     assert!(!state.send_response(resp));
     state.begin_url_waiting();
     assert!(state.is_url_waiting());
@@ -497,14 +510,22 @@ fn multi_select_toggles_and_submits_array() {
     let McpElicitExtResponse::Accept { content } = resp else {
         panic!("expected accept");
     };
-    assert_eq!(content.unwrap()["countries"], json!(["us", "de"]));
+    assert_eq!(
+        content.unwrap().get("countries"),
+        Some(&json!(["us", "de"]))
+    );
 }
 
 #[test]
 fn multi_select_min_items_blocks_accept() {
     let mut state = ElicitationViewState::from_request(multi_select_req(), None, None);
     assert!(state.try_accept().is_none());
-    let err = state.form().unwrap().fields[0].error.clone();
+    let err = state
+        .form()
+        .unwrap()
+        .fields
+        .first()
+        .and_then(|f| f.error.clone());
     assert_eq!(err.as_deref(), Some("select at least 1"));
 }
 
@@ -539,7 +560,10 @@ fn integer_field_submits_lossless_i64() {
     let McpElicitExtResponse::Accept { content } = state.try_accept().expect("accept") else {
         panic!("expected accept");
     };
-    assert_eq!(content.unwrap()["id"], 9007199254740993_i64);
+    assert_eq!(
+        content.unwrap().get("id").and_then(|v| v.as_i64()),
+        Some(9007199254740993_i64)
+    );
 
     set_draft(&mut state, 0, "1e20");
     assert!(state.try_accept().is_none(), "1e20 is not an integer");

@@ -102,8 +102,8 @@ Rename the current session. Alias: `/title`.
 Switch models. Accepts a model ID or display name (case-insensitive), and for reasoning models you can add an effort level as a second argument. Alias: `/m`.
 
 ```
-/model grok-build
-/model Grok Build
+/model grok-4.6
+/model Grok 4.6
 /model Reasoning X high
 ```
 
@@ -179,10 +179,13 @@ Open a preview of the current saved plan. Aliases: `/show-plan`, `/plan-view`.
 ### `/memory`
 
 Browse, view, and manage saved memories. Pass `on` or `off` to enable or disable memory. Alias: `/mem`.
+In a memory-v2 session, pass `status` to show content-free queue, lease,
+retention, and pinned-rollout diagnostics.
 
 ```
 /memory
 /memory off
+/memory status
 ```
 
 ### `/flush`
@@ -328,7 +331,7 @@ Switch the color theme. Alias: `/t`.
 
 ### `/feedback [message]`
 
-Report an issue or send feedback. Opens a report pane: `Enter` sends, `Esc` discards. A message prefills the pane so you can edit before sending. In `--minimal`, a message still sends immediately.
+Report an issue or send feedback. Bare `/feedback` opens the feedback form in every mode, including `--minimal`. Its **Write** tab is a report box: `Enter` sends, `Esc` closes. Its **Drafts** tab (`Ctrl+Tab` switches) holds reports saved for later — failed sends and feedback the agent drafted for you — and `Enter` loads one into Write so you can review, pick a type, and send it. `/feedback <message>` sends the message immediately, in any mode; if the send fails, the message is saved to Drafts.
 
 ```
 /feedback
@@ -339,8 +342,11 @@ Report an issue or send feedback. Opens a report pane: `Enter` sends, `Esc` disc
 
 Send an aside to the agent without interrupting the current task. In minimal mode (`--minimal`), the answer shows up in a dismissible panel above the prompt: `Esc` dismisses it, a finished answer is saved into native scrollback, and a late reply to an already-dismissed panel is dropped. The side question and its answer aren't part of the main turn.
 
+`/btw` can also appear mid-message: the whole message (minus the token) becomes the side question and nothing goes to the main turn. Only `/btw` works this way; other commands must start the message.
+
 ```
 /btw also check the error handling
+fix the retry loop first. /btw what does WBC stand for?
 ```
 
 ### `/mcps`
@@ -418,6 +424,10 @@ View credit usage or manage billing. Alias: `/cost`.
 /usage manage
 ```
 
+Inside a session this opens the usage modal with the account allowance plus that session's context and token totals. From the [Agent Dashboard](23-dashboard.md#dispatch-input) the same modal opens over the dashboard; there is no session there, so only the **Usage limit** tab carries data.
+
+For persisted per-turn token and cost totals of any local session, use `grok usage <session-id> [turn]` from the shell. See [Session Management](17-sessions.md#the-grok-usage-subcommand).
+
 ### `/privacy`
 
 Open Settings on **Coding data, retention, and training**, where you choose
@@ -427,7 +437,7 @@ Open Settings on **Coding data, retention, and training**, where you choose
 /privacy
 ```
 
-This setting doesn't touch `[features] telemetry`, `trace_upload`, or your external OTEL settings — see [Monitoring Usage](24-monitoring-usage.md#related-settings). On team accounts only a team admin can change it, and admins can also enable or disable Zero Data Retention for the team ([how to enable ZDR](https://docs.x.ai/developers/faq/security#how-to-enable-zdr)). When the choice isn't yours to make, the row says so — `ZDR` or `· Admin Managed` — instead of opening the chooser.
+This setting doesn't touch `[features] telemetry`, `trace_upload`, or your external OTEL settings — see [Monitoring Usage](24-monitoring-usage.md#related-settings). On team accounts only a team admin can change it, and admins can also enable or disable Zero Data Retention for the team ([how to enable ZDR](https://docs.x.ai/developers/faq/security#how-to-enable-zdr)). When the choice isn't yours to make, the row says so — `ZDR` or `· Admin Managed` — instead of opening the chooser. ZDR locks coding-data sharing; it does not mute external OTEL or `user.email` — see [ZDR and this stream](24-monitoring-usage.md#zdr-and-this-stream).
 
 ---
 

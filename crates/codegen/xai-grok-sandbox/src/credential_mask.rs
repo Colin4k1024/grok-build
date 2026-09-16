@@ -426,11 +426,11 @@ fn replace_in_bytes(haystack: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
 /// Expand `~` in a path relative to the workspace (not the user home).
 fn expand_tilde(path: &str, _workspace: &Path) -> PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
-        dirs::home_dir()
+        xai_dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("/"))
             .join(rest)
     } else if path == "~" {
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+        xai_dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
     } else {
         PathBuf::from(path)
     }

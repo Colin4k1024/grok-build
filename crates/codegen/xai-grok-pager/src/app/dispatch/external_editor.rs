@@ -1,5 +1,3 @@
-//! Pure dispatch preparation for external prompt editing.
-
 use crate::app::actions::Effect;
 use crate::app::agent_view::ExternalPromptEditorAccess;
 use crate::app::app_view::{ActiveView, AppView, VoiceTarget};
@@ -37,7 +35,7 @@ pub(super) fn dispatch_edit_prompt_external(app: &mut AppView) -> Vec<Effect> {
 
     app.pending_editor = Some(PendingEditorRequest::PromptDraft {
         agent_id,
-        original_text: app.agents[&agent_id].prompt.text().to_owned(),
+        original_text: agent.prompt.text().to_owned(),
     });
     vec![]
 }

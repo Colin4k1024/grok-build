@@ -1,9 +1,6 @@
-//! Picker rows for the extensions modal's Workflows tab.
-
 use super::{TabDataState, WorkflowInfo, cmp_str_ci, fuzzy_matches};
 
-/// Placeholder row when the catalog comes back empty (also what a disabled
-/// workflows feature looks like on the wire, hence the hedged phrasing).
+/// Placeholder row when the catalog comes back empty (also what a disabled workflows feature looks like on the wire, hence the hedged phrasing).
 pub(super) const WORKFLOWS_EMPTY_PLACEHOLDER: &str =
     "No workflows available. Ask Grok to help make you one!";
 
@@ -30,9 +27,8 @@ impl WorkflowRow {
     }
 }
 
-/// Build the Workflows-tab rows, A–Z by name, fuzzy-filtered on
-/// name+description like the Hooks/Plugins tabs. An empty catalog yields a
-/// single dimmed placeholder row; an error yields a dimmed error row.
+/// Build the Workflows-tab rows, A-Z by name, fuzzy-filtered on name and description like the Hooks/Plugins tabs.
+/// An empty catalog yields a single dimmed placeholder row; an error yields a dimmed error row.
 pub(super) fn build_workflows_picker_rows(
     data: &TabDataState<Vec<WorkflowInfo>>,
     query: &str,
@@ -40,7 +36,7 @@ pub(super) fn build_workflows_picker_rows(
     let workflows = match data {
         TabDataState::Loaded(workflows) => workflows,
         TabDataState::Error(msg) => return vec![WorkflowRow::notice(format!("Error: {msg}"))],
-        // The render gate skips entry building while loading.
+        // The render path never builds entries while the tab loads; it shows a spinner instead
         TabDataState::Loading => return Vec::new(),
     };
     if workflows.is_empty() {
@@ -105,11 +101,14 @@ mod tests {
         let by_desc = build_workflows_picker_rows(&workflows, "ci");
         assert_eq!(labels(&by_desc), ["alpha-wf"]);
         assert_eq!(
-            by_desc[0].fields,
-            [(
-                "path".to_string(),
-                "/home/u/.grok/workflows/alpha-wf.rhai".to_string()
-            )]
+            by_desc.first().map(|r| r.fields.as_slice()),
+            Some(
+                [(
+                    "path".to_string(),
+                    "/home/u/.grok/workflows/alpha-wf.rhai".to_string()
+                )]
+                .as_slice()
+            )
         );
         let by_name = build_workflows_picker_rows(&workflows, "beta");
         assert_eq!(labels(&by_name), ["beta-wf"]);
@@ -127,11 +126,11 @@ mod tests {
     fn error_and_loading_states_build_their_own_rows() {
         let error = build_workflows_picker_rows(&TabDataState::Error("boom".into()), "");
         assert_eq!(labels(&error), ["Error: boom"]);
-        assert!(error[0].dimmed);
+        assert!(error.first().is_some_and(|r| r.dimmed));
         let loading = build_workflows_picker_rows(&TabDataState::Loading, "");
         assert!(loading.is_empty());
         let empty = build_workflows_picker_rows(&TabDataState::Loaded(vec![]), "");
         assert_eq!(labels(&empty), [WORKFLOWS_EMPTY_PLACEHOLDER]);
-        assert!(empty[0].dimmed);
+        assert!(empty.first().is_some_and(|r| r.dimmed));
     }
 }
