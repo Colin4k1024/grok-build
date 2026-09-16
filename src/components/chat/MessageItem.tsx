@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { ToolCallCard } from "./ToolCallCard";
 import type { ChatMessage } from "../../stores/sessionStore";
 
 interface Props {
@@ -12,24 +13,7 @@ export function MessageItem({ message }: Props) {
   const isTool = message.role === "tool";
 
   if (isTool) {
-    return (
-      <div className="my-2 rounded border border-gb-border bg-gb-surface/50 p-3">
-        <div className="flex items-center gap-2 text-xs text-gb-muted">
-          <span className="font-mono">🔧 {message.toolName || "tool"}</span>
-          {message.toolSuccess === false && (
-            <span className="text-gb-red">✗ failed</span>
-          )}
-          {message.toolSuccess === true && (
-            <span className="text-gb-green">✓</span>
-          )}
-        </div>
-        {message.content && (
-          <pre className="mt-2 max-h-48 overflow-auto rounded bg-gb-bg p-2 text-xs text-gb-muted">
-            <code>{message.content}</code>
-          </pre>
-        )}
-      </div>
-    );
+    return <ToolCallCard message={message} />;
   }
 
   return (
