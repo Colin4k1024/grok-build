@@ -1,0 +1,31 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod acp_bridge;
+mod commands;
+mod state;
+
+use state::AppState;
+
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            commands::session::session_create,
+            commands::session::session_send,
+            commands::session::session_cancel,
+            commands::session::session_close,
+            commands::config::get_config,
+            commands::config::save_config,
+            commands::auth::check_auth_status,
+            commands::auth::login,
+            commands::auth::logout,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

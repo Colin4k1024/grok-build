@@ -3,3 +3,6 @@
 .DS_Store
 .goto_index.bin
 .mimocode/
+node_modules/
+dist/
+src-tauri/gen/

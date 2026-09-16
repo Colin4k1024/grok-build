@@ -1,0 +1,67 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export interface SessionInfo {
+  id: string;
+  cwd: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  base_url: string;
+  api_backend: string;
+  context_window: number;
+}
+
+export interface ConfigSnapshot {
+  models: ModelInfo[];
+  default_model: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  username: string | null;
+}
+
+export async function createSession(cwd: string): Promise<SessionInfo> {
+  return invoke<SessionInfo>("session_create", { args: { cwd } });
+}
+
+export async function sendMessage(sessionId: string, message: string): Promise<void> {
+  return invoke("session_send", { args: { session_id: sessionId, message } });
+}
+
+export async function cancelSession(sessionId: string): Promise<void> {
+  return invoke("session_cancel", { sessionId });
+}
+
+export async function closeSession(sessionId: string): Promise<void> {
+  return invoke("session_close", { sessionId });
+}
+
+export async function getConfig(): Promise<ConfigSnapshot> {
+  return invoke<ConfigSnapshot>("get_config");
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return invoke<AuthStatus>("check_auth_status");
+}
+
+export function onAcpEvent(
+  handler: (event: AcpEventPayload) => void
+): Promise<UnlistenFn> {
+  return listen<AcpEventPayload>("acp_event", (e) => handler(e.payload));
+}
+
+export interface AcpEventPayload {
+  type: string;
+  session_id?: string;
+  message_id?: string;
+  delta?: string;
+  tool_name?: string;
+  args?: unknown;
+  output?: string;
+  success?: boolean;
+  message?: string;
+}
