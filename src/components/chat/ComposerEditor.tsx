@@ -191,6 +191,10 @@ export function ComposerEditor({
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [isEmpty, setIsEmpty] = useState(true);
+  const disabledRef = useRef(disabled);
+  useEffect(() => {
+    disabledRef.current = disabled;
+  }, [disabled]);
 
   // Latest callbacks via refs so plugins don't capture stale closures.
   const onSubmitRef = useRef(onSubmit);
@@ -267,7 +271,7 @@ export function ComposerEditor({
         view.updateState(newState);
         setIsEmpty(newState.doc.content.size === 0);
       },
-      editable: () => !disabled,
+      editable: () => !disabledRef.current,
     });
 
     viewRef.current = view;
@@ -307,9 +311,12 @@ export function ComposerEditor({
       viewRef.current = null;
     };
     // resetKey forces re-initialization (e.g. after send, parent bumps the key
-    // to clear). We deliberately don't re-run on every render.
+    // to clear). We deliberately don't re-run on every render. `placeholder`
+    // and `disabled` are intentionally excluded — placeholder is set once at
+    // mount; `disabled` is enforced via the `editable` callback reading the
+    // latest prop, which doesn't require rebuilding the editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey, placeholder, disabled]);
+  }, [resetKey]);
 
   return (
     <div
