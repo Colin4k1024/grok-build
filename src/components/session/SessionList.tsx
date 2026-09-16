@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 interface SessionListProps {
   onForkSession: (id: string) => void;
@@ -55,13 +56,32 @@ function highlightMatch(text: string, query: string): ReactNode {
   return parts;
 }
 
+function projectNameFromCwd(cwd: string): string {
+  if (!cwd) return "(no project)";
+  const trimmed = cwd.replace(/[/\\]+$/, "");
+  const parts = trimmed.split(/[/\\]/);
+  return parts[parts.length - 1] || cwd;
+}
+
 export function SessionList({ onForkSession, onCloseSession }: SessionListProps) {
   const tabs = useSessionStore((s) => s.tabs);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
-  const messages = useSessionStore((s) => s.messages);
+  const renameTab = useSessionStore((s) => s.renameTab);
+  const isStreaming = useSessionStore((s) => s.isStreaming);
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("gb-pinned-sessions");
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     if (!search.trim()) return tabs;
@@ -74,36 +94,164 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
     );
   }, [tabs, search]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, SessionTab[]>();
+  // Split pinned vs. unpinned, then group each by cwd.
+  const { pinned, grouped } = useMemo(() => {
+    const pinnedList: SessionTab[] = [];
+    const unpinnedByCwd = new Map<string, SessionTab[]>();
     for (const tab of filtered) {
-      const key = tab.cwd;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(tab);
+      if (pinnedIds.has(tab.id)) {
+        pinnedList.push(tab);
+      } else {
+        const key = tab.cwd;
+        if (!unpinnedByCwd.has(key)) unpinnedByCwd.set(key, []);
+        unpinnedByCwd.get(key)!.push(tab);
+      }
     }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtered]);
+    // Sort groups by project name (not raw cwd) so the UI feels Codex-like.
+    const sorted = Array.from(unpinnedByCwd.entries()).sort((a, b) =>
+      projectNameFromCwd(a[0]).localeCompare(projectNameFromCwd(b[0]))
+    );
+    return { pinned: pinnedList, grouped: sorted };
+  }, [filtered, pinnedIds]);
+
+  const togglePin = useCallback((id: string) => {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem("gb-pinned-sessions", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const toggleGroup = useCallback((cwd: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      return next;
+    });
+  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, tab: SessionTab) => {
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY, tab });
   }, []);
 
-  const handleExport = useCallback((tabId: string) => {
-    const msgs = messages[tabId] || [];
-    const lines = msgs.map((m) => {
-      if (m.role === "user") return `## User\n${m.content}`;
-      if (m.role === "assistant") return `## Assistant\n${m.content}`;
-      return `## Tool: ${m.toolName}\n${m.content}`;
-    });
-    const blob = new Blob([lines.join("\n\n")], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `session-${tabId}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [messages]);
+  const handleExport = useCallback(
+    (tabId: string) => {
+      // Read the messages map imperatively — subscribing to it would re-render
+      // the sidebar on every streamed token.
+      const msgs = useSessionStore.getState().messages[tabId] || [];
+      const lines = msgs.map((m) => {
+        if (m.role === "user") return `## User\n${m.content}`;
+        if (m.role === "assistant") return `## Assistant\n${m.content}`;
+        return `## Tool: ${m.toolName}\n${m.content}`;
+      });
+      const blob = new Blob([lines.join("\n\n")], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `session-${tabId}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    []
+  );
+
+  const handleCopyLink = useCallback(async (tabId: string) => {
+    const link = `grokbuild://session/${tabId}`;
+    try {
+      await writeText(link);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch (e) {
+        console.error("copy link failed:", e);
+      }
+    }
+  }, []);
+
+  const handleOpenInNewWindow = useCallback((tabId: string) => {
+    // detached-window.html handles the `?session=` query and renders the
+    // chat-only view (App.tsx routes it).
+    const url = `/detached-window.html?session=${encodeURIComponent(tabId)}`;
+    window.open(url, "_blank", "width=800,height=600");
+  }, []);
+
+  const startRename = useCallback((tab: SessionTab) => {
+    setRenamingId(tab.id);
+    setRenameValue(tab.title);
+    setMenu(null);
+  }, []);
+
+  const submitRename = useCallback(() => {
+    if (renamingId && renameValue.trim()) {
+      renameTab(renamingId, renameValue.trim());
+    }
+    setRenamingId(null);
+    setRenameValue("");
+  }, [renamingId, renameValue, renameTab]);
+
+  const renderTab = (tab: SessionTab) => (
+    <div
+      key={tab.id}
+      onClick={() => setActiveSession(tab.id)}
+      onContextMenu={(e) => handleContextMenu(e, tab)}
+      className={`group mb-0.5 cursor-pointer rounded-md px-2 py-1.5 text-xs transition-colors ${
+        activeSessionId === tab.id
+          ? "border-l-2 border-gb-accent bg-gb-accent/15"
+          : "border-l-2 border-transparent hover:bg-gb-bg"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-1">
+        {renamingId === tab.id ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitRename();
+              else if (e.key === "Escape") {
+                setRenamingId(null);
+                setRenameValue("");
+              }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 rounded border border-gb-accent/40 bg-gb-bg px-1 text-xs text-gb-text outline-none"
+          />
+        ) : (
+          <>
+            {pinnedIds.has(tab.id) && (
+              <span className="shrink-0 text-[9px] text-gb-accent" title="Pinned">
+                📌
+              </span>
+            )}
+            <span
+              className={`truncate font-medium ${
+                activeSessionId === tab.id ? "text-gb-text" : "text-gb-muted"
+              }`}
+            >
+              {highlightMatch(tab.title, search)}
+            </span>
+          </>
+        )}
+        {tab.id === activeSessionId && isStreaming && (
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" />
+        )}
+      </div>
+      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-gb-muted">
+        <span>{formatRelativeTime(tab.lastActiveAt)}</span>
+        {tab.model && (
+          <>
+            <span className="text-gb-border">·</span>
+            <span className="truncate">{highlightMatch(tab.model, search)}</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
   if (tabs.length === 0) {
     return (
@@ -130,47 +278,46 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto px-1 pb-2">
-        {grouped.map(([cwd, sessions]) => (
-          <div key={cwd} className="mb-3">
-            <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase text-gb-muted">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
-              </svg>
-              <span className="truncate">{highlightMatch(cwd, search)}</span>
-              <span className="ml-auto rounded bg-gb-bg px-1 text-[9px]">{sessions.length}</span>
+        {pinned.length > 0 && (
+          <div className="mb-3">
+            <div className="px-2 py-1 text-[10px] font-medium uppercase text-gb-muted">
+              Pinned
             </div>
-            {sessions.map((tab) => (
-              <div
-                key={tab.id}
-                onClick={() => setActiveSession(tab.id)}
-                onContextMenu={(e) => handleContextMenu(e, tab)}
-                className={`group mb-0.5 cursor-pointer rounded-md px-2 py-1.5 text-xs transition-colors ${
-                  activeSessionId === tab.id
-                    ? "bg-gb-accent/15 border-l-2 border-gb-accent"
-                    : "hover:bg-gb-bg border-l-2 border-transparent"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`truncate font-medium ${activeSessionId === tab.id ? "text-gb-text" : "text-gb-muted"}`}>
-                    {highlightMatch(tab.title, search)}
-                  </span>
-                  {tab.id === activeSessionId && useSessionStore.getState().isStreaming && (
-                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" />
-                  )}
-                </div>
-                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-gb-muted">
-                  <span>{formatRelativeTime(tab.lastActiveAt)}</span>
-                  {tab.model && (
-                    <>
-                      <span className="text-gb-border">·</span>
-                      <span className="truncate">{highlightMatch(tab.model, search)}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+            {pinned.map(renderTab)}
           </div>
-        ))}
+        )}
+
+        {grouped.map(([cwd, sessions]) => {
+          const isCollapsed = collapsedGroups.has(cwd);
+          const projectName = projectNameFromCwd(cwd);
+          return (
+            <div key={cwd} className="mb-3">
+              <button
+                onClick={() => toggleGroup(cwd)}
+                className="flex w-full items-center gap-1 px-2 py-1 text-left text-[10px] font-medium uppercase text-gb-muted hover:text-gb-text"
+                aria-expanded={!isCollapsed}
+              >
+                <svg
+                  width="8"
+                  height="8"
+                  viewBox="0 0 8 8"
+                  fill="currentColor"
+                  className={`shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                >
+                  <path d="M2 1l4 3-4 3V1z" />
+                </svg>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="shrink-0">
+                  <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
+                </svg>
+                <span className="truncate" title={cwd}>
+                  {highlightMatch(projectName, search)}
+                </span>
+                <span className="ml-auto rounded bg-gb-bg px-1 text-[9px]">{sessions.length}</span>
+              </button>
+              {!isCollapsed && sessions.map(renderTab)}
+            </div>
+          );
+        })}
 
         {filtered.length === 0 && (
           <div className="py-4 text-center text-xs text-gb-muted">
@@ -185,34 +332,82 @@ export function SessionList({ onForkSession, onCloseSession }: SessionListProps)
           <div
             className="fixed inset-0 z-40"
             onClick={() => setMenu(null)}
-            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
           />
           <div
-            className="fixed z-50 w-40 rounded-lg border border-gb-border bg-gb-surface py-1 shadow-xl"
+            className="fixed z-50 w-48 rounded-lg border border-gb-border bg-gb-surface py-1 shadow-xl"
             style={{ left: menu.x, top: menu.y }}
           >
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
-              onClick={() => { setActiveSession(menu.tab.id); setMenu(null); }}
+              onClick={() => {
+                setActiveSession(menu.tab.id);
+                setMenu(null);
+              }}
             >
               Switch to
             </button>
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
-              onClick={() => { onForkSession(menu.tab.id); setMenu(null); }}
+              onClick={() => {
+                togglePin(menu.tab.id);
+                setMenu(null);
+              }}
+            >
+              {pinnedIds.has(menu.tab.id) ? "Unpin" : "Pin"}
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
+              onClick={() => startRename(menu.tab)}
+            >
+              Rename
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
+              onClick={() => {
+                onForkSession(menu.tab.id);
+                setMenu(null);
+              }}
             >
               Fork
             </button>
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
-              onClick={() => { handleExport(menu.tab.id); setMenu(null); }}
+              onClick={() => {
+                handleExport(menu.tab.id);
+                setMenu(null);
+              }}
             >
-              Export
+              Export as Markdown
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
+              onClick={() => {
+                handleOpenInNewWindow(menu.tab.id);
+                setMenu(null);
+              }}
+            >
+              Open in new window
+            </button>
+            <button
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
+              onClick={() => {
+                handleCopyLink(menu.tab.id);
+                setMenu(null);
+              }}
+            >
+              Copy link
             </button>
             <div className="my-1 border-t border-gb-border" />
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10"
-              onClick={() => { onCloseSession(menu.tab.id); setMenu(null); }}
+              onClick={() => {
+                onCloseSession(menu.tab.id);
+                setMenu(null);
+              }}
             >
               Delete
             </button>

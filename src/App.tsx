@@ -99,6 +99,30 @@ export default function App() {
         }
       }).catch(() => {});
     } else {
+      // Thread-tab-route-checkpoint: sessionStore persists tabs + activeSessionId
+      // via zustand/persist. On boot, prune tabs whose backend session no longer
+      // exists so we don't render a "ghost" tab that fails on first message.
+      const restored = useSessionStore.getState().tabs;
+      if (restored.length > 0) {
+        listSessions()
+          .then((live) => {
+            const liveIds = new Set(live.map((s) => s.id));
+            const keep = restored.filter((t) => liveIds.has(t.id));
+            if (keep.length !== restored.length) {
+              useSessionStore.setState({
+                tabs: keep,
+                activeSessionId:
+                  keep.find((t) => t.id === useSessionStore.getState().activeSessionId)?.id ??
+                  keep[0]?.id ??
+                  null,
+              });
+            }
+          })
+          .catch(() => {
+            // Backend not up yet — leave the restored tabs alone; they'll fail
+            // gracefully on first message and the user can close them.
+          });
+      }
       getConfig().then(setConfig).catch((e) => setError(String(e)));
     }
   }, [refreshAuth, detachedSessionId, addTab]);

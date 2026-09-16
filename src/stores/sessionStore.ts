@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 export interface ChatMessage {
   id: string;
@@ -102,7 +103,9 @@ function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>()(
+  persist(
+    (set) => ({
   tabs: [],
   activeSessionId: null,
   messages: {},
@@ -127,14 +130,32 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.id === id);
       const newTabs = state.tabs.filter((t) => t.id !== id);
-      const { [id]: _, ...rest } = state.messages;
+      const { [id]: _m, ...restMessages } = state.messages;
+      const { [id]: _pp, ...restPendingPermissions } = state.pendingPermissions;
+      const { [id]: _sa, ...restSubagents } = state.subagents;
+      const { [id]: _td, ...restTodos } = state.todos;
+      const { [id]: _tu, ...restTokenUsage } = state.tokenUsage;
+      const { [id]: _co, ...restCompacting } = state.compacting;
+      const { [id]: _cm, ...restCompactionMarkers } = state.compactionMarkers;
+      const { [id]: _pc, ...restPreCompactSnapshot } = state.preCompactSnapshot;
       let newActive = state.activeSessionId;
       if (state.activeSessionId === id) {
         newActive = newTabs.length > 0
           ? newTabs[Math.min(idx, newTabs.length - 1)].id
           : null;
       }
-      return { tabs: newTabs, messages: rest, activeSessionId: newActive };
+      return {
+        tabs: newTabs,
+        messages: restMessages,
+        pendingPermissions: restPendingPermissions,
+        subagents: restSubagents,
+        todos: restTodos,
+        tokenUsage: restTokenUsage,
+        compacting: restCompacting,
+        compactionMarkers: restCompactionMarkers,
+        preCompactSnapshot: restPreCompactSnapshot,
+        activeSessionId: newActive,
+      };
     }),
 
   renameTab: (id, title) =>
@@ -366,4 +387,17 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: _pc, ...restSnap } = state.preCompactSnapshot;
       return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap };
     }),
-}));
+    }),
+    {
+      name: "gb-session-tabs",
+      storage: createJSONStorage(() => localStorage),
+      version: 1,
+      // Persist only the shell state needed to restore tabs across restarts;
+      // streaming buffers and per-session message contents stay in memory.
+      partialize: (state) => ({
+        tabs: state.tabs,
+        activeSessionId: state.activeSessionId,
+      }),
+    }
+  )
+);
