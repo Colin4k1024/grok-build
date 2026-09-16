@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useTabShortcuts } from "./hooks/useTabShortcuts";
+import { useNotifications } from "./hooks/useNotifications";
 import { useSessionStore } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { PromptInput } from "./components/chat/PromptInput";
@@ -145,6 +146,8 @@ export default function App() {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
   });
+
+  useNotifications();
 
   // Handle tray "new session" action
   useEffect(() => {

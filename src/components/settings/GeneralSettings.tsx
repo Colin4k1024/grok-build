@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
+import { getNotificationEnabled, setNotificationEnabled } from "../../hooks/useNotifications";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [notifEnabled, setNotifEnabled] = useState(getNotificationEnabled());
 
   useEffect(() => {
     isAutostartEnabled()
@@ -47,6 +49,32 @@ export function GeneralSettings() {
             <span
               className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
                 autostart ? "translate-x-4" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </label>
+      </section>
+
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">Notifications</h3>
+        <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
+          <div>
+            <p className="text-xs font-medium text-gb-text">Desktop notifications</p>
+            <p className="mt-0.5 text-[11px] text-gb-muted">Notify when agent replies or needs approval (when window is in background)</p>
+          </div>
+          <button
+            onClick={() => {
+              const val = !notifEnabled;
+              setNotifEnabled(val);
+              setNotificationEnabled(val);
+            }}
+            className={`relative h-5 w-9 rounded-full transition-colors ${
+              notifEnabled ? "bg-gb-accent" : "bg-gb-border"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+                notifEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
           </button>
