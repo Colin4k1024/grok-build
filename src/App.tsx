@@ -278,13 +278,16 @@ export default function App() {
   const paletteCommands: Command[] = useMemo(() => {
     const cmds: Command[] = [];
 
-    // Switch to each open session.
+    // Switch to each open session. Hides Home so the chat view becomes visible.
     for (const tab of tabs) {
       cmds.push({
         id: `switch-${tab.id}`,
         title: `Switch to: ${tab.title}`,
         category: "Session",
-        action: () => setActiveSession(tab.id),
+        action: () => {
+          setActiveSession(tab.id);
+          setShowHome(false);
+        },
       });
     }
 
