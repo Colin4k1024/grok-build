@@ -10,6 +10,13 @@ export interface ChatMessage {
   streaming?: boolean;
 }
 
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "Pending" | "InProgress" | "Completed";
+  priority: string;
+}
+
 export interface Subagent {
   id: string;
   name: string;
@@ -42,6 +49,7 @@ interface SessionState {
   messages: Record<string, ChatMessage[]>;
   pendingPermissions: Record<string, PendingPermission[]>;
   subagents: Record<string, Subagent[]>;
+  todos: Record<string, TodoItem[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -57,6 +65,8 @@ interface SessionState {
   removePendingPermission: (sessionId: string, requestId: string) => void;
   addSubagent: (sessionId: string, subagent: Subagent) => void;
   updateSubagent: (sessionId: string, id: string, updates: Partial<Subagent>) => void;
+  setTodos: (sessionId: string, todos: TodoItem[]) => void;
+  toggleTodo: (sessionId: string, id: string) => void;
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -75,6 +85,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   messages: {},
   pendingPermissions: {},
   subagents: {},
+  todos: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -171,6 +182,23 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
     })),
 
+  setTodos: (sessionId, todos) =>
+    set((state) => ({
+      todos: { ...state.todos, [sessionId]: todos },
+    })),
+
+  toggleTodo: (sessionId, id) =>
+    set((state) => ({
+      todos: {
+        ...state.todos,
+        [sessionId]: (state.todos[sessionId] || []).map((t) =>
+          t.id === id
+            ? { ...t, status: t.status === "Completed" ? "Pending" : "Completed" }
+            : t
+        ),
+      },
+    })),
+
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   addUserMessage: (sessionId, content) =>
@@ -240,6 +268,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       const { [sessionId]: _, ...rest } = state.messages;
       const { [sessionId]: __, ...restPerm } = state.pendingPermissions;
       const { [sessionId]: _sa, ...restSub } = state.subagents;
-      return { messages: rest, pendingPermissions: restPerm, subagents: restSub };
+      const { [sessionId]: _td, ...restTodos } = state.todos;
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos };
     }),
 }));

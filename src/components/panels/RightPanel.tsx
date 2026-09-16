@@ -1,18 +1,20 @@
 import { useState, type ReactNode } from "react";
 import { SubagentPanel } from "./SubagentPanel";
+import { TodoPanel } from "./TodoPanel";
 
 interface RightPanelProps {
   collapsed: boolean;
 }
 
 export function RightPanel({ collapsed }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<"tools" | "subagents" | "diff" | "context">("tools");
+  const [activeTab, setActiveTab] = useState<"tools" | "subagents" | "todo" | "diff" | "context">("tools");
 
   if (collapsed) return null;
 
   const tabs: { id: typeof activeTab; label: string }[] = [
     { id: "tools", label: "Tools" },
     { id: "subagents", label: "Agents" },
+    { id: "todo", label: "TODO" },
     { id: "diff", label: "Diff" },
     { id: "context", label: "Context" },
   ];
@@ -28,6 +30,9 @@ export function RightPanel({ collapsed }: RightPanelProps) {
       break;
     case "subagents":
       content = <SubagentPanel />;
+      break;
+    case "todo":
+      content = <TodoPanel />;
       break;
     case "diff":
       content = (

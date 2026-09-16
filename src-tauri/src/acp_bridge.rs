@@ -53,6 +53,17 @@ pub enum AcpEvent {
         command: String,
         options: Vec<PermissionOption>,
     },
+    PlanUpdate {
+        session_id: String,
+        entries: Vec<PlanEntryDto>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanEntryDto {
+    pub content: String,
+    pub status: String,
+    pub priority: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,6 +396,17 @@ async fn forward_acp_message(
                             });
                         }
                     }
+                }
+                acp::SessionUpdate::Plan(plan) => {
+                    let entries: Vec<PlanEntryDto> = plan.entries.iter().map(|e| PlanEntryDto {
+                        content: e.content.clone(),
+                        status: format!("{:?}", e.status),
+                        priority: format!("{:?}", e.priority),
+                    }).collect();
+                    let _ = event_tx.send(AcpEvent::PlanUpdate {
+                        session_id: session_id.to_string(),
+                        entries,
+                    });
                 }
                 _ => {}
             }

@@ -18,6 +18,7 @@ export function useAcpEventListener() {
   const addPendingPermission = useSessionStore((s) => s.addPendingPermission);
   const addSubagent = useSessionStore((s) => s.addSubagent);
   const updateSubagent = useSessionStore((s) => s.updateSubagent);
+  const setTodos = useSessionStore((s) => s.setTodos);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
@@ -71,6 +72,16 @@ export function useAcpEventListener() {
         case "Error":
           setStreaming(false);
           break;
+        case "PlanUpdate":
+          if (event.entries) {
+            setTodos(sid, event.entries.map((e, i) => ({
+              id: `todo-${i}`,
+              content: e.content,
+              status: e.status as "Pending" | "InProgress" | "Completed",
+              priority: e.priority,
+            })));
+          }
+          break;
         case "PermissionRequest":
           if (event.request_id) {
             addPendingPermission(sid, {
@@ -89,6 +100,6 @@ export function useAcpEventListener() {
     };
   }, [
     appendAssistantText, addToolCall, addToolResult, setStreaming,
-    addPendingPermission, addSubagent, updateSubagent,
+    addPendingPermission, addSubagent, updateSubagent, setTodos,
   ]);
 }
