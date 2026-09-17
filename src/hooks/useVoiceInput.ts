@@ -154,6 +154,7 @@ export function useVoiceInput(
     language,
     setLanguage,
     toggleRecording,
+    startRecording,
     stopRecording,
   };
 }
