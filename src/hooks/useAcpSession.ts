@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { onAcpEvent, type AcpEventPayload } from "../lib/tauri";
+import { onAcpEvent, respondPermission, sendMessage, type AcpEventPayload } from "../lib/tauri";
 import { useSessionStore } from "../stores/sessionStore";
 
 // Tool names that indicate subagent operations
@@ -82,9 +82,10 @@ export function useAcpEventListener() {
           setStreaming(false);
           // If a manual compaction was in progress, mark it complete
           {
-            const compacting = useSessionStore.getState().compacting[sid];
+            const state = useSessionStore.getState();
+            const compacting = state.compacting[sid];
             if (compacting) {
-              const usage = useSessionStore.getState().tokenUsage[sid];
+              const usage = state.tokenUsage[sid];
               setCompacting(sid, false);
               addCompactionMarker(sid, {
                 timestamp: Date.now(),
@@ -92,6 +93,15 @@ export function useAcpEventListener() {
                 tokensAfter: null,
                 summary: null,
               });
+            }
+          }
+          // Codex Tab-queue: fire the next queued prompt, if any.
+          {
+            const next = useSessionStore.getState().shiftQueuedPrompt(sid);
+            if (next) {
+              useSessionStore.getState().addUserMessage(sid, next);
+              setStreaming(true);
+              sendMessage(sid, next).catch(() => setStreaming(false));
             }
           }
           break;
@@ -132,11 +142,29 @@ export function useAcpEventListener() {
           break;
         case "PermissionRequest":
           if (event.request_id) {
+            // Composer approval mode gates the card (codex behavior):
+            // full-access auto-allows, read-only auto-denies; "ask" shows it.
+            const mode = useSessionStore.getState().tabs.find((t) => t.id === sid)?.approvalMode ?? "ask";
+            const options = event.options ?? [];
+            const kind = (o: { kind: string }) => o.kind.toLowerCase();
+            if (mode === "full-access") {
+              const allow = options.find((o) => kind(o).startsWith("allow"));
+              if (allow) {
+                respondPermission(sid, event.request_id, allow.id, false).catch(console.error);
+                break;
+              }
+            } else if (mode === "read-only") {
+              const deny = options.find((o) => kind(o).startsWith("reject") || kind(o).includes("cancel"));
+              if (deny) {
+                respondPermission(sid, event.request_id, deny.id, false).catch(console.error);
+                break;
+              }
+            }
             addPendingPermission(sid, {
               requestId: event.request_id,
               toolName: event.tool_name || "Unknown",
               command: event.command || "",
-              options: event.options || [],
+              options,
             });
           }
           break;
