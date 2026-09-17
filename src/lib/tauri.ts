@@ -401,6 +401,25 @@ export async function listSkills(): Promise<SkillInfo[]> {
   }
 }
 
+// ===== Side panel (Files / Review / Terminal) =====
+
+export interface GitStatusEntry {
+  status: string;
+  file: string;
+}
+
+export async function gitStatus(cwd: string): Promise<GitStatusEntry[]> {
+  return invoke<GitStatusEntry[]>("git_status", { cwd });
+}
+
+export async function gitDiff(cwd: string, path?: string): Promise<string> {
+  return invoke<string>("git_diff", { cwd, path });
+}
+
+export async function runCommand(cwd: string, command: string): Promise<{ stdout: string; stderr: string }> {
+  return invoke<{ stdout: string; stderr: string }>("run_command", { cwd, command });
+}
+
 // ===== Autostart =====
 
 export async function isAutostartEnabled(): Promise<boolean> {
