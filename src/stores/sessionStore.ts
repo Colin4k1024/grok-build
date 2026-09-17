@@ -43,6 +43,9 @@ export interface CompactionMarker {
   rolledBack: boolean;
 }
 
+export type ApprovalMode = "full-access" | "ask" | "read-only";
+export type WorkMode = "local" | "worktree";
+
 export interface SessionTab {
   id: string;
   /** ACP session id of the underlying agent thread — lets a tab survive app
@@ -52,6 +55,14 @@ export interface SessionTab {
   cwd: string;
   model: string;
   reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  /** Codex-style approval gate for tool calls (default "ask"). Optional for
+   *  backward compat with persisted tabs; treat missing as "ask". */
+  approvalMode?: ApprovalMode;
+  /** Where the thread works: current checkout or an isolated worktree.
+   *  Optional for backward compat; treat missing as "local". */
+  workMode?: WorkMode;
+  /** Branch the worktree mode is pinned to. */
+  branch?: string;
   createdAt: number;
   lastActiveAt: number;
 }
@@ -67,6 +78,9 @@ interface SessionState {
   compacting: Record<string, boolean>;
   compactionMarkers: Record<string, CompactionMarker[]>;
   preCompactSnapshot: Record<string, ChatMessage[]>;
+  /** Prompts queued with Tab while a turn is running (codex queue semantics);
+   *  flushed automatically on TurnComplete. */
+  queuedPrompts: Record<string, string[]>;
   isStreaming: boolean;
 
   setActiveSession: (id: string | null) => void;
@@ -83,6 +97,8 @@ interface SessionState {
   setTabModel: (id: string, model: string) => void;
   setTabEffort: (id: string, effort: SessionTab["reasoningEffort"]) => void;
   setTabCwd: (id: string, cwd: string) => void;
+  setTabWorkMode: (id: string, mode: WorkMode, branch?: string) => void;
+  setTabApprovalMode: (id: string, mode: ApprovalMode) => void;
   addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
   removePendingPermission: (sessionId: string, requestId: string) => void;
   addSubagent: (sessionId: string, subagent: Subagent) => void;
@@ -103,6 +119,9 @@ interface SessionState {
   addToolCall: (sessionId: string, toolName: string) => void;
   addToolResult: (sessionId: string, toolName: string, output: string, success: boolean) => void;
   clearMessages: (sessionId: string) => void;
+  enqueueQueuedPrompt: (sessionId: string, text: string) => void;
+  /** Pop the oldest queued prompt (codex Tab-queue flush order). */
+  shiftQueuedPrompt: (sessionId: string) => string | undefined;
 }
 
 // Streaming throttle buffers (module-level for persistence across renders)
@@ -116,7 +135,7 @@ function genId(prefix: string): string {
 
 export const useSessionStore = create<SessionState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
   tabs: [],
   activeSessionId: null,
   messages: {},
@@ -127,6 +146,7 @@ export const useSessionStore = create<SessionState>()(
   compacting: {},
   compactionMarkers: {},
   preCompactSnapshot: {},
+  queuedPrompts: {},
   isStreaming: false,
 
   setActiveSession: (id) => set({ activeSessionId: id }),
@@ -149,6 +169,7 @@ export const useSessionStore = create<SessionState>()(
       const { [id]: _co, ...restCompacting } = state.compacting;
       const { [id]: _cm, ...restCompactionMarkers } = state.compactionMarkers;
       const { [id]: _pc, ...restPreCompactSnapshot } = state.preCompactSnapshot;
+      const { [id]: _qp, ...restQueuedPrompts } = state.queuedPrompts;
       let newActive = state.activeSessionId;
       if (state.activeSessionId === id) {
         newActive = newTabs.length > 0
@@ -165,6 +186,7 @@ export const useSessionStore = create<SessionState>()(
         compacting: restCompacting,
         compactionMarkers: restCompactionMarkers,
         preCompactSnapshot: restPreCompactSnapshot,
+        queuedPrompts: restQueuedPrompts,
         activeSessionId: newActive,
       };
     }),
@@ -224,6 +246,18 @@ export const useSessionStore = create<SessionState>()(
   setTabCwd: (id, cwd) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
+    })),
+
+  setTabWorkMode: (id, mode, branch) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === id ? { ...t, workMode: mode, branch: branch ?? (mode === "local" ? undefined : t.branch) } : t
+      ),
+    })),
+
+  setTabApprovalMode: (id, mode) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, approvalMode: mode } : t)),
     })),
 
   addPendingPermission: (sessionId, perm) =>
@@ -446,6 +480,23 @@ export const useSessionStore = create<SessionState>()(
       },
     })),
 
+  enqueueQueuedPrompt: (sessionId, text) =>
+    set((state) => ({
+      queuedPrompts: {
+        ...state.queuedPrompts,
+        [sessionId]: [...(state.queuedPrompts[sessionId] || []), text],
+      },
+    })),
+
+  shiftQueuedPrompt: (sessionId) => {
+    const queue = get().queuedPrompts[sessionId] || [];
+    if (queue.length === 0) return undefined;
+    set((state) => ({
+      queuedPrompts: { ...state.queuedPrompts, [sessionId]: queue.slice(1) },
+    }));
+    return queue[0];
+  },
+
   clearMessages: (sessionId) =>
     set((state) => {
       const { [sessionId]: _, ...rest } = state.messages;
@@ -456,7 +507,8 @@ export const useSessionStore = create<SessionState>()(
       const { [sessionId]: _co, ...restCompact } = state.compacting;
       const { [sessionId]: _cm, ...restMarkers } = state.compactionMarkers;
       const { [sessionId]: _pc, ...restSnap } = state.preCompactSnapshot;
-      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap };
+      const { [sessionId]: _q, ...restQueued } = state.queuedPrompts;
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap, queuedPrompts: restQueued };
     }),
     }),
     {

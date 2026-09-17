@@ -399,6 +399,33 @@ ipcMain.handle("git_list_branches", async (_e, args: { cwd: string }) => {
   return ok(stdout.split("\n").map((l) => l.trim()).filter(Boolean));
 });
 
+// Workspace file list for the composer's "@" fuzzy file search (tracked files
+// only; capped so huge monorepos don't flood the renderer).
+ipcMain.handle("git_ls_files", async (_e, args: { cwd: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const { stdout } = await execFileAsync("git", ["ls-files"], { cwd, maxBuffer: 16 * 1024 * 1024 });
+  return ok(stdout.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 5000));
+});
+
+// Skill inventory for the composer's "$" trigger — lists ~/.grok/skills/*/
+// directory names (the agent resolves $name to the skill itself).
+ipcMain.handle("skills_list", () => {
+  const root = path.resolve(process.env.GROK_HOME || path.join(os.homedir(), ".grok"), "skills");
+  const out: { name: string; description: string }[] = [];
+  try {
+    if (!fs.existsSync(root)) return ok(out);
+    for (const entry of fs.readdirSync(root, { withFileTypes: true }).slice(0, 500)) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.resolve(root, entry.name);
+      if (!dir.startsWith(root + path.sep)) continue;
+      out.push({ name: entry.name, description: "" });
+    }
+  } catch (e) {
+    console.error("[skills] list failed:", e);
+  }
+  return ok(out);
+});
+
 // --- Autostart (launch at login) ---
 
 ipcMain.handle("is_autostart_enabled", () => ok(app.getLoginItemSettings().openAtLogin));

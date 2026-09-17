@@ -376,6 +376,31 @@ export async function listBranches(cwd: string): Promise<string[]> {
   return invoke<string[]>("git_list_branches", { cwd });
 }
 
+// ===== Composer support (@ files, $ skills) =====
+
+/** Tracked files of the workspace for "@" fuzzy search. */
+export async function listRepoFiles(cwd: string): Promise<string[]> {
+  try {
+    return await invoke<string[]>("git_ls_files", { cwd });
+  } catch {
+    return [];
+  }
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+}
+
+/** Available skill names for the "$" trigger. */
+export async function listSkills(): Promise<SkillInfo[]> {
+  try {
+    return await invoke<SkillInfo[]>("skills_list");
+  } catch {
+    return [];
+  }
+}
+
 // ===== Autostart =====
 
 export async function isAutostartEnabled(): Promise<boolean> {

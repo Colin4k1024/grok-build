@@ -4,7 +4,7 @@ import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useTabShortcuts } from "./hooks/useTabShortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { useTheme } from "./hooks/useTheme";
-import { useSessionStore } from "./stores/sessionStore";
+import { useSessionStore, type SessionTab } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
@@ -31,7 +31,7 @@ import { useAutoSave } from "./hooks/useAutoSave";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions, compactSession,
-  setSessionModel, resumeSession,
+  setSessionModel, resumeSession, addWorktree, listWorktrees,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged,
 } from "./lib/tauri";
@@ -437,6 +437,49 @@ export default function App() {
     finally { setCreating(false); }
   }, [activeSessionId, addTab]);
 
+  // Queue the current draft for the next turn (codex Tab semantics); flushed
+  // automatically by the ACP listener on TurnComplete.
+  const handleQueue = useCallback((text: string) => {
+    if (activeSessionId) useSessionStore.getState().enqueueQueuedPrompt(activeSessionId, text);
+  }, [activeSessionId]);
+
+  // Model/effort from the composer control — persists per tab and applies to
+  // the live agent immediately.
+  const handleModelEffortChange = useCallback((model: string, effort: SessionTab["reasoningEffort"]) => {
+    if (!activeSessionId) return;
+    const store = useSessionStore.getState();
+    store.setTabModel(activeSessionId, model);
+    store.setTabEffort(activeSessionId, effort);
+    setSessionModel(activeSessionId, model).catch((e) => setError(String(e)));
+  }, [activeSessionId]);
+
+  // Work mode: worktree creates an isolated checkout for the picked branch and
+  // re-anchors the session there (reusing the project-switch path); local
+  // switches back to the main checkout.
+  const handleWorkModeChange = useCallback(async (mode: "local" | "worktree", branch?: string) => {
+    if (!activeSessionId) return;
+    const store = useSessionStore.getState();
+    const tab = store.tabs.find((t) => t.id === activeSessionId);
+    if (!tab) return;
+    store.setTabWorkMode(activeSessionId, mode, branch);
+    if (mode === "worktree" && branch) {
+      const segs = tab.cwd.replace(/[/\\]+$/, "").split(/[/\\]/);
+      const repo = segs.pop() || "repo";
+      const parent = segs.join("/") || "/";
+      const wtPath = `${parent}/${repo}-wt-${branch.split("/").pop()}`;
+      try {
+        await addWorktree(tab.cwd, branch, wtPath, true);
+        await handleSwitchProject(wtPath);
+      } catch (e) { setError(String(e)); }
+    } else if (mode === "local") {
+      try {
+        const wts = await listWorktrees(tab.cwd);
+        const main = wts.find((w) => w.is_main);
+        if (main && main.path !== tab.cwd) await handleSwitchProject(main.path);
+      } catch { /* not a git repo — stay put */ }
+    }
+  }, [activeSessionId, handleSwitchProject]);
+
   // Commands surfaced in the command palette: per-session switches (open any
   // open tab, jump to a recent model), plus global navigation helpers. The
   // palette's built-ins (New Session / Close / Compact / Settings / Dashboard /
@@ -575,7 +618,6 @@ export default function App() {
     <div className="flex h-full flex-col text-gb-text">
       <TitleBar
         auth={auth}
-        config={config}
         onLogout={handleLogout}
         onNewSession={handleNewSession}
         creating={creating}
@@ -647,6 +689,10 @@ export default function App() {
                 disabled={false}
                 cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
                 onSwitchProject={handleSwitchProject}
+                config={config}
+                onModelEffortChange={handleModelEffortChange}
+                onWorkModeChange={handleWorkModeChange}
+                onQueue={handleQueue}
               />
             </>
           )}
