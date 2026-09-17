@@ -420,6 +420,11 @@ export async function runCommand(cwd: string, command: string): Promise<{ stdout
   return invoke<{ stdout: string; stderr: string }>("run_command", { cwd, command });
 }
 
+/** Triage Approve — stage all changes and commit on the reviewed branch. */
+export async function gitCommit(cwd: string, message: string): Promise<string> {
+  return invoke<string>("git_commit", { cwd, message });
+}
+
 // ===== Autostart =====
 
 export async function isAutostartEnabled(): Promise<boolean> {

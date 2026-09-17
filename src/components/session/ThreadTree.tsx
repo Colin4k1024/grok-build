@@ -28,6 +28,7 @@ interface ThreadEntry {
 
 const PIN_KEY = "gb-pinned-sessions";
 const ARCHIVE_KEY = "gb-archived-threads";
+const TRIAGE_READ_KEY = "gb-triage-read";
 
 function readIdSet(key: string): Set<string> {
   try {
@@ -36,6 +37,10 @@ function readIdSet(key: string): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+function readStringSet(key: string): Set<string> {
+  return readIdSet(key);
 }
 
 function writeIdSet(key: string, ids: Iterable<string>) {
@@ -74,6 +79,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   const [history, setHistory] = useState<HistorySession[]>([]);
   const [pinned, setPinned] = useState<Set<string>>(() => readIdSet(PIN_KEY));
   const [archived, setArchived] = useState<Set<string>>(() => readIdSet(ARCHIVE_KEY));
+  const [triageRead, setTriageRead] = useState<Set<string>>(() => readStringSet(TRIAGE_READ_KEY));
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; entry: ThreadEntry } | null>(null);
   const [projectMenu, setProjectMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -94,9 +100,11 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
     const onProjectsChanged = () => refreshProjects();
     window.addEventListener("gb-threads-changed", onThreadsChanged);
     window.addEventListener("gb-projects-changed", onProjectsChanged);
+    window.addEventListener("gb-triage-changed", refreshHistory);
     return () => {
       window.removeEventListener("gb-threads-changed", onThreadsChanged);
       window.removeEventListener("gb-projects-changed", onProjectsChanged);
+      window.removeEventListener("gb-triage-changed", refreshHistory);
     };
   }, [refreshHistory, refreshProjects]);
 
@@ -209,6 +217,17 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         const hist = history.find((h) => h.id === e.sessionId);
         if (hist) onResumeThread(hist);
       }
+      // Worktree threads open straight into the review queue.
+      if (/-wt-/.test(e.cwd)) {
+        try {
+          const raw = localStorage.getItem(TRIAGE_READ_KEY);
+          const set = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+          set.add(e.cwd);
+          localStorage.setItem(TRIAGE_READ_KEY, JSON.stringify([...set]));
+          setTriageRead(set);
+          window.dispatchEvent(new CustomEvent("gb-open-review"));
+        } catch { /* storage unavailable */ }
+      }
     },
     [history, onResumeThread, setActiveSession]
   );
@@ -300,6 +319,39 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-2">
+      {/* Triage — worktree threads awaiting review (codex review queue) */}
+      {(() => {
+        const triage = entries.filter((e) => /-wt-/.test(e.cwd) && !streaming[e.tabId ?? ""]);
+        if (triage.length === 0) return null;
+        return (
+          <div className="mb-2">
+            <div className={sectionLabel}>
+              Triage
+              {triage.filter((e) => !triageRead.has(e.cwd)).length > 0 && (
+                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="Unread findings" />
+              )}
+            </div>
+            {triage.map((e) => {
+              const unread = !triageRead.has(e.cwd);
+              return (
+                <div
+                  key={`triage-${e.key}`}
+                  onClick={() => openEntry(e)}
+                  className={`mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                    unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
+                  }`}
+                  title={`${e.title}\n${e.cwd}\nReview the worktree diff`}
+                >
+                  {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-red" />}
+                  <span className="min-w-0 flex-1 truncate">Review: {e.title}</span>
+                  <span className="shrink-0 text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {pinnedEntries.length > 0 && (
         <div className="mb-2">
           <div className={sectionLabel}>Pinned</div>
