@@ -23,6 +23,7 @@ export function useAcpEventListener() {
   const setCompacting = useSessionStore((s) => s.setCompacting);
   const addCompactionMarker = useSessionStore((s) => s.addCompactionMarker);
   const addUserMessage = useSessionStore((s) => s.addUserMessage);
+  const setSessionStreaming = useSessionStore((s) => s.setSessionStreaming);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
@@ -36,7 +37,10 @@ export function useAcpEventListener() {
             appendAssistantText(sid, event.delta);
             // Replay chunks are historical transcript restore, not a live
             // streaming turn — never flip the streaming indicator for them.
-            if (!replay) setStreaming(true);
+            if (!replay) {
+              setStreaming(true);
+              setSessionStreaming(sid, true);
+            }
           }
           break;
         case "UserMessage":
@@ -80,6 +84,7 @@ export function useAcpEventListener() {
           break;
         case "TurnComplete":
           setStreaming(false);
+          setSessionStreaming(sid, false);
           // If a manual compaction was in progress, mark it complete
           {
             const state = useSessionStore.getState();
@@ -101,12 +106,14 @@ export function useAcpEventListener() {
             if (next) {
               useSessionStore.getState().addUserMessage(sid, next);
               setStreaming(true);
+              setSessionStreaming(sid, true);
               sendMessage(sid, next).catch(() => setStreaming(false));
             }
           }
           break;
         case "Error":
           setStreaming(false);
+          setSessionStreaming(sid, false);
           break;
         case "PlanUpdate":
           if (event.entries) {
@@ -177,6 +184,6 @@ export function useAcpEventListener() {
   }, [
     appendAssistantText, addToolCall, addToolResult, setStreaming,
     addPendingPermission, addSubagent, updateSubagent, setTodos, setTokenUsage,
-    setCompacting, addCompactionMarker, addUserMessage,
+    setCompacting, addCompactionMarker, addUserMessage, setSessionStreaming,
   ]);
 }

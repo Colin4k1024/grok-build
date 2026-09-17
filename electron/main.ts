@@ -536,6 +536,13 @@ ipcMain.handle("notification_send", (_e, { title, body }: { title: string; body?
 ipcMain.handle("notification_is_permitted", () => Notification.isSupported());
 ipcMain.handle("notification_request_permission", () => ok("granted"));
 
+// Dock badge — unread approval count (ISS-062).
+ipcMain.handle("set_badge", (_e, args: { count: number }) => {
+  const n = Math.max(0, Math.floor(args?.count ?? 0));
+  if (process.platform === "darwin") app.setBadgeCount(n);
+  return ok(null);
+});
+
 ipcMain.handle("updater_check", () => ok(null)); // no update server configured in dev
 ipcMain.handle("app_relaunch", () => {
   app.relaunch();

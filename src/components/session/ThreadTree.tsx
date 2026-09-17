@@ -67,7 +67,8 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const renameTab = useSessionStore((s) => s.renameTab);
-  const isStreaming = useSessionStore((s) => s.isStreaming);
+  const streaming = useSessionStore((s) => s.streaming);
+  const pendingPermissions = useSessionStore((s) => s.pendingPermissions);
 
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [history, setHistory] = useState<HistorySession[]>([]);
@@ -230,7 +231,10 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
 
   const renderEntry = (e: ThreadEntry) => {
     const isActive = e.tabId && e.tabId === activeSessionId;
-    const running = !!e.tabId && e.tabId === activeSessionId && isStreaming;
+    // Three-state indicator (codex sidebar): running / waiting for approval /
+    // idle. Background threads keep their running flag via per-session state.
+    const running = !!e.tabId && streaming[e.tabId];
+    const waiting = !!e.tabId && (pendingPermissions[e.tabId]?.length ?? 0) > 0;
     return renaming?.key === e.key ? (
       <input
         key={e.key}
@@ -258,12 +262,18 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
           setMenu({ x: ev.clientX, y: ev.clientY, entry: e });
         }}
         className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
-          isActive ? "bg-gb-accent/15 text-gb-text" : "text-gb-text-secondary hover:bg-gb-surface-hover"
+          waiting
+            ? "bg-gb-yellow/10 text-gb-text hover:bg-gb-yellow/15"
+            : isActive
+              ? "bg-gb-accent/15 text-gb-text"
+              : "text-gb-text-secondary hover:bg-gb-surface-hover"
         }`}
-        title={`${e.title}\n${e.cwd}${e.numMessages !== undefined ? `\n${e.numMessages} messages` : ""}`}
+        title={`${e.title}\n${e.cwd}${e.numMessages !== undefined ? `\n${e.numMessages} messages` : ""}${waiting ? "\nWaiting for approval" : ""}`}
       >
         {running ? (
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="Running" />
+        ) : waiting ? (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-yellow" title="Waiting for approval" />
         ) : (
           <span className="h-1.5 w-1.5 shrink-0" />
         )}
