@@ -1,14 +1,19 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSessionStore } from "../stores/sessionStore";
-import { useImagePaste } from "../hooks/useImagePaste";
-import { listHistorySessions, type HistorySession } from "../lib/tauri";
+import { listHistorySessions, pickDirectory, type HistorySession, type ConfigSnapshot } from "../lib/tauri";
+import { PromptInput } from "../components/chat/PromptInput";
+import type { ApprovalMode } from "../stores/sessionStore";
 
 export type ComposerMode = "chat" | "agent";
 
 interface HomeProps {
-  onStart: (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[]) => void;
+  config: ConfigSnapshot | null;
+  onStart: (
+    prompt: string,
+    images: { data: string; mime_type: string }[],
+    prefs: { cwd: string; model: string; approval: ApprovalMode }
+  ) => void;
   onOpenSession: (id: string) => void;
-  /** Resume a persisted thread (session/load) straight from the home list. */
   onResumeThread: (session: HistorySession) => void;
   creating: boolean;
 }
@@ -25,160 +30,82 @@ function formatRelativeTime(ts: number): string {
   return `${days}d ago`;
 }
 
-export function Home({ onStart, onOpenSession, onResumeThread, creating }: HomeProps) {
-  const [text, setText] = useState("");
-  const [mode, setMode] = useState<ComposerMode>("chat");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
+// Codex New-chat screen: one composer (project / model / approval embedded)
+// above the recent-threads list. No mode toggle, no second composer.
+export function Home({ config, onStart, onOpenSession, onResumeThread, creating }: HomeProps) {
   const tabs = useSessionStore((s) => s.tabs);
-  const { images, onDrop, onDragOver, removeImage, clearImages } = useImagePaste();
 
-  // Show the 6 most recently active sessions as a preview strip.
+  const [projectCwd, setProjectCwd] = useState(".");
+  const [model, setModel] = useState("");
+  const [effort, setEffort] = useState<"none" | "minimal" | "low" | "medium" | "high" | "xhigh">("medium");
+  const [approval, setApproval] = useState<ApprovalMode>("ask");
+
+  useEffect(() => {
+    if (!model && config?.models.length) {
+      const def = config.models.find((m) => m.id === config.default_model) ?? config.models[0];
+      if (def) setModel(def.id);
+    }
+  }, [config, model]);
+
+  // Open tabs (live this run)
   const recent = useMemo(
-    () =>
-      [...tabs]
-        .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
-        .slice(0, 6),
+    () => [...tabs].sort((a, b) => b.lastActiveAt - a.lastActiveAt).slice(0, 6),
     [tabs]
   );
 
-  // Persisted threads from disk — codex-style home: pick up any past
-  // conversation, even after a restart.
+  // Persisted threads from disk — pick up any past conversation.
   const [threads, setThreads] = useState<HistorySession[]>([]);
   useEffect(() => {
-    listHistorySessions()
-      .then((list) => setThreads(list.slice(0, 6)))
-      .catch(() => {});
+    listHistorySessions().then((list) => setThreads(list.slice(0, 6))).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  }, [text]);
-
-  const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if ((!trimmed && images.length === 0) || creating) return;
-    const outgoing = images.map((img) => ({ data: img.base64, mime_type: img.mimeType }));
-    onStart(trimmed, mode, outgoing);
-    setText("");
-    clearImages();
-  }, [text, images, creating, mode, onStart, clearImages]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleSend();
-      } else if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [handleSend]
-  );
+  const chooseFolder = async () => {
+    try {
+      const dir = await pickDirectory();
+      if (dir) setProjectCwd(dir);
+    } catch (e) {
+      console.error("[home] pick folder failed:", e);
+    }
+  };
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12">
+    <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-12">
       <div className="w-full max-w-2xl">
         <div className="mb-3 text-center text-gb-brand" aria-hidden>✻</div>
-        <h1 className="mb-2 text-center text-2xl font-semibold text-gb-text">
-          What do you want to build?
-        </h1>
-        <p className="mb-8 text-center text-[13px] text-gb-muted">
-          Start a new session, or pick up a recent one below.
-        </p>
 
-        {/* Floating composer */}
-        <div
-          className="rounded-2xl border border-gb-border/10 bg-gb-surface-solid shadow-2xl"
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-        >
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              mode === "chat"
-                ? "Ask anything… (Enter to send, Shift+Enter for newline)"
-                : "Describe the task; the agent will use tools autonomously…"
-            }
-            disabled={creating}
-            rows={3}
-            className="w-full resize-none bg-transparent px-4 pt-4 text-[14px] leading-relaxed text-gb-text placeholder:text-gb-muted focus:outline-none disabled:opacity-40"
-          />
-
-          {images.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-4 pb-2">
-              {images.map((img) => (
-                <div key={img.id} className="relative">
-                  <img
-                    src={`data:${img.mimeType};base64,${img.base64}`}
-                    alt="attachment"
-                    className="h-14 w-14 rounded border border-gb-border/20 object-cover"
-                  />
-                  <button
-                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-gb-red text-[10px] text-white"
-                    onClick={() => removeImage(img.id)}
-                    aria-label="Remove image"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Composer bottom bar: mode toggle + send */}
-          <div className="flex items-center justify-between border-t border-gb-border/8 px-3 py-2">
-            <div
-              role="tablist"
-              aria-label="Composer mode"
-              className="flex items-center gap-0.5 rounded-md bg-gb-bg p-0.5"
-            >
-              <button
-                role="tab"
-                aria-selected={mode === "chat"}
-                onClick={() => setMode("chat")}
-                className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  mode === "chat"
-                    ? "bg-gb-surface-solid text-gb-text shadow-sm"
-                    : "text-gb-muted hover:text-gb-text"
-                }`}
-              >
-                Chat
-              </button>
-              <button
-                role="tab"
-                aria-selected={mode === "agent"}
-                onClick={() => setMode("agent")}
-                className={`rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  mode === "agent"
-                    ? "bg-gb-surface-solid text-gb-text shadow-sm"
-                    : "text-gb-muted hover:text-gb-text"
-                }`}
-              >
-                Agent
-              </button>
-            </div>
-
-            <button
-              onClick={handleSend}
-              disabled={creating || (!text.trim() && images.length === 0)}
-              className="rounded-md bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-85 disabled:opacity-30"
-            >
-              {creating ? "Starting…" : "Send"}
-            </button>
-          </div>
+        {/* Project title — codex scopes the new chat to a project */}
+        <div className="mb-4 flex items-center justify-center gap-2">
+          <span className="max-w-[300px] truncate text-[13px] font-medium text-gb-text-secondary">
+            {projectCwd === "." ? "No project selected" : projectCwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop()}
+          </span>
+          <button
+            onClick={chooseFolder}
+            className="rounded px-1.5 py-0.5 text-[11px] text-gb-muted transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
+            title="Choose project folder"
+          >
+            {projectCwd === "." ? "Choose folder…" : "Change"}
+          </button>
         </div>
+
+        <PromptInput
+          onSend={(message, images) => onStart(message, images, { cwd: projectCwd, model, approval })}
+          onCancel={() => {}}
+          isStreaming={false}
+          disabled={creating}
+          config={config}
+          home={{
+            cwd: projectCwd,
+            model,
+            effort,
+            approval,
+            onCwdChange: setProjectCwd,
+            onPatch: (patch) => {
+              if (patch.model !== undefined) setModel(patch.model);
+              if (patch.effort !== undefined) setEffort(patch.effort);
+              if (patch.approval !== undefined) setApproval(patch.approval);
+            },
+          }}
+        />
 
         {/* Open tabs (live this run) */}
         {recent.length > 0 && (
@@ -202,13 +129,7 @@ export function Home({ onStart, onOpenSession, onResumeThread, creating }: HomeP
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-gb-muted">
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 10 10"
-                      fill="currentColor"
-                      className="shrink-0 opacity-60"
-                    >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="shrink-0 opacity-60">
                       <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
                     </svg>
                     <span className="truncate">{tab.cwd || "."}</span>
@@ -241,15 +162,7 @@ export function Home({ onStart, onOpenSession, onResumeThread, creating }: HomeP
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-gb-muted">
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 10 10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.2"
-                      className="shrink-0 opacity-60"
-                    >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" className="shrink-0 opacity-60">
                       <path d="M1.5 5s1.5-2.8 3.5-2.8S8.5 5 8.5 5 7 7.8 5 7.8 1.5 5 1.5 5z" />
                       <circle cx="5" cy="5" r="1.2" />
                     </svg>

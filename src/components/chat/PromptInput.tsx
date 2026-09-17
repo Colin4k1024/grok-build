@@ -23,6 +23,19 @@ interface Props {
   onWorkModeChange?: (mode: WorkMode, branch?: string) => void;
   /** Queue the current text for the next turn (codex Tab semantics). */
   onQueue?: (text: string) => void;
+  /**
+   * Home/New-chat variant: no live session exists yet, so the embedded
+   * project / model / approval controls are driven by local state and their
+   * choices ride along with session creation.
+   */
+  home?: {
+    cwd: string;
+    model: string;
+    effort: SessionTabEffort;
+    approval: ApprovalMode;
+    onCwdChange: (cwd: string) => void;
+    onPatch: (patch: { model?: string; effort?: SessionTabEffort; approval?: ApprovalMode }) => void;
+  };
 }
 
 type SessionTabEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -35,7 +48,7 @@ interface Trigger {
 
 export function PromptInput({
   onSend, onCancel, isStreaming, disabled, cwd, onSwitchProject,
-  config, onModelEffortChange, onWorkModeChange, onQueue,
+  config, onModelEffortChange, onWorkModeChange, onQueue, home,
 }: Props) {
   const [text, setText] = useState("");
   const [history, setHistory] = useState<string[]>([]);
@@ -157,7 +170,13 @@ export function PromptInput({
     else if (e.key === "ArrowDown" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (historyIdx === -1) return; const i = historyIdx + 1; if (i >= history.length) { setHistoryIdx(-1); setText(""); } else { setHistoryIdx(i); setText(history[i]); } }
   };
 
-  const showSessionControls = cwd !== undefined && !!activeTab;
+  const showSessionControls = home ? true : cwd !== undefined && !!activeTab;
+  // Control values: live tab in thread view, home state on the home screen.
+  const ctrlCwd = home ? home.cwd : cwd;
+  const ctrlModel = home ? home.model : activeTab?.model;
+  const ctrlEffort = home ? home.effort : activeTab?.reasoningEffort;
+  const ctrlApproval = home ? home.approval : (activeTab?.approvalMode ?? "ask");
+  const ctrlWorkMode = home ? "local" as WorkMode : (activeTab?.workMode ?? "local");
 
   return (
     <div className="relative px-4 pb-3 pt-2" onDrop={onDrop} onDragOver={onDragOver}>
@@ -207,33 +226,39 @@ export function PromptInput({
         <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[13px] text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "Running — Enter injects · Tab queues" : "Send a message… (@ files · $ skills · / commands)"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
-          {showSessionControls && cwd && onSwitchProject && (
-            <ProjectSelector cwd={cwd} onSwitchProject={(p) => onSwitchProject?.(p)} variant="compact" />
+          {showSessionControls && ctrlCwd && onSwitchProject && (
+            <ProjectSelector cwd={ctrlCwd} onSwitchProject={(p) => onSwitchProject?.(p)} variant="compact" />
           )}
-          {showSessionControls && cwd && onWorkModeChange && (
+          {showSessionControls && ctrlCwd && onWorkModeChange && !home && (
             <WorkModeSelect
-              cwd={cwd}
-              mode={activeTab!.workMode ?? "local"}
+              cwd={ctrlCwd}
+              mode={ctrlWorkMode}
               branch={activeTab!.branch}
               onChange={(m, b) => onWorkModeChange(m, b)}
               onError={(msg) => console.error("[workmode]", msg)}
             />
           )}
-          {showSessionControls && cwd && activeTab!.workMode === "worktree" && onWorkModeChange && (
-            <BranchSelect cwd={cwd} branch={activeTab!.branch} onPickBranch={(b) => onWorkModeChange("worktree", b)} />
+          {showSessionControls && ctrlCwd && !home && ctrlWorkMode === "worktree" && onWorkModeChange && (
+            <BranchSelect cwd={ctrlCwd} branch={activeTab!.branch} onPickBranch={(b) => onWorkModeChange("worktree", b)} />
           )}
-          {showSessionControls && config && onModelEffortChange && (
+          {showSessionControls && config && (
             <ModelEffortSelect
               config={config}
-              model={activeTab!.model}
-              effort={activeTab!.reasoningEffort}
-              onChange={(m, e) => onModelEffortChange(m, e)}
+              model={ctrlModel || config.default_model || config.models[0]?.id || ""}
+              effort={ctrlEffort ?? "medium"}
+              onChange={(m, e) => {
+                if (home) home.onPatch({ model: m, effort: e });
+                else onModelEffortChange?.(m, e);
+              }}
             />
           )}
           {showSessionControls && (
             <ApprovalModeSelect
-              mode={activeTab!.approvalMode ?? "ask"}
-              onChange={(m: ApprovalMode) => useSessionStore.getState().setTabApprovalMode(activeSessionId!, m)}
+              mode={ctrlApproval}
+              onChange={(m: ApprovalMode) => {
+                if (home) home.onPatch({ approval: m });
+                else if (activeSessionId) useSessionStore.getState().setTabApprovalMode(activeSessionId, m);
+              }}
             />
           )}
 
