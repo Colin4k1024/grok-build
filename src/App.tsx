@@ -387,15 +387,55 @@ export default function App() {
     setActiveSession(null);
   }, [setActiveSession]);
 
-  // Switching project rebinds the active session's cwd. The ProjectSelector
-  // already updates the tab's cwd in the store; here we only surface failures.
-  const handleSwitchProject = useCallback((newCwd: string) => {
+  // Real project switch (ISS-060): the live agent is bound to the cwd it was
+  // spawned with, so switching means spawning a fresh session in the new
+  // directory and rebinding the tab in place (title + transcript preserved).
+  // A busy thread is never silently re-anchored — ask whether to stop it and
+  // switch, or leave it running and open a new thread in the chosen project.
+  const handleSwitchProject = useCallback(async (newCwd: string) => {
     if (!activeSessionId) return;
-    // Update is already handled inside ProjectSelector via setTabCwd; nothing
-    // else to do for the chat path. Kept as a callback so callers can extend
-    // (e.g. spawn a new session on switch) without changing the selector.
-    void newCwd;
-  }, [activeSessionId]);
+    const store = useSessionStore.getState();
+    if (store.isStreaming) {
+      const stopAndSwitch = window.confirm(
+        "A task is still running in this thread.\n\n" +
+          "OK — stop it and switch project\n" +
+          "Cancel — keep it running and open a new thread in the project"
+      );
+      if (!stopAndSwitch) {
+        try {
+          const info = await createSession(newCwd);
+          const dirName = info.cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || info.cwd;
+          addTab({
+            id: info.id,
+            acpSessionId: info.acp_session_id,
+            title: dirName,
+            cwd: info.cwd,
+            model: info.models[0]?.id || "",
+            reasoningEffort: "medium",
+            createdAt: Date.now(),
+            lastActiveAt: Date.now(),
+          });
+          setShowHome(false);
+        } catch (e) { setError(String(e)); }
+        return;
+      }
+      try { await cancelSession(activeSessionId); } catch { /* already idle */ }
+      store.setStreaming(false);
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const info = await createSession(newCwd);
+      // Dispose the old agent only after the new session is live — a failed
+      // spawn must not leave the thread without any backend.
+      try { await closeSession(activeSessionId); } catch (e) { console.error(e); }
+      const previous = store.tabs.find((t) => t.id === activeSessionId);
+      store.rebindTabId(activeSessionId, info.id, info.acp_session_id);
+      store.setTabCwd(info.id, info.cwd);
+      if (previous?.model) store.setTabModel(info.id, previous.model);
+    } catch (e) { setError(String(e)); }
+    finally { setCreating(false); }
+  }, [activeSessionId, addTab]);
 
   // Commands surfaced in the command palette: per-session switches (open any
   // open tab, jump to a recent model), plus global navigation helpers. The
