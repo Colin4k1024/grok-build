@@ -9,7 +9,9 @@ export default defineConfig(async () => ({
   server: {
     port: 5173,
     strictPort: true,
-    host: host || false,
+    // Bind IPv4 explicitly — wait-on and the Electron dev URL both target
+    // 127.0.0.1; `host: false` lets Node bind ::1 only and they never meet.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

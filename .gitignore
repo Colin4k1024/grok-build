@@ -9,3 +9,4 @@ src-tauri/gen/
 .goal-state.md
 Cargo.toml.bak
 dist-electron/
+goal-state.json
