@@ -407,6 +407,47 @@ ipcMain.handle("git_ls_files", async (_e, args: { cwd: string }) => {
   return ok(stdout.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 5000));
 });
 
+// Side-panel Files/Review tabs — git change list and per-path/full diffs.
+ipcMain.handle("git_status", async (_e, args: { cwd: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd, maxBuffer: 4 * 1024 * 1024 });
+  return ok(
+    stdout
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 3)
+      .map((l) => ({ status: l.slice(0, 2).trim(), file: l.slice(3).trim().replace(/^"|"$/g, "") }))
+      .slice(0, 500)
+  );
+});
+
+ipcMain.handle("git_diff", async (_e, args: { cwd: string; path?: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const argv = ["diff", "HEAD", "--", ...(args?.path ? [args.path] : [])];
+  const { stdout } = await execFileAsync("git", argv, { cwd, maxBuffer: 8 * 1024 * 1024 });
+  return ok(stdout);
+});
+
+// Side-panel Terminal tab — run a single shell command in the project cwd
+// (non-interactive; output capped).
+ipcMain.handle("run_command", async (_e, args: { cwd: string; command: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const command = String(args?.command || "").trim();
+  if (!command) return ok({ stdout: "", stderr: "" });
+  if (command.length > 2000) throw new Error("run_command: command too long");
+  try {
+    const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", command], {
+      cwd,
+      timeout: 60_000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return ok({ stdout, stderr });
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string; message?: string };
+    return ok({ stdout: err.stdout ?? "", stderr: (err.stderr ?? "") + (err.message ? `\n${err.message}` : "") });
+  }
+});
+
 // Skill inventory for the composer's "$" trigger — lists ~/.grok/skills/*/
 // directory names (the agent resolves $name to the skill itself).
 ipcMain.handle("skills_list", () => {

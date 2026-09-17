@@ -29,6 +29,10 @@ export function useAcpEventListener() {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
       const sid = event.session_id;
       if (!sid) return;
+      // Side sessions (side chat panel) run their own listeners — keep their
+      // events out of the main thread UI.
+      const isTab = useSessionStore.getState().tabs.some((t) => t.id === sid);
+      if (!isTab) return;
       const replay = event.replay === true;
 
       switch (event.type) {
