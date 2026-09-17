@@ -6,7 +6,7 @@ import { DiffViewer } from "../chat/DiffViewer";
 import { useSessionStore } from "../../stores/sessionStore";
 import {
   getMcpServers, gitStatus, gitDiff, runCommand, createSession, sendMessage,
-  onAcpEvent, respondPermission,
+  onAcpEvent, respondPermission, gitCommit, listWorktrees, removeWorktree, closeSession,
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
 } from "../../lib/tauri";
 
@@ -19,6 +19,24 @@ type ExtraTab = "subagents" | "todo" | "context" | "mcp";
 
 function useActiveCwd(): string | undefined {
   return useSessionStore((s) => s.tabs.find((t) => t.id === s.activeSessionId)?.cwd);
+}
+
+const TRIAGE_READ_KEY = "gb-triage-read";
+const isWorktreeCwd = (cwd: string) => /-wt-/.test(cwd);
+
+function markTriageRead(cwd: string) {
+  try {
+    const raw = localStorage.getItem(TRIAGE_READ_KEY);
+    const set = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    set.add(cwd);
+    localStorage.setItem(TRIAGE_READ_KEY, JSON.stringify([...set]));
+    window.dispatchEvent(new CustomEvent("gb-triage-changed"));
+  } catch { /* storage unavailable */ }
+}
+
+function autoArchiveIfEmpty(cwd: string, entries: GitStatusEntry[]) {
+  // Codex triage: runs with no findings are auto-archived (never unread).
+  if (entries.length === 0) markTriageRead(cwd);
 }
 
 // ---- Files ------------------------------------------------------------------
@@ -90,9 +108,14 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   const [diff, setDiff] = useState("");
   const [lastTurnFiles, setLastTurnFiles] = useState<string[]>([]);
   const [lastDiff, setLastDiff] = useState("");
+  const [action, setAction] = useState<"none" | "approve" | "revise">("none");
+  const [input, setInput] = useState("");
+  const [note, setNote] = useState<string | null>(null);
   const prevFilesRef = useRef<Set<string> | null>(null);
   const wasStreaming = useRef(false);
   const isStreaming = useSessionStore((s) => s.isStreaming);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const inTriage = isWorktreeCwd(cwd);
 
   // Snapshot the change-set when a turn finishes; the delta vs. the previous
   // snapshot is the "last turn" view.
@@ -105,6 +128,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
     wasStreaming.current = false;
     gitStatus(cwd)
       .then(async (entries) => {
+        autoArchiveIfEmpty(cwd, entries);
         const files = new Set(entries.map((e) => e.file));
         if (prevFilesRef.current) {
           const delta = [...files].filter((f) => !prevFilesRef.current!.has(f));
@@ -127,7 +151,58 @@ function ReviewPanel({ cwd }: { cwd: string }) {
 
   useEffect(() => {
     if (view === "all") gitDiff(cwd).then(setDiff).catch(() => setDiff(""));
-  }, [cwd, view]);
+    if (inTriage) markTriageRead(cwd);
+  }, [cwd, view, inTriage]);
+
+  const runApprove = async () => {
+    try {
+      const result = await gitCommit(cwd, input.trim() || "Approved via review queue");
+      setNote(result === "nothing-to-commit" ? "Nothing to commit — already clean." : "Committed on the worktree branch.");
+      setAction("none");
+      setInput("");
+      refreshAfterMutation();
+    } catch (e) {
+      setNote(String(e));
+    }
+  };
+
+  const runRevise = async () => {
+    if (!activeSessionId || !input.trim()) return;
+    try {
+      useSessionStore.getState().addUserMessage(activeSessionId, input.trim());
+      useSessionStore.getState().setStreaming(true);
+      await sendMessage(activeSessionId, input.trim());
+      setNote("Revision sent to the thread.");
+      setAction("none");
+      setInput("");
+    } catch (e) {
+      setNote(String(e));
+    }
+  };
+
+  const runReject = async () => {
+    if (!window.confirm("Discard ALL changes in this worktree and archive the thread?")) return;
+    try {
+      const wts = await listWorktrees(cwd);
+      const main = wts.find((w) => w.is_main);
+      if (main) await removeWorktree(main.path, cwd, true);
+      if (activeSessionId) {
+        await closeSession(activeSessionId);
+        useSessionStore.getState().removeTab(activeSessionId);
+      }
+      markTriageRead(cwd);
+      refreshAfterMutation();
+      setNote("Worktree removed and thread archived.");
+      setAction("none");
+    } catch (e) {
+      setNote(String(e));
+    }
+  };
+
+  // Re-poll status/diff so approve/reject reflect immediately.
+  const refreshAfterMutation = useCallback(() => {
+    gitDiff(cwd).then(setDiff).catch(() => {});
+  }, [cwd]);
 
   if (view === "last-turn") {
     return (
@@ -150,6 +225,35 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   return (
     <div className="flex h-full flex-col">
       <ViewToggle view={view} onChange={setView} />
+      {inTriage && (
+        <div className="border-b border-gb-border/8 p-1.5">
+          {action === "none" ? (
+            <div className="flex gap-1">
+              <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-green hover:bg-gb-green/25" title="Stage all + commit">Approve</button>
+              <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent hover:bg-gb-accent/25" title="Send changes back to the thread">Revise</button>
+              <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-red hover:bg-gb-red/25" title="Discard the worktree">Reject</button>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <textarea
+                autoFocus
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                rows={2}
+                placeholder={action === "approve" ? "Commit message…" : "What should change?…"}
+                className="w-full rounded border border-gb-border/10 bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
+              />
+              <div className="flex gap-1">
+                <button onClick={action === "approve" ? runApprove : runRevise} className="flex-1 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white disabled:opacity-40" disabled={!input.trim()}>
+                  {action === "approve" ? "Commit" : "Send"}
+                </button>
+                <button onClick={() => setAction("none")} className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-surface-hover">Cancel</button>
+              </div>
+            </div>
+          )}
+          {note && <p className="mt-1 text-[10px] text-gb-muted">{note}</p>}
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-1">
         {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-6 text-center text-[11px] text-gb-muted">No changes vs HEAD.</p>}
       </div>
@@ -390,14 +494,22 @@ export function RightPanel({ collapsed }: RightPanelProps) {
   const [extraTab, setExtraTab] = useState<ExtraTab>("todo");
   const cwd = useActiveCwd();
 
-  // ⌘J opens the panel directly on the Terminal tab.
+  // ⌘J opens the panel directly on the Terminal tab; Triage items open Review.
   useEffect(() => {
-    const open = () => {
+    const openTerminal = () => {
       setShowExtras(false);
       setActiveTab("terminal");
     };
-    window.addEventListener("gb-open-terminal", open);
-    return () => window.removeEventListener("gb-open-terminal", open);
+    const openReview = () => {
+      setShowExtras(false);
+      setActiveTab("review");
+    };
+    window.addEventListener("gb-open-terminal", openTerminal);
+    window.addEventListener("gb-open-review", openReview);
+    return () => {
+      window.removeEventListener("gb-open-terminal", openTerminal);
+      window.removeEventListener("gb-open-review", openReview);
+    };
   }, []);
 
   if (collapsed) return null;

@@ -428,6 +428,23 @@ ipcMain.handle("git_diff", async (_e, args: { cwd: string; path?: string }) => {
   return ok(stdout);
 });
 
+// Triage Approve — stage everything and commit on the reviewed branch.
+ipcMain.handle("git_commit", async (_e, args: { cwd: string; message: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const message = String(args?.message || "").trim();
+  if (!message) throw new Error("git_commit: commit message required");
+  await execFileAsync("git", ["add", "-A"], { cwd });
+  try {
+    await execFileAsync("git", ["commit", "-m", message], { cwd, maxBuffer: 4 * 1024 * 1024 });
+    return ok("committed");
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    const text = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+    if (text.includes("nothing to commit")) return ok("nothing-to-commit");
+    throw e;
+  }
+});
+
 // Side-panel Terminal tab — run a single shell command in the project cwd
 // (non-interactive; output capped).
 ipcMain.handle("run_command", async (_e, args: { cwd: string; command: string }) => {
