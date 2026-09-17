@@ -390,6 +390,16 @@ export function RightPanel({ collapsed }: RightPanelProps) {
   const [extraTab, setExtraTab] = useState<ExtraTab>("todo");
   const cwd = useActiveCwd();
 
+  // ⌘J opens the panel directly on the Terminal tab.
+  useEffect(() => {
+    const open = () => {
+      setShowExtras(false);
+      setActiveTab("terminal");
+    };
+    window.addEventListener("gb-open-terminal", open);
+    return () => window.removeEventListener("gb-open-terminal", open);
+  }, []);
+
   if (collapsed) return null;
 
   const tabs: { id: MainTab; label: string }[] = [

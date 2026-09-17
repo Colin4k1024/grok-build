@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
-import { useTabShortcuts } from "./hooks/useTabShortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { useTheme } from "./hooks/useTheme";
 import { useSessionStore, type SessionTab, type ApprovalMode } from "./stores/sessionStore";
@@ -25,6 +24,7 @@ import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { useAutoReconnect } from "./hooks/useAutoReconnect";
 import { useAutoSave } from "./hooks/useAutoSave";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import {
   invoke,
   createSession, sendMessage, cancelSession, closeSession,
@@ -286,6 +286,7 @@ export default function App() {
 
   // ⌘⇧[ / ⌘⇧] — cycle through open threads (codex desktop sequence nav).
   // The sidebar thread list is the switcher; there is no tab bar.
+  // (⌘G/⌘O/⌘B/⌘J/⌘, live in the useKeyboardShortcuts registry.)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "[" || e.key === "]" || e.code === "BracketLeft" || e.code === "BracketRight")) {
@@ -297,21 +298,6 @@ export default function App() {
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
         store.setActiveSession(next.id);
         setShowHome(false);
-      }
-      // ⌘G — global search (codex sidebar parity)
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        setShowSearch(true);
-      }
-      // ⌘O — add project (codex "Add new project")
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "o") {
-        e.preventDefault();
-        pickDirectory()
-          .then((dir) => {
-            if (!dir) return;
-            return addProject(dir).then(() => window.dispatchEvent(new CustomEvent("gb-projects-changed")));
-          })
-          .catch((err) => setError(String(err)));
       }
     };
     window.addEventListener("keydown", handler);
@@ -370,10 +356,28 @@ export default function App() {
     finally { setCreating(false); }
   }, [tabs, addTab]);
 
-  useTabShortcuts({
+  useKeyboardShortcuts({
     onNewSession: handleNewSession,
-    onCloseActiveTab: () => {
+    onCloseActiveThread: () => {
       if (activeSessionId) handleCloseSession(activeSessionId);
+    },
+    onToggleSidebar: () => setSidebarCollapsed((v) => !v),
+    onOpenSettings: () => setShowSettings(true),
+    onOpenSearch: () => setShowSearch(true),
+    onAddProject: () => {
+      pickDirectory()
+        .then((dir) => {
+          if (!dir) return;
+          return addProject(dir).then(() => window.dispatchEvent(new CustomEvent("gb-projects-changed")));
+        })
+        .catch((err) => setError(String(err)));
+    },
+    onToggleTerminal: () => {
+      setRightPanelCollapsed((collapsed) => {
+        if (!collapsed) return true; // closing the panel
+        window.dispatchEvent(new CustomEvent("gb-open-terminal"));
+        return false; // opening it on the Terminal tab
+      });
     },
   });
 

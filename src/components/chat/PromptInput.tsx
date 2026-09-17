@@ -62,9 +62,33 @@ export function PromptInput({
   const skillsLoaded = useRef(false);
 
   const { images, onDrop, onDragOver, removeImage, clearImages } = useImagePaste();
-  const { isRecording, interimText, toggleRecording, stopRecording, language, setLanguage } = useVoiceInput((transcript) => {
+  const { isRecording, interimText, toggleRecording, startRecording, stopRecording, language, setLanguage } = useVoiceInput((transcript) => {
     setText(prev => prev + transcript);
   });
+
+  // Ctrl+M hold-to-talk (codex dictation gesture).
+  useEffect(() => {
+    const down = (e: Event) => {
+      const ke = e as globalThis.KeyboardEvent;
+      if (ke.ctrlKey && ke.key.toLowerCase() === "m" && !isRecording) {
+        ke.preventDefault();
+        startRecording();
+      }
+    };
+    const up = (e: Event) => {
+      const ke = e as globalThis.KeyboardEvent;
+      if (ke.ctrlKey && ke.key.toLowerCase() === "m" && isRecording) {
+        ke.preventDefault();
+        stopRecording();
+      }
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [isRecording, startRecording, stopRecording]);
 
   // Composer-embedded session controls read live state from the store so the
   // control row never goes stale across tab switches.
