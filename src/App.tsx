@@ -10,6 +10,7 @@ import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBa
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
+import { GlobalSearch } from "./components/layout/GlobalSearch";
 import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
 import { ContextBar } from "./components/panels/ContextBar";
@@ -30,6 +31,7 @@ import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions, compactSession,
   setSessionModel, resumeSession, addWorktree, listWorktrees,
+  addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged,
 } from "./lib/tauri";
@@ -59,6 +61,7 @@ export default function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
+  const [showSearch, setShowSearch] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
   // Explicit home visibility so the Home page is reachable even when tabs exist
   // (e.g. user clicks the app icon / "Home" button). Defaults to true on fresh
@@ -293,9 +296,32 @@ export default function App() {
         store.setActiveSession(next.id);
         setShowHome(false);
       }
+      // ⌘G — global search (codex sidebar parity)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      // ⌘O — add project (codex "Add new project")
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        pickDirectory()
+          .then((dir) => {
+            if (!dir) return;
+            return addProject(dir).then(() => window.dispatchEvent(new CustomEvent("gb-projects-changed")));
+          })
+          .catch((err) => setError(String(err)));
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Sidebar thread entries activate sessions through the store directly; this
+  // event tells App to reveal the thread view (hide Home).
+  useEffect(() => {
+    const open = () => setShowHome(false);
+    window.addEventListener("gb-open-session", open);
+    return () => window.removeEventListener("gb-open-session", open);
   }, []);
 
   const handleCloseSession = useCallback(async (id: string) => {
@@ -568,6 +594,28 @@ export default function App() {
       action: () => setShowHome(true),
     });
 
+    // Surfaces previously on the sidebar, now reachable from the palette.
+    cmds.push(
+      {
+        id: "open-agents",
+        title: "Open: Workspace Agents",
+        category: "Navigation",
+        action: () => setShowAgentsPage(true),
+      },
+      {
+        id: "open-dashboard",
+        title: "Open: Dashboard",
+        category: "Navigation",
+        action: () => setShowDashboard(true),
+      },
+      {
+        id: "browse-threads",
+        title: "Browse threads (restore / delete)",
+        category: "Navigation",
+        action: () => setShowPicker(true),
+      }
+    );
+
     return cmds;
   }, [tabs, activeSessionId, config, setActiveSession]);
 
@@ -645,15 +693,14 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           collapsed={responsiveSidebarCollapsed}
+          creating={creating}
           onNewSession={handleNewSession}
           onNewSessionInDir={handleNewSessionInDir}
-          creating={creating}
+          onResumeThread={handleResumeThread}
           onForkSession={handleForkSession}
           onCloseSession={handleCloseSession}
-          onOpenThreads={() => setShowPicker(true)}
-          onOpenSettings={() => setShowSettings(true)}
-          onOpenDashboard={() => setShowDashboard(true)}
-          onOpenAgentsPage={() => setShowAgentsPage(true)}
+          onOpenSearch={() => setShowSearch(true)}
+          onOpenSettings={(tab) => { setSettingsTab(tab); setShowSettings(true); }}
           onOpenAutomations={() => setShowAutomations(true)}
         />
 
@@ -720,6 +767,14 @@ export default function App() {
 
       {showPicker && (
         <SessionPicker onClose={() => setShowPicker(false)} />
+      )}
+
+      {showSearch && (
+        <GlobalSearch
+          onClose={() => setShowSearch(false)}
+          onOpenTab={(id) => { setActiveSession(id); setShowHome(false); }}
+          onResumeThread={handleResumeThread}
+        />
       )}
 
       {confirmClose && (
