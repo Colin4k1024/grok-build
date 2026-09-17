@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
-import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { sendNotification, isPermissionGranted, requestPermission, getCurrentWindow } from "../lib/desktop";
 import { onAcpEvent, type AcpEventPayload } from "../lib/tauri";
 import { useSessionStore } from "../stores/sessionStore";
 

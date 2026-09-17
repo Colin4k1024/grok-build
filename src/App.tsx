@@ -166,6 +166,27 @@ export default function App() {
     finally { setCreating(false); }
   }, [addTab, tabs.length]);
 
+  // Start a session rooted at a chosen project directory.
+  const handleNewSessionInDir = useCallback(async (cwd: string) => {
+    setCreating(true);
+    setError(null);
+    try {
+      const info = await createSession(cwd);
+      const dirName = info.cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || info.cwd;
+      addTab({
+        id: info.id,
+        title: dirName,
+        cwd: info.cwd,
+        model: info.models[0]?.id || "",
+        reasoningEffort: "medium",
+        createdAt: Date.now(),
+        lastActiveAt: Date.now(),
+      });
+      setShowHome(false);
+    } catch (e) { setError(String(e)); }
+    finally { setCreating(false); }
+  }, [addTab]);
+
   // Home page: start a session with an initial prompt, in chat or agent mode.
   // The mode is forwarded as a prefix in the first message so the backend
   // session knows whether to run autonomously (agent) or conversationally.
@@ -272,16 +293,37 @@ export default function App() {
   }, []);
 
   const handleSend = useCallback(async (message: string, images: { data: string; mime_type: string }[] = []) => {
-    if (!activeSessionId) return;
-    addUserMessage(activeSessionId, message);
-    const tab = tabs.find((t) => t.id === activeSessionId);
+    let sid = activeSessionId;
+    // Auto-create a session when the user sends without one — makes the
+    // flow seamless.
+    if (!sid) {
+      try {
+        const info = await createSession(".");
+        addTab({
+          id: info.id,
+          title: "Untitled",
+          cwd: info.cwd,
+          model: info.models[0]?.id || "",
+          reasoningEffort: "medium",
+          createdAt: Date.now(),
+          lastActiveAt: Date.now(),
+        });
+        setShowHome(false);
+        sid = info.id;
+      } catch (e) {
+        setError(String(e));
+        return;
+      }
+    }
+    addUserMessage(sid, message);
+    const tab = tabs.find((t) => t.id === sid);
     if (tab && tab.title.startsWith("Session")) {
-      renameTab(activeSessionId, message.slice(0, 30) + (message.length > 30 ? "…" : ""));
+      renameTab(sid, message.slice(0, 30) + (message.length > 30 ? "…" : ""));
     }
     setStreaming(true);
-    try { await sendMessage(activeSessionId, message, images); }
+    try { await sendMessage(sid, message, images); }
     catch (e) { setError(String(e)); setStreaming(false); }
-  }, [activeSessionId, addUserMessage, setStreaming, tabs, renameTab]);
+  }, [activeSessionId, addTab, addUserMessage, setStreaming, tabs, renameTab]);
 
 
   const handleCancel = useCallback(async () => {
@@ -458,6 +500,7 @@ export default function App() {
         <Sidebar
           collapsed={responsiveSidebarCollapsed}
           onNewSession={handleNewSession}
+          onNewSessionInDir={handleNewSessionInDir}
           creating={creating}
           onForkSession={handleForkSession}
           onCloseSession={handleCloseSession}
@@ -512,7 +555,7 @@ export default function App() {
                 onSend={handleSend}
                 onCancel={handleCancel}
                 isStreaming={isStreaming}
-                disabled={!activeSessionId}
+                disabled={false}
                 cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
                 onSwitchProject={handleSwitchProject}
               />

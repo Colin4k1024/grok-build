@@ -1,8 +1,11 @@
 import { SessionList } from "../session/SessionList";
+import { ProjectList } from "../session/ProjectList";
 
 interface SidebarProps {
   collapsed: boolean;
   onNewSession: () => void;
+  /** Start a session rooted at a specific project directory. */
+  onNewSessionInDir: (cwd: string) => void;
   creating: boolean;
   onForkSession: (id: string) => void;
   onCloseSession: (id: string) => void;
@@ -12,7 +15,7 @@ interface SidebarProps {
   onOpenAutomations: () => void;
 }
 
-export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage, onOpenAutomations }: SidebarProps) {
+export function Sidebar({ collapsed, onNewSession, onNewSessionInDir, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage, onOpenAutomations }: SidebarProps) {
   if (collapsed) return null;
 
   return (
@@ -23,6 +26,7 @@ export function Sidebar({ collapsed, onNewSession, creating, onForkSession, onCl
           {creating ? "Starting…" : "New Session"}
         </button>
       </div>
+      <ProjectList onOpenProject={onNewSessionInDir} disabled={creating} />
       <SessionList onForkSession={onForkSession} onCloseSession={onCloseSession} />
       <div className="border-t border-gb-border/8 p-1">
         <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenAutomations}>

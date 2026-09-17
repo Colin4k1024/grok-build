@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { login, onAuthMessage } from "../lib/tauri";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "../lib/tauri";
 
 export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
@@ -61,6 +61,13 @@ export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
           disabled={loading}
         >
           {loading ? "Opening browser..." : "Sign in with OAuth"}
+        </button>
+
+        <button
+          className="mt-2 w-full rounded-lg border border-gb-border/20 px-4 py-2.5 text-xs text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+          onClick={onLoginSuccess}
+        >
+          Skip for now (dev mode)
         </button>
 
         <p className="mt-4 text-xs text-gb-muted">

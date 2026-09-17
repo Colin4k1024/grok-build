@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from "../../lib/desktop";
 
 interface CodeBlockProps {
   /** Raw code text (without fences). */

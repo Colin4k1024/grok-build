@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, type ReactNode } from "react";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText } from "../../lib/desktop";
 
 interface SessionListProps {
   onForkSession: (id: string) => void;

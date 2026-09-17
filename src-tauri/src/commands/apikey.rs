@@ -79,16 +79,24 @@ pub async fn get_all_api_keys(env_keys: Vec<String>) -> Result<Vec<(String, Stri
 /// Keychain keys take precedence over any existing shell env var; if no
 /// keychain value exists the existing env var (if any) is left untouched as
 /// a fallback.
+///
+/// Only runs once per process — macOS shows an authorization prompt for each
+/// keychain access by an unsigned binary, and we don't want a prompt per
+/// session create.
 pub fn inject_stored_keys_into_env(env_keys: &[String]) {
-    for key in env_keys {
-        if let Ok(value) = get_entry(key).get_password() {
-            if !value.is_empty() {
-                // SAFETY: called from the agent thread before the agent starts
-                // processing requests. No concurrent readers exist at this point.
-                unsafe {
-                    std::env::set_var(key, &value);
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        for key in env_keys {
+            if let Ok(value) = get_entry(key).get_password() {
+                if !value.is_empty() {
+                    // SAFETY: called from the agent thread before the agent starts
+                    // processing requests. No concurrent readers exist at this point.
+                    unsafe {
+                        std::env::set_var(key, &value);
+                    }
                 }
             }
         }
-    }
+    });
 }

@@ -1,25 +1,56 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
- 
- function isTauriAvailable(): boolean {
-   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
- }
- 
- async function safeListen<T>(
-   event: string,
-   handler: (payload: T) => void
- ): Promise<UnlistenFn> {
-   if (!isTauriAvailable()) {
-     console.warn(`[tauri] listen("${event}") called outside Tauri context — no-op`);
-     return () => {};
-   }
-   try {
-     return await listen<T>(event, (e) => handler(e.payload));
-   } catch (err) {
-     console.error(`[tauri] listen("${event}") failed:`, err);
-     return () => {};
-   }
- }
+/**
+ * Desktop runtime transport — Electron-only.
+ *
+ * The app was originally written against Tauri; we've migrated to Electron.
+ * All frontend code calls these helpers, which route through window.electron
+ * (exposed by electron/preload.ts via contextBridge).
+ */
+
+export type UnlistenFn = () => void;
+
+interface ElectronBridge {
+  invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>;
+  on: (channel: string, handler: (payload: unknown) => void) => () => void;
+  platform: string;
+}
+
+declare global {
+  interface Window {
+    electron?: ElectronBridge;
+  }
+}
+
+function bridge(): ElectronBridge {
+  if (typeof window === "undefined" || !window.electron) {
+    throw new Error(
+      "Electron bridge not available — preload script did not expose window.electron"
+    );
+  }
+  return window.electron;
+}
+
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return bridge().invoke<T>(cmd, args);
+}
+
+export function listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
+  const un = bridge().on(event, (p) => handler(p as T));
+  return Promise.resolve(un);
+}
+
+export async function safeListen<T>(
+  event: string,
+  handler: (payload: T) => void
+): Promise<UnlistenFn> {
+  try {
+    return await listen<T>(event, handler);
+  } catch (err) {
+    console.error(`[transport] listen("${event}") failed:`, err);
+    return () => {};
+  }
+}
+
+// ===== Types =====
 
 export interface SessionInfo {
   id: string;
@@ -55,24 +86,91 @@ export interface DefaultModels {
   session_summary: string;
 }
 
-export async function saveModels(
-  models: ModelInfo[],
-  defaults: DefaultModels
-): Promise<void> {
-  return invoke("save_models", { models, defaults });
-}
-
 export interface AuthStatus {
   authenticated: boolean;
   username: string | null;
 }
 
-export async function createSession(cwd: string): Promise<SessionInfo> {
-  return invoke<SessionInfo>("session_create", { args: { cwd } });
+export interface AcpEventPayload {
+  session_id?: string;
+  type: string;
+  delta?: string;
+  tool_name?: string;
+  output?: string;
+  success?: boolean;
+  request_id?: string;
+  command?: string;
+  options?: PermissionOption[];
+  message?: string;
+  compaction_status?: string;
+  compaction_tokens_before?: number | null;
+  compaction_tokens_after?: number | null;
+  compaction_summary?: string | null;
+  entries?: { content: string; status: string; priority: string }[];
+  used?: number;
+  size?: number;
 }
 
-export async function sendMessage(sessionId: string, message: string, images: { data: string; mime_type: string }[] = []): Promise<void> {
-  return invoke("session_send", { args: { session_id: sessionId, message, images } });
+export interface PermissionOption {
+  id: string;
+  label: string;
+  kind: string;
+}
+
+export interface SessionListItem {
+  id: string;
+  cwd: string;
+  title: string;
+}
+
+export interface HistorySession {
+  id: string;
+  session_id: string;
+  title: string;
+  cwd: string;
+  updated_at: number;
+  last_active_at: string;
+  model: string;
+  num_messages: number;
+}
+
+export interface ChatHistoryEntry {
+  role: string;
+  content: string;
+  timestamp: number;
+}
+
+export interface WorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  is_main: boolean;
+}
+
+export interface McpServerInfo {
+  name: string;
+  command: string;
+  args: string[];
+  url: string | null;
+  enabled: boolean;
+  transport_type: string;
+  env: [string, string][];
+}
+
+// ===== Session =====
+
+export async function createSession(cwd: string): Promise<SessionInfo> {
+  return invoke<SessionInfo>("session_create", { cwd });
+}
+
+export async function sendMessage(
+  sessionId: string,
+  message: string,
+  images: { data: string; mime_type: string }[] = []
+): Promise<void> {
+  console.log("[tauri.ts] sendMessage called", { sessionId, msgLen: message.length, images: images.length });
+  const result: unknown = await invoke("session_send", { session_id: sessionId, message, images });
+  console.log("[tauri.ts] sendMessage invoke done", result);
 }
 
 export async function cancelSession(sessionId: string): Promise<void> {
@@ -87,6 +185,52 @@ export async function closeSession(sessionId: string): Promise<void> {
   return invoke("session_close", { sessionId });
 }
 
+export async function listSessions(): Promise<SessionListItem[]> {
+  return invoke<SessionListItem[]>("session_list");
+}
+
+export async function listHistorySessions(): Promise<HistorySession[]> {
+  return invoke<HistorySession[]>("session_list_history");
+}
+
+export async function getSessionHistory(
+  sessionId: string,
+  cwd: string
+): Promise<ChatHistoryEntry[]> {
+  return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
+}
+
+export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {
+  return invoke("session_set_model", { sessionId, modelId });
+}
+
+// ===== Projects (directory bookmarks) =====
+
+export interface ProjectEntry {
+  path: string;
+  addedAt: number;
+  lastUsedAt: number;
+}
+
+/** Native directory picker. Returns the chosen absolute path or null. */
+export async function pickDirectory(): Promise<string | null> {
+  return invoke<string | null>("pick_directory");
+}
+
+export async function listProjects(): Promise<ProjectEntry[]> {
+  return invoke<ProjectEntry[]>("projects_list");
+}
+
+export async function addProject(path: string): Promise<ProjectEntry[]> {
+  return invoke<ProjectEntry[]>("projects_add", { path });
+}
+
+export async function removeProject(path: string): Promise<ProjectEntry[]> {
+  return invoke<ProjectEntry[]>("projects_remove", { path });
+}
+
+// ===== Config / Auth =====
+
 const EMPTY_CONFIG: ConfigSnapshot = {
   models: [],
   default_model: "",
@@ -96,30 +240,20 @@ const EMPTY_CONFIG: ConfigSnapshot = {
 };
 
 export async function getConfig(): Promise<ConfigSnapshot> {
-  if (!isTauriAvailable()) {
-    return EMPTY_CONFIG;
-  }
   try {
-    return await Promise.race([
-      invoke<ConfigSnapshot>("get_config"),
-      new Promise<ConfigSnapshot>((resolve) => setTimeout(() => resolve(EMPTY_CONFIG), 5000)),
-    ]);
+    return await invoke<ConfigSnapshot>("get_config");
   } catch {
     return EMPTY_CONFIG;
   }
 }
 
+export async function saveModels(models: ModelInfo[], defaults: DefaultModels): Promise<void> {
+  return invoke("save_models", { models, defaults });
+}
+
 export async function getAuthStatus(): Promise<AuthStatus> {
-  if (!isTauriAvailable()) {
-    return { authenticated: false, username: null };
-  }
   try {
-    return await Promise.race([
-      invoke<AuthStatus>("check_auth_status"),
-      new Promise<AuthStatus>((resolve) =>
-        setTimeout(() => resolve({ authenticated: false, username: null }), 5000)
-      ),
-    ]);
+    return await invoke<AuthStatus>("check_auth_status");
   } catch {
     return { authenticated: false, username: null };
   }
@@ -130,185 +264,65 @@ export async function login(): Promise<AuthStatus> {
 }
 
 export async function logout(): Promise<void> {
-  return invoke<void>("logout");
+  return invoke("logout");
 }
 
-export function onAcpEvent(
-  handler: (event: AcpEventPayload) => void
-): Promise<UnlistenFn> {
+// ===== Events =====
+
+export function onAcpEvent(handler: (event: AcpEventPayload) => void): Promise<UnlistenFn> {
   return safeListen<AcpEventPayload>("acp_event", handler);
 }
 
-export interface AcpEventPayload {
-  type: string;
-  session_id?: string;
-  message_id?: string;
-  delta?: string;
-  tool_name?: string;
-  args?: unknown;
-  output?: string;
-  success?: boolean;
-  message?: string;
-  request_id?: string;
-  command?: string;
-  options?: PermissionOption[];
-  entries?: { content: string; status: string; priority: string }[];
-  used?: number;
-  size?: number;
-  compaction_status?: string;
-  compaction_tokens_before?: number;
-  compaction_tokens_after?: number;
-  compaction_summary?: string;
-  compaction_error?: string;
-}
-
-export function onAuthMessage(
-  handler: (message: string) => void
-): Promise<UnlistenFn> {
+export function onAuthMessage(handler: (message: string) => void): Promise<UnlistenFn> {
   return safeListen<string>("auth_message", handler);
 }
 
-export interface SessionListItem {
-  id: string;
-  cwd: string;
-  acp_session_id: string;
+export function onConfigChanged(handler: () => void): Promise<UnlistenFn> {
+  return safeListen("config_changed", handler);
 }
-
-export async function listSessions(): Promise<SessionListItem[]> {
-  if (!isTauriAvailable()) {
-    return [];
-  }
-  return invoke<SessionListItem[]>("session_list");
-}
-
-export async function openSessionInNewWindow(sessionId: string, title: string): Promise<void> {
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  const win = new WebviewWindow(`session-${sessionId}`, {
-    url: `index.html?session=${sessionId}`,
-    title: title || "Grok Build",
-    width: 900,
-    height: 700,
-    minWidth: 600,
-    minHeight: 400,
-  });
-  win.once("tauri://error", (e) => {
-    console.error("Failed to create window:", e);
-  });
-}
-
-export interface HistorySession {
-  id: string;
-  cwd: string;
-  title: string;
-  model: string;
-  created_at: string;
-  last_active_at: string;
-  num_messages: number;
-}
-
-export interface ChatHistoryEntry {
-  role: string;
-  content: string;
-}
-
-export async function listHistorySessions(): Promise<HistorySession[]> {
-  if (!isTauriAvailable()) {
-    return [];
-  }
-  return invoke<HistorySession[]>("session_list_history");
-}
-
-export async function getSessionHistory(sessionId: string, cwd: string): Promise<ChatHistoryEntry[]> {
-  if (!isTauriAvailable()) {
-    return [];
-  }
-  return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
-}
-
-export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {
-  return invoke("session_set_model", { args: { session_id: sessionId, model_id: modelId } });
-}
-
-export interface PermissionOption {
-  id: string;
-  label: string;
-  kind: string;
-}
-
-export async function respondPermission(
-  sessionId: string,
-  requestId: string,
-  optionId: string,
-  remember: boolean
-): Promise<void> {
-  return invoke("respond_permission", {
-    args: { session_id: sessionId, request_id: requestId, option_id: optionId, remember }
-  });
-}
-
-// --- Autostart ---
-
-export async function enableAutostart(): Promise<void> {
-  return invoke("autostart_enable");
-}
-
-export async function disableAutostart(): Promise<void> {
-  return invoke("autostart_disable");
-}
-
-export async function isAutostartEnabled(): Promise<boolean> {
-  if (!isTauriAvailable()) {
-    return false;
-  }
-  return invoke<boolean>("autostart_is_enabled");
-}
-
-// --- Tray events ---
 
 export function onTrayAction(handler: (action: string) => void): Promise<UnlistenFn> {
-  return safeListen<string>("tray-action", handler);
+  return safeListen("tray_action", handler);
 }
 
-export async function updateTrayBadge(unread: number): Promise<void> {
-  return invoke("update_tray_badge", { unread });
-}
- 
- export function onConfigChanged(handler: () => void): Promise<UnlistenFn> {
-   return safeListen("config_changed", handler);
- }
+// ===== API keys =====
 
-// --- MCP Server Management ---
-
-export interface McpServerInfo {
-  name: string;
-  enabled: boolean;
-  transport_type: string;
-  command: string | null;
-  args: string[];
-  url: string | null;
-  env: [string, string][];
-  startup_timeout_sec: number | null;
-  tool_timeout_sec: number | null;
+export interface ApiKeyEntry {
+  env_key: string;
+  is_set: boolean;
 }
+
+export async function listApiKeys(envKeys: string[]): Promise<ApiKeyEntry[]> {
+  return invoke<ApiKeyEntry[]>("list_api_keys", { envKeys });
+}
+
+export async function saveApiKey(envKey: string, value: string): Promise<void> {
+  return invoke("save_api_key", { envKey, value });
+}
+
+export async function getApiKey(envKey: string): Promise<string | null> {
+  return invoke<string | null>("get_api_key", { envKey });
+}
+
+export async function deleteApiKey(envKey: string): Promise<void> {
+  return invoke("delete_api_key", { envKey });
+}
+
+// ===== MCP =====
 
 export async function getMcpServers(): Promise<McpServerInfo[]> {
-  if (!isTauriAvailable()) {
-    return [];
-  }
   return invoke<McpServerInfo[]>("get_mcp_servers");
 }
 
-export async function saveMcpServer(args: {
+export async function saveMcpServer(input: {
   name: string;
   command: string | null;
   args: string[];
   url: string | null;
   env: [string, string][];
-  enabled?: boolean;
-  startup_timeout_sec?: number;
-  tool_timeout_sec?: number;
+  enabled: boolean;
 }): Promise<void> {
-  return invoke("save_mcp_server", { args });
+  return invoke("save_mcp_server", input);
 }
 
 export async function deleteMcpServer(name: string): Promise<void> {
@@ -319,23 +333,22 @@ export async function toggleMcpServer(name: string, enabled: boolean): Promise<v
   return invoke("toggle_mcp_server", { name, enabled });
 }
 
-// --- Git Worktree ---
-
-export interface WorktreeInfo {
-  path: string;
-  branch: string;
-  head: string;
-  is_main: boolean;
-}
+// ===== Worktree =====
 
 export async function listWorktrees(cwd: string): Promise<WorktreeInfo[]> {
-  if (!isTauriAvailable()) {
+  try {
+    return await invoke<WorktreeInfo[]>("git_worktree_list", { cwd });
+  } catch {
     return [];
   }
-  return invoke<WorktreeInfo[]>("git_worktree_list", { cwd });
 }
 
-export async function addWorktree(cwd: string, branch: string, path: string, newBranch: boolean): Promise<string> {
+export async function addWorktree(
+  cwd: string,
+  branch: string,
+  path: string,
+  newBranch: boolean
+): Promise<string> {
   return invoke<string>("git_worktree_add", { args: { cwd, branch, path, new_branch: newBranch } });
 }
 
@@ -344,8 +357,51 @@ export async function removeWorktree(cwd: string, path: string, force: boolean):
 }
 
 export async function listBranches(cwd: string): Promise<string[]> {
-  if (!isTauriAvailable()) {
-    return [];
-  }
   return invoke<string[]>("git_list_branches", { cwd });
+}
+
+// ===== Autostart =====
+
+export async function isAutostartEnabled(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("is_autostart_enabled");
+  } catch {
+    return false;
+  }
+}
+
+export async function enableAutostart(): Promise<void> {
+  return invoke("enable_autostart");
+}
+
+export async function disableAutostart(): Promise<void> {
+  return invoke("disable_autostart");
+}
+
+// ===== Logging =====
+
+export async function logFrontend(level: "error" | "warn" | "info" | "log", message: string) {
+  return invoke("log_frontend", { args: { level, message } });
+}
+
+// ===== Permissions =====
+
+export async function respondPermission(
+  sessionId: string,
+  requestId: string,
+  optionId: string,
+  remember: boolean
+): Promise<void> {
+  return invoke("session_respond_permission", {
+    sessionId,
+    requestId,
+    optionId,
+    remember,
+  });
+}
+
+// ===== Window helpers =====
+
+export async function openSessionInNewWindow(sessionId: string, _title: string): Promise<void> {
+  return invoke("open_session_window", { sessionId });
 }

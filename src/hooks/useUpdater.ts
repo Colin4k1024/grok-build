@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { sendNotification } from "@tauri-apps/plugin-notification";
+import { check } from "../lib/desktop";
+import { relaunch } from "../lib/desktop";
+import { sendNotification } from "../lib/desktop";
 
 interface UpdateState {
   checking: boolean;
@@ -82,10 +82,12 @@ export function useUpdater() {
       let contentLength = 0;
       let downloaded = 0;
       await update.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength) {
-          contentLength = event.data.contentLength;
-        } else if (event.event === "Progress" && contentLength > 0) {
-          downloaded += event.data.chunkLength;
+        const data = event.data;
+        if (!data) return;
+        if (event.event === "Started" && data.contentLength) {
+          contentLength = data.contentLength;
+        } else if (event.event === "Progress" && contentLength > 0 && data.chunkLength) {
+          downloaded += data.chunkLength;
           const percent = Math.round((downloaded / contentLength) * 100);
           setState((s) => ({ ...s, progress: percent }));
         }

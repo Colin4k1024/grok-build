@@ -98,6 +98,7 @@ interface SessionState {
 // Streaming throttle buffers (module-level for persistence across renders)
 const streamBuffer: Record<string, string> = {};
 const streamFlushMap: Record<string, number> = {};
+const streamFlushTimerMap: Record<string, number | undefined> = {};
 
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -320,6 +321,38 @@ export const useSessionStore = create<SessionState>()(
 
     if (now - lastFlush < STREAM_INTERVAL) {
       streamBuffer[key] = (streamBuffer[key] || "") + delta;
+      // Trailing flush — schedule a timer so the buffered tail isn't lost
+      // when the stream ends with a burst of sub-interval deltas.
+      if (!streamFlushTimerMap[key]) {
+        streamFlushTimerMap[key] = setTimeout(() => {
+          streamFlushTimerMap[key] = undefined;
+          const pending = streamBuffer[key] || "";
+          streamBuffer[key] = "";
+          streamFlushMap[key] = Date.now();
+          if (!pending) return;
+          set((state) => {
+            const msgs = state.messages[sessionId] || [];
+            const last = msgs[msgs.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              return {
+                messages: {
+                  ...state.messages,
+                  [sessionId]: [...msgs.slice(0, -1), { ...last, content: last.content + pending }],
+                },
+              };
+            }
+            return {
+              messages: {
+                ...state.messages,
+                [sessionId]: [
+                  ...msgs,
+                  { id: genId("msg"), role: "assistant" as const, content: pending, timestamp: Date.now(), streaming: true },
+                ],
+              },
+            };
+          });
+        }, STREAM_INTERVAL) as unknown as number;
+      }
       return {};
     }
 

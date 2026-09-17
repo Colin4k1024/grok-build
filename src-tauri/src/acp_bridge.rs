@@ -133,7 +133,7 @@ pub fn create_and_init_session(
     std::thread::Builder::new()
         .name("grok-acp-bridge".into())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_multi_thread().worker_threads(1)
+            let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
             {
