@@ -13,10 +13,8 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { RightPanel } from "./components/panels/RightPanel";
 import { StatusBar } from "./components/panels/StatusBar";
 import { ContextBar } from "./components/panels/ContextBar";
-import { TabBar } from "./components/session/TabBar";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
-import { SessionPicker } from "./components/session/SessionPicker";
-import { Settings } from "./pages/Settings";
+import { SessionPicker } from "./components/session/SessionPicker";import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { Home, type ComposerMode } from "./pages/Home";
 import { AuthHandoff } from "./pages/AuthHandoff";
@@ -280,6 +278,25 @@ export default function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [handleNewSession]);
+
+  // ⌘⇧[ / ⌘⇧] — cycle through open threads (codex desktop sequence nav).
+  // The sidebar thread list is the switcher; there is no tab bar.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "[" || e.key === "]" || e.code === "BracketLeft" || e.code === "BracketRight")) {
+        e.preventDefault();
+        const store = useSessionStore.getState();
+        if (store.tabs.length === 0) return;
+        const idx = store.tabs.findIndex((t) => t.id === store.activeSessionId);
+        const delta = e.key === "]" || e.code === "BracketRight" ? 1 : -1;
+        const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
+        store.setActiveSession(next.id);
+        setShowHome(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const handleCloseSession = useCallback(async (id: string) => {
     const msgs = messages[id] || [];
@@ -641,14 +658,6 @@ export default function App() {
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
-          {tabs.length > 0 && (
-            <TabBar
-              onNewSession={handleNewSession}
-              onCloseSession={handleCloseSession}
-              onForkSession={handleForkSession}
-            />
-          )}
-
           {error && (
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
               <span className="flex-1">{error}</span>
