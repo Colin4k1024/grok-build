@@ -28,6 +28,7 @@ import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { useAutoReconnect } from "./hooks/useAutoReconnect";
 import { useAutoSave } from "./hooks/useAutoSave";
 import {
+  invoke,
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions, compactSession,
   setSessionModel, resumeSession, addWorktree, listWorktrees,
@@ -326,6 +327,15 @@ export default function App() {
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
   }, []);
+
+  // Dock badge = threads waiting for approval across all sessions (ISS-062).
+  const pendingTotal = useMemo(
+    () => Object.values(pendingPermissions).reduce((sum, arr) => sum + arr.length, 0),
+    [pendingPermissions]
+  );
+  useEffect(() => {
+    invoke("set_badge", { count: pendingTotal }).catch(() => {});
+  }, [pendingTotal]);
 
   const handleCloseSession = useCallback(async (id: string) => {
     const msgs = messages[id] || [];

@@ -82,6 +82,8 @@ interface SessionState {
    *  flushed automatically on TurnComplete. */
   queuedPrompts: Record<string, string[]>;
   isStreaming: boolean;
+  /** Per-thread running flags — sidebar status indicators (ISS-062). */
+  streaming: Record<string, boolean>;
 
   setActiveSession: (id: string | null) => void;
   addTab: (tab: SessionTab) => void;
@@ -111,6 +113,9 @@ interface SessionState {
   addCompactionMarker: (sessionId: string, marker: Omit<CompactionMarker, "id" | "rolledBack">) => void;
   rollbackCompaction: (sessionId: string) => void;
   setStreaming: (streaming: boolean) => void;
+  /** Per-thread streaming flag (background threads keep theirs while the
+   *  global flag tracks the active view). */
+  setSessionStreaming: (sessionId: string, streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
   /** Drop the streaming flag from every message — used after a session/load
@@ -148,6 +153,7 @@ export const useSessionStore = create<SessionState>()(
   preCompactSnapshot: {},
   queuedPrompts: {},
   isStreaming: false,
+  streaming: {},
 
   setActiveSession: (id) => set({ activeSessionId: id }),
 
@@ -355,6 +361,11 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),
+
+  setSessionStreaming: (sessionId, streaming) =>
+    set((state) => ({
+      streaming: { ...state.streaming, [sessionId]: streaming },
+    })),
 
   finalizeMessages: (sessionId) =>
     set((state) => {
