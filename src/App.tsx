@@ -4,7 +4,7 @@ import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useTabShortcuts } from "./hooks/useTabShortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { useTheme } from "./hooks/useTheme";
-import { useSessionStore, type SessionTab } from "./stores/sessionStore";
+import { useSessionStore, type SessionTab, type ApprovalMode } from "./stores/sessionStore";
 import { MessageList } from "./components/chat/MessageList";
 import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
@@ -17,7 +17,7 @@ import { ContextBar } from "./components/panels/ContextBar";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
-import { Home, type ComposerMode } from "./pages/Home";
+import { Home } from "./pages/Home";
 import { AuthHandoff } from "./pages/AuthHandoff";
 import { WorkspaceAgentsPage } from "./pages/WorkspaceAgentsPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
@@ -232,35 +232,38 @@ export default function App() {
     finally { setCreating(false); }
   }, [addTab]);
 
-  // Home page: start a session with an initial prompt, in chat or agent mode.
-  // The mode is forwarded as a prefix in the first message so the backend
-  // session knows whether to run autonomously (agent) or conversationally.
-  const handleStartFromHome = useCallback(async (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[] = []) => {
+  // Home page: start a session with an initial prompt. The home composer's
+  // project / model / approval choices ride along with session creation
+  // (codex new-chat semantics — no separate chat/agent toggle).
+  const handleStartFromHome = useCallback(async (
+    prompt: string,
+    images: { data: string; mime_type: string }[],
+    prefs: { cwd: string; model: string; approval: ApprovalMode }
+  ) => {
     setCreating(true);
     setError(null);
     try {
-      const info = await createSession(".");
+      const info = await createSession(prefs.cwd);
       addTab({
         id: info.id,
         acpSessionId: info.acp_session_id,
         title: prompt ? prompt.slice(0, 30) + (prompt.length > 30 ? "…" : "") : `Session ${tabs.length + 1}`,
         cwd: info.cwd,
-        model: info.models[0]?.id || "",
+        model: prefs.model || info.models[0]?.id || "",
+        approvalMode: prefs.approval,
         reasoningEffort: "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
       setShowHome(false);
+      if (prefs.model && prefs.model !== info.models[0]?.id) {
+        setSessionModel(info.id, prefs.model).catch(console.error);
+      }
       if (prompt.trim() || images.length > 0) {
-        // Agent mode: prepend a system-style instruction so the backend agent
-        // runs autonomously; Chat mode sends the prompt as-is.
-        const outbound = mode === "agent"
-          ? `[Agent mode] ${prompt}`
-          : prompt;
-        addUserMessage(info.id, outbound);
+        addUserMessage(info.id, prompt);
         setStreaming(true);
         try {
-          await sendMessage(info.id, outbound, images);
+          await sendMessage(info.id, prompt, images);
         } catch (e) {
           setError(String(e));
           setStreaming(false);
@@ -714,6 +717,7 @@ export default function App() {
 
           {showHome ? (
             <Home
+              config={config}
               onStart={handleStartFromHome}
               onOpenSession={(id) => {
                 setActiveSession(id);
