@@ -1,8 +1,16 @@
 import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog } from "electron";
 import { AcpSession, saveApiKey, getApiKey, deleteApiKey, isApiKeySet } from "./acp-session";
+import { listHistorySessions, getSessionHistory } from "./session-history";
+import {
+  getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer, type SaveInput,
+} from "./mcp-config";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+
+const execFileAsync = promisify(execFile);
 
 const isDev = process.env.NODE_ENV === "development" || !!process.env.VITE_DEV_SERVER_URL;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
@@ -179,12 +187,15 @@ ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; req
 });
 ipcMain.handle("open_session_window", () => ok(null));
 
-ipcMain.handle("session_create", async (_e, args: { cwd: string }) => {
+// Shared spawn path for session_create and session_resume: creates the
+// record, spawns the agent (fresh or resuming a persisted acp session) and
+// returns the plain DTO the renderer expects.
+async function startSessionRecord(cwd: string, resumeAcpId?: string) {
   const id = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const cfg = toConfigSnapshot(readModelsDoc());
   const rec: SessionRecord = {
     id,
-    cwd: args.cwd || ".",
+    cwd: cwd || ".",
     acp_session_id: id,
     models: cfg.models.map((m) => ({ id: m.id, name: m.name })),
     currentModel: cfg.default_model || cfg.models[0]?.id,
@@ -197,7 +208,9 @@ ipcMain.handle("session_create", async (_e, args: { cwd: string }) => {
   };
   try {
     const envKeys = Array.from(new Set(cfg.models.flatMap((m) => m.env_key ?? [])));
-    const agent = await AcpSession.create(id, rec.cwd, emit, envKeys);
+    const agent = resumeAcpId
+      ? await AcpSession.load(id, resumeAcpId, rec.cwd, emit, envKeys)
+      : await AcpSession.create(id, rec.cwd, emit, envKeys);
     rec.agent = agent;
     rec.acp_session_id = agent.acpSessionId;
     rec.cwd = agent.cwd; // absolute path resolved by the agent session
@@ -214,14 +227,23 @@ ipcMain.handle("session_create", async (_e, args: { cwd: string }) => {
   }
   // Return a plain DTO — the record holds a live agent handle which is not
   // structured-cloneable across IPC.
-  return ok({
+  return {
     id: rec.id,
     cwd: rec.cwd,
     acp_session_id: rec.acp_session_id,
     models: rec.models,
     currentModel: rec.currentModel,
     createdAt: rec.createdAt,
-  });
+  };
+}
+
+ipcMain.handle("session_create", (_e, args: { cwd: string }) => ok(startSessionRecord(args.cwd)));
+
+// Resume a persisted thread: spawn the agent with `session/load` so the full
+// conversation context (and transcript replay) comes back — codex parity.
+ipcMain.handle("session_resume", (_e, args: { acp_session_id: string; cwd: string }) => {
+  if (!args?.acp_session_id) throw new Error("session_resume: missing acp_session_id");
+  return ok(startSessionRecord(args.cwd || ".", args.acp_session_id));
 });
 
 ipcMain.handle("session_list", () =>
@@ -265,8 +287,32 @@ ipcMain.handle("session_close", (_e, args: { sessionId?: string; session_id?: st
   return ok(null);
 });
 
-ipcMain.handle("session_list_history", () => ok([]));
-ipcMain.handle("session_get_history", () => ok([]));
+// --- Session history (reads the agent's on-disk session store) ---
+
+ipcMain.handle("session_list_history", () => ok(listHistorySessions()));
+
+ipcMain.handle("session_get_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string }) => {
+  const sessionId = args?.sessionId ?? args?.session_id;
+  if (!sessionId) throw new Error("session_get_history: missing sessionId");
+  return ok(getSessionHistory(sessionId, args?.cwd ?? ""));
+});
+
+// Permanently delete a persisted thread from disk (codex `/delete` parity).
+ipcMain.handle("session_delete_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string }) => {
+  const sessionId = args?.sessionId ?? args?.session_id;
+  if (!sessionId) throw new Error("session_delete_history: missing sessionId");
+  const sessionsRoot = path.join(os.homedir(), ".grok", "sessions");
+  const candidates = fs.existsSync(sessionsRoot)
+    ? fs
+        .readdirSync(sessionsRoot, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => path.join(sessionsRoot, d.name, sessionId))
+    : [];
+  const target = candidates.find((p) => fs.existsSync(p));
+  if (!target) throw new Error(`No persisted session found for ${sessionId}`);
+  fs.rmSync(target, { recursive: true, force: true });
+  return ok(null);
+});
 
 ipcMain.handle("list_api_keys", (_e, args: { envKeys: string[] }) => {
   const keys = Array.isArray(args) ? args : args?.envKeys ?? [];
@@ -282,19 +328,88 @@ ipcMain.handle("delete_api_key", (_e, args: { envKey: string }) => {
   return ok(null);
 });
 
-ipcMain.handle("get_mcp_servers", () => ok([]));
-ipcMain.handle("save_mcp_server", () => ok(null));
-ipcMain.handle("delete_mcp_server", () => ok(null));
-ipcMain.handle("toggle_mcp_server", () => ok(null));
+// --- MCP servers (edits ~/.grok/config.toml, read by the agent) ---
 
-ipcMain.handle("git_worktree_list", () => ok([]));
-ipcMain.handle("git_worktree_add", () => ok(""));
-ipcMain.handle("git_worktree_remove", () => ok(null));
-ipcMain.handle("git_list_branches", () => ok([]));
+ipcMain.handle("get_mcp_servers", () => ok(getMcpServers()));
 
-ipcMain.handle("is_autostart_enabled", () => ok(false));
-ipcMain.handle("enable_autostart", () => ok(null));
-ipcMain.handle("disable_autostart", () => ok(null));
+ipcMain.handle("save_mcp_server", (_e, args: SaveInput) => {
+  if (!args?.name) throw new Error("save_mcp_server: missing name");
+  saveMcpServer(args);
+  return ok(null);
+});
+
+ipcMain.handle("delete_mcp_server", (_e, args: { name: string }) => {
+  deleteMcpServer(args.name);
+  return ok(null);
+});
+
+ipcMain.handle("toggle_mcp_server", (_e, args: { name: string; enabled: boolean }) => {
+  toggleMcpServer(args.name, args.enabled);
+  return ok(null);
+});
+
+// --- Git worktrees (thin wrappers over the git CLI; args always passed as
+// an argv array, never through a shell) ---
+
+interface WorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  is_main: boolean;
+}
+
+ipcMain.handle("git_worktree_list", async (_e, args: { cwd: string }) => {
+  const cwd = args?.cwd || ".";
+  const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], { cwd });
+  const worktrees: WorktreeInfo[] = [];
+  let current: WorktreeInfo | null = null;
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (current) worktrees.push(current);
+      current = { path: line.slice("worktree ".length), branch: "", head: "", is_main: worktrees.length === 0 };
+    } else if (current) {
+      if (line.startsWith("HEAD ")) current.head = line.slice(5);
+      else if (line.startsWith("branch ")) {
+        current.branch = line.slice(7).replace(/^refs\/heads\//, "");
+      }
+    }
+  }
+  if (current) worktrees.push(current);
+  return ok(worktrees);
+});
+
+ipcMain.handle("git_worktree_add", async (_e, args: { cwd: string; branch: string; path: string; new_branch: boolean }) => {
+  const wtPath = path.resolve(args.path);
+  fs.mkdirSync(path.dirname(wtPath), { recursive: true });
+  const argv = args.new_branch
+    ? ["worktree", "add", "-b", args.branch, wtPath]
+    : ["worktree", "add", args.branch, wtPath];
+  await execFileAsync("git", argv, { cwd: args.cwd || "." });
+  return ok(wtPath);
+});
+
+ipcMain.handle("git_worktree_remove", async (_e, args: { cwd: string; path: string; force: boolean }) => {
+  const argv = ["worktree", "remove", ...(args.force ? ["--force"] : []), path.resolve(args.path)];
+  await execFileAsync("git", argv, { cwd: args.cwd || "." });
+  return ok(null);
+});
+
+ipcMain.handle("git_list_branches", async (_e, args: { cwd: string }) => {
+  const { stdout } = await execFileAsync("git", ["branch", "--format=%(refname:short)"], { cwd: args?.cwd || "." });
+  return ok(stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+});
+
+// --- Autostart (launch at login) ---
+
+ipcMain.handle("is_autostart_enabled", () => ok(app.getLoginItemSettings().openAtLogin));
+ipcMain.handle("enable_autostart", () => {
+  app.setLoginItemSettings({ openAtLogin: true });
+  return ok(null);
+});
+ipcMain.handle("disable_autostart", () => {
+  app.setLoginItemSettings({ openAtLogin: false });
+  return ok(null);
+});
 
 ipcMain.handle("log_frontend", (_e, args: { level: string; message: string }) => {
   console.log(`[FE ${args.level.toUpperCase()}]`, args.message);

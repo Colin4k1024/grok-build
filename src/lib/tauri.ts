@@ -57,6 +57,7 @@ export interface SessionInfo {
   cwd: string;
   acp_session_id: string;
   models: { id: string; name: string }[];
+  currentModel?: string;
 }
 
 export interface ModelInfo {
@@ -95,6 +96,8 @@ export interface AcpEventPayload {
   session_id?: string;
   type: string;
   delta?: string;
+  text?: string;
+  replay?: boolean;
   tool_name?: string;
   output?: string;
   success?: boolean;
@@ -163,6 +166,14 @@ export async function createSession(cwd: string): Promise<SessionInfo> {
   return invoke<SessionInfo>("session_create", { cwd });
 }
 
+/**
+ * Resume a persisted thread: spawns the agent with `session/load` so the full
+ * conversation context comes back and the transcript replays into the tab.
+ */
+export async function resumeSession(acpSessionId: string, cwd: string): Promise<SessionInfo> {
+  return invoke<SessionInfo>("session_resume", { acp_session_id: acpSessionId, cwd });
+}
+
 export async function sendMessage(
   sessionId: string,
   message: string,
@@ -198,6 +209,11 @@ export async function getSessionHistory(
   cwd: string
 ): Promise<ChatHistoryEntry[]> {
   return invoke<ChatHistoryEntry[]>("session_get_history", { sessionId, cwd });
+}
+
+/** Permanently delete a persisted thread from disk (codex `/delete` parity). */
+export async function deleteHistorySession(sessionId: string, cwd: string): Promise<void> {
+  return invoke("session_delete_history", { sessionId, cwd });
 }
 
 export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {

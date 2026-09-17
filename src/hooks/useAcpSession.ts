@@ -22,18 +22,27 @@ export function useAcpEventListener() {
   const setTokenUsage = useSessionStore((s) => s.setTokenUsage);
   const setCompacting = useSessionStore((s) => s.setCompacting);
   const addCompactionMarker = useSessionStore((s) => s.addCompactionMarker);
+  const addUserMessage = useSessionStore((s) => s.addUserMessage);
 
   useEffect(() => {
     const unlisten = onAcpEvent((event: AcpEventPayload) => {
       const sid = event.session_id;
       if (!sid) return;
+      const replay = event.replay === true;
 
       switch (event.type) {
         case "TextDelta":
           if (event.delta) {
             appendAssistantText(sid, event.delta);
-            setStreaming(true);
+            // Replay chunks are historical transcript restore, not a live
+            // streaming turn — never flip the streaming indicator for them.
+            if (!replay) setStreaming(true);
           }
+          break;
+        case "UserMessage":
+          // Replayed user echo from session/load — rebuilds the user side of
+          // the restored transcript.
+          if (replay && event.text) addUserMessage(sid, event.text);
           break;
         case "ToolCall":
           if (event.tool_name) {
@@ -140,6 +149,6 @@ export function useAcpEventListener() {
   }, [
     appendAssistantText, addToolCall, addToolResult, setStreaming,
     addPendingPermission, addSubagent, updateSubagent, setTodos, setTokenUsage,
-    setCompacting, addCompactionMarker,
+    setCompacting, addCompactionMarker, addUserMessage,
   ]);
 }

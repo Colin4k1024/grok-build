@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  listHistorySessions, getSessionHistory, createSession,
+  listHistorySessions, getSessionHistory, createSession, resumeSession, deleteHistorySession,
   type HistorySession,
 } from "../../lib/tauri";
 import { useSessionStore, type ChatMessage } from "../../stores/sessionStore";
@@ -61,37 +61,65 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
     setRestoring(session.id);
     setError(null);
     try {
-      // Load chat history
-      const history = await getSessionHistory(session.id, session.cwd);
-      // Create a new live ACP session
-      const info = await createSession(session.cwd);
-      // Populate messages from history
-      const messages: ChatMessage[] = history.map((entry, i) => ({
-        id: `hist-${session.id}-${i}`,
-        role: entry.role === "assistant" ? "assistant" : "user",
-        content: entry.content,
-        timestamp: Date.now() - (history.length - i) * 1000,
-      }));
-      // Add tab with restored messages
-      useSessionStore.setState((state) => ({
-        messages: { ...state.messages, [info.id]: messages },
-      }));
+      // Primary path — resume the persisted thread with session/load so the
+      // agent regains full context and replays the transcript into the tab.
+      const info = await resumeSession(session.id, session.cwd);
+      useSessionStore.getState().finalizeMessages(info.id);
       addTab({
         id: info.id,
+        acpSessionId: info.acp_session_id,
         title: session.title.slice(0, 40) + (session.title.length > 40 ? "…" : ""),
         cwd: session.cwd,
-        model: session.model,
+        model: session.model || info.models[0]?.id || "",
         reasoningEffort: "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
       onClose();
-    } catch (e) {
-      setError(String(e));
+    } catch (resumeErr) {
+      // Fallback — start a fresh session and display the stored transcript
+      // read-only (same behavior as before resume support).
+      console.warn("[SessionPicker] resume failed, falling back to fresh session:", resumeErr);
+      try {
+        const history = await getSessionHistory(session.id, session.cwd);
+        const info = await createSession(session.cwd);
+        const messages: ChatMessage[] = history.map((entry, i) => ({
+          id: `hist-${session.id}-${i}`,
+          role: entry.role === "assistant" ? "assistant" : "user",
+          content: entry.content,
+          timestamp: Date.now() - (history.length - i) * 1000,
+        }));
+        useSessionStore.setState((state) => ({
+          messages: { ...state.messages, [info.id]: messages },
+        }));
+        addTab({
+          id: info.id,
+          acpSessionId: info.acp_session_id,
+          title: session.title.slice(0, 40) + (session.title.length > 40 ? "…" : ""),
+          cwd: session.cwd,
+          model: session.model,
+          reasoningEffort: "medium",
+          createdAt: Date.now(),
+          lastActiveAt: Date.now(),
+        });
+        onClose();
+      } catch (e) {
+        setError(String(e));
+      }
     } finally {
       setRestoring(null);
     }
   }, [addTab, onClose]);
+
+  const handleDelete = useCallback(async (session: HistorySession) => {
+    if (!window.confirm(`Delete "${session.title}"? This permanently removes the thread history.`)) return;
+    try {
+      await deleteHistorySession(session.id, session.cwd);
+      setSessions((prev) => prev.filter((s) => s.id !== session.id));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -144,8 +172,20 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
                   onClick={() => handleRestore(session)}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gb-text">{session.title}</span>
-                    <span className="text-[10px] text-gb-muted">{formatTime(session.last_active_at)}</span>
+                    <span className="truncate text-xs font-medium text-gb-text">{session.title}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-[10px] text-gb-muted">{formatTime(session.last_active_at)}</span>
+                      <button
+                        className="rounded p-0.5 text-gb-muted opacity-0 transition-opacity hover:text-gb-red focus:opacity-100 group-hover:opacity-100"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(session); }}
+                        aria-label={`Delete ${session.title}`}
+                        title="Delete thread"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
+                          <path d="M2 3h8l-.7 8.1a1 1 0 0 1-1 .9H3.7a1 1 0 0 1-1-.9L2 3zm2.5-2h3l.5 1H10v1H2V2h2l.5-1z" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[10px] text-gb-muted">
                     {session.model && (

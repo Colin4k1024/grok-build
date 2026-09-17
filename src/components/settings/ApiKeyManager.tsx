@@ -89,7 +89,7 @@ export function ApiKeyManager() {
         </div>
       )}
 
-      <div className="rounded-gb overflow-hidden">
+      <div className="rounded-xl overflow-hidden">
         <div className="border-b border-gb-border px-3 py-2">
           <h3 className="text-xs font-semibold text-gb-text">API Keys (System Keychain)</h3>
           <p className="mt-0.5 text-[10px] text-gb-muted">
@@ -144,7 +144,7 @@ export function ApiKeyManager() {
       {/* Editor modal */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEditing(null)}>
-          <div className="w-[420px] rounded-gb border border-gb-border bg-gb-surface-solid p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="w-[420px] rounded-xl border border-gb-border bg-gb-surface-solid p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-4 text-sm font-semibold text-gb-text">
               Set API Key
             </h3>
@@ -157,7 +157,7 @@ export function ApiKeyManager() {
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 placeholder="Enter API key..."
-                className="flex-1 rounded-gb-sm border border-gb-border bg-gb-bg px-3 py-2 text-sm text-gb-text outline-none focus:border-gb-accent/50"
+                className="flex-1 rounded-md border border-gb-border bg-gb-bg px-3 py-2 text-sm text-gb-text outline-none focus:border-gb-accent/50"
                 autoFocus
               />
               <button
@@ -169,13 +169,13 @@ export function ApiKeyManager() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
-                className="hover-lift rounded-gb-sm border border-gb-border px-3 py-1.5 text-xs text-gb-muted hover:text-gb-text"
+                className="rounded-md border border-gb-border px-3 py-1.5 text-xs text-gb-muted hover:text-gb-text"
                 onClick={() => { setEditing(null); setEditValue(""); }}
               >
                 Cancel
               </button>
               <button
-                className="bg-gb-accent rounded-gb-sm px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+                className="bg-gb-accent rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-40"
                 onClick={handleSave}
                 disabled={!editValue.trim()}
               >

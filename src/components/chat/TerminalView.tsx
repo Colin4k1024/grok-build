@@ -44,9 +44,10 @@ export function TerminalView({ content }: Props) {
       fontSize,
       fontFamily: "SF Mono, Monaco, Menlo, monospace",
       theme: {
-        background: "#0d1117",
-        foreground: "#e6edf3",
-        cursor: "#e6edf3",
+        // Codex TUI terminal colors — neutral #1c1c1c, not GitHub dark.
+        background: "#1c1c1c",
+        foreground: "#d6d6d6",
+        cursor: "#d6d6d6",
       },
       disableStdin: true,
       scrollback: 1000,

@@ -192,8 +192,20 @@ export class AcpSession {
     });
   }
 
-  /** Spawn the agent and run the ACP handshake. Rejects on any failure. */
-  static async create(id: string, cwd: string, emit: Emit, envKeys: string[] = []): Promise<AcpSession> {
+  /**
+   * Spawn the agent and run the ACP handshake. Rejects on any failure.
+   * Pass `resume` to restore a persisted session instead of starting fresh:
+   * the agent replays the stored conversation as `session/update`
+   * notifications flagged `_meta.isReplay`, so the transcript rebuilds in the
+   * client exactly like Codex thread resume.
+   */
+  static async create(
+    id: string,
+    cwd: string,
+    emit: Emit,
+    envKeys: string[] = [],
+    resume?: { acpSessionId: string }
+  ): Promise<AcpSession> {
     const bin = resolveAgentBinary();
     // ACP session/new rejects relative paths ("Path is not absolute").
     const absCwd = path.resolve(cwd || ".");
@@ -206,7 +218,26 @@ export class AcpSession {
     });
     const session = new AcpSession(id, absCwd, proc, emit);
     await session.handshake();
+    const resp = await session.request(
+      resume ? "session/load" : "session/new",
+      resume
+        ? { sessionId: resume.acpSessionId, cwd: session.cwd, mcpServers: [] }
+        : { cwd: session.cwd, mcpServers: [] }
+    );
+    session.adoptSession(resp);
+    if (resume) session.acpSessionId = resume.acpSessionId;
     return session;
+  }
+
+  /** Resume a persisted session by its ACP session id (see `create`). */
+  static async load(
+    id: string,
+    acpSessionId: string,
+    cwd: string,
+    emit: Emit,
+    envKeys: string[] = []
+  ): Promise<AcpSession> {
+    return AcpSession.create(id, cwd, emit, envKeys, { acpSessionId });
   }
 
   private async handshake(): Promise<void> {
@@ -230,21 +261,20 @@ export class AcpSession {
         authMethods[0];
       await this.request("authenticate", { methodId: pick.id });
     }
+  }
 
-    const newResp = (await this.request("session/new", {
-      cwd: this.cwd,
-      mcpServers: [],
-    })) as {
-      sessionId: string;
+  /** Adopt the sessionId/models from a session/new or session/load response. */
+  private adoptSession(resp: unknown): void {
+    const r = resp as {
+      sessionId?: string;
       models?: { availableModels?: { modelId: string; name: string }[]; currentModelId?: string };
     };
-
-    this.acpSessionId = newResp.sessionId;
-    this.models = (newResp.models?.availableModels ?? []).map((m) => ({
+    this.acpSessionId = r.sessionId ?? "";
+    this.models = (r.models?.availableModels ?? []).map((m) => ({
       id: m.modelId,
       name: m.name,
     }));
-    this.currentModelId = newResp.models?.currentModelId ?? "";
+    this.currentModelId = r.models?.currentModelId ?? "";
     console.log(`[acp] session ready: acp=${this.acpSessionId} models=${this.models.length}`);
   }
 
@@ -433,7 +463,8 @@ export class AcpSession {
 
   private onAgentNotification(method: string, params: Record<string, unknown>): void {
     if (method === "session/update") {
-      this.onSessionUpdate((params?.update ?? {}) as Record<string, unknown>);
+      const meta = (params?._meta ?? {}) as { isReplay?: boolean };
+      this.onSessionUpdate((params?.update ?? {}) as Record<string, unknown>, !!meta.isReplay);
       return;
     }
     if (method === "x.ai/session_notification" || method === "x.ai/session/update") {
@@ -441,14 +472,33 @@ export class AcpSession {
     }
   }
 
-  private onSessionUpdate(update: Record<string, unknown>): void {
+  private onSessionUpdate(update: Record<string, unknown>, replay: boolean): void {
     const kind = update.sessionUpdate as string | undefined;
     switch (kind) {
       case "agent_message_chunk":
       case "agent_thought_chunk": {
         const content = update.content as { type?: string; text?: string } | undefined;
         if (content?.type === "text" && content.text) {
-          this.emit({ session_id: this.id, type: "TextDelta", delta: content.text });
+          this.emit({
+            session_id: this.id,
+            type: "TextDelta",
+            delta: content.text,
+            replay,
+          });
+        }
+        break;
+      }
+      case "user_message_chunk": {
+        // Emitted during session/load replay so the restored transcript shows
+        // both sides of the conversation.
+        const content = update.content as { type?: string; text?: string } | undefined;
+        if (replay && content?.type === "text" && content.text) {
+          this.emit({
+            session_id: this.id,
+            type: "UserMessage",
+            text: content.text,
+            replay,
+          });
         }
         break;
       }
@@ -457,6 +507,7 @@ export class AcpSession {
           session_id: this.id,
           type: "ToolCall",
           tool_name: (update.title as string) ?? "",
+          replay,
         });
         break;
       }
@@ -470,6 +521,7 @@ export class AcpSession {
             tool_name: "",
             output: contentArr.length > 0 ? JSON.stringify(contentArr[0]) : "",
             success: status === "completed",
+            replay,
           });
         }
         break;
@@ -482,7 +534,7 @@ export class AcpSession {
             priority: snakeToPascal(e.priority ?? ""),
           })
         );
-        this.emit({ session_id: this.id, type: "PlanUpdate", entries });
+        this.emit({ session_id: this.id, type: "PlanUpdate", entries, replay });
         break;
       }
       case "usage_update": {

@@ -60,7 +60,7 @@ function MessageItemImpl({ message }: Props) {
           <div
             className={
               isUser
-                ? "bg-gb-surface px-3.5 py-2 text-[13px] leading-relaxed text-gb-text"
+                ? "gb-user-bubble px-3.5 py-2 text-[13px] leading-relaxed text-gb-text"
                 : "px-0 py-0 text-[13px] leading-relaxed text-gb-text"
             }
             style={isUser ? userBubbleStyle : undefined}

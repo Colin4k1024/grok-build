@@ -1,12 +1,15 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { useImagePaste } from "../hooks/useImagePaste";
+import { listHistorySessions, type HistorySession } from "../lib/tauri";
 
 export type ComposerMode = "chat" | "agent";
 
 interface HomeProps {
   onStart: (prompt: string, mode: ComposerMode, images: { data: string; mime_type: string }[]) => void;
   onOpenSession: (id: string) => void;
+  /** Resume a persisted thread (session/load) straight from the home list. */
+  onResumeThread: (session: HistorySession) => void;
   creating: boolean;
 }
 
@@ -22,7 +25,7 @@ function formatRelativeTime(ts: number): string {
   return `${days}d ago`;
 }
 
-export function Home({ onStart, onOpenSession, creating }: HomeProps) {
+export function Home({ onStart, onOpenSession, onResumeThread, creating }: HomeProps) {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<ComposerMode>("chat");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -38,6 +41,15 @@ export function Home({ onStart, onOpenSession, creating }: HomeProps) {
         .slice(0, 6),
     [tabs]
   );
+
+  // Persisted threads from disk — codex-style home: pick up any past
+  // conversation, even after a restart.
+  const [threads, setThreads] = useState<HistorySession[]>([]);
+  useEffect(() => {
+    listHistorySessions()
+      .then((list) => setThreads(list.slice(0, 6)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -75,6 +87,7 @@ export function Home({ onStart, onOpenSession, creating }: HomeProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-12">
       <div className="w-full max-w-2xl">
+        <div className="mb-3 text-center text-gb-brand" aria-hidden>✻</div>
         <h1 className="mb-2 text-center text-2xl font-semibold text-gb-text">
           What do you want to build?
         </h1>
@@ -167,11 +180,11 @@ export function Home({ onStart, onOpenSession, creating }: HomeProps) {
           </div>
         </div>
 
-        {/* Recent sessions */}
+        {/* Open tabs (live this run) */}
         {recent.length > 0 && (
           <div className="mt-10">
             <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-gb-muted">
-              Recent sessions
+              Open sessions
             </h2>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {recent.map((tab) => (
@@ -199,6 +212,50 @@ export function Home({ onStart, onOpenSession, creating }: HomeProps) {
                       <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
                     </svg>
                     <span className="truncate">{tab.cwd || "."}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Persisted threads — resumable across restarts */}
+        {threads.length > 0 && (
+          <div className={recent.length > 0 ? "mt-6" : "mt-10"}>
+            <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-gb-muted">
+              Recent threads
+            </h2>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {threads.map((thread) => (
+                <button
+                  key={thread.id}
+                  onClick={() => onResumeThread(thread)}
+                  className="group flex flex-col rounded-lg border border-gb-border/10 bg-gb-surface-solid/50 p-3 text-left transition-colors hover:border-gb-accent/30 hover:bg-gb-surface-solid"
+                >
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="truncate text-[13px] font-medium text-gb-text group-hover:text-gb-accent">
+                      {thread.title}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-gb-muted">
+                      {formatRelativeTime(thread.updated_at)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-gb-muted">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 10 10"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      className="shrink-0 opacity-60"
+                    >
+                      <path d="M1.5 5s1.5-2.8 3.5-2.8S8.5 5 8.5 5 7 7.8 5 7.8 1.5 5 1.5 5z" />
+                      <circle cx="5" cy="5" r="1.2" />
+                    </svg>
+                    <span className="truncate">{thread.cwd || "."}</span>
+                    <span className="shrink-0 opacity-60">·</span>
+                    <span className="shrink-0">{thread.num_messages} msgs</span>
                   </div>
                 </button>
               ))}

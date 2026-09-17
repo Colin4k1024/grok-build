@@ -31,8 +31,8 @@ import { useAutoSave } from "./hooks/useAutoSave";
 import {
   createSession, sendMessage, cancelSession, closeSession,
   getAuthStatus, logout, getConfig, listSessions, compactSession,
-  setSessionModel,
-  type AuthStatus, type ConfigSnapshot,
+  setSessionModel, resumeSession,
+  type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged,
 } from "./lib/tauri";
 import type { Command } from "./components/layout/CommandPalette";
@@ -113,22 +113,41 @@ export default function App() {
       }).catch(() => {});
     } else {
       // Thread-tab-route-checkpoint: sessionStore persists tabs + activeSessionId
-      // via zustand/persist. On boot, prune tabs whose backend session no longer
-      // exists so we don't render a "ghost" tab that fails on first message.
+      // via zustand/persist. On boot, tabs whose backend session died with the
+      // last quit are re-resumed from their persisted acp session id (codex
+      // thread continuity); only tabs without an acp id get pruned.
       const restored = useSessionStore.getState().tabs;
       if (restored.length > 0) {
         listSessions()
-          .then((live) => {
+          .then(async (live) => {
             const liveIds = new Set(live.map((s) => s.id));
-            const keep = restored.filter((t) => liveIds.has(t.id));
-            if (keep.length !== restored.length) {
+            const dead = restored.filter((t) => !liveIds.has(t.id));
+
+            const unresumable = dead.filter((t) => !t.acpSessionId);
+            if (unresumable.length > 0) {
+              const drop = new Set(unresumable.map((t) => t.id));
+              const tabs = useSessionStore.getState().tabs.filter((t) => !drop.has(t.id));
               useSessionStore.setState({
-                tabs: keep,
+                tabs,
                 activeSessionId:
-                  keep.find((t) => t.id === useSessionStore.getState().activeSessionId)?.id ??
-                  keep[0]?.id ??
+                  tabs.find((t) => t.id === useSessionStore.getState().activeSessionId)?.id ??
+                  tabs[0]?.id ??
                   null,
               });
+            }
+
+            // Re-resume sequentially to bound concurrent agent spawns.
+            for (const tab of dead.filter((t) => t.acpSessionId)) {
+              const current = useSessionStore.getState().tabs.find((t) => t.id === tab.id);
+              if (!current) continue; // closed while earlier resumes ran
+              try {
+                const info = await resumeSession(current.acpSessionId!, current.cwd);
+                useSessionStore.getState().finalizeMessages(info.id);
+                useSessionStore.getState().rebindTabId(current.id, info.id, info.acp_session_id);
+              } catch (e) {
+                console.warn("[boot] failed to resume session", current.acpSessionId, e);
+                useSessionStore.getState().removeTab(current.id);
+              }
             }
           })
           .catch(() => {
@@ -148,6 +167,29 @@ export default function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  // Resume a persisted thread (Home "Recent threads" / Threads picker):
+  // session/load restores full agent context and replays the transcript.
+  const handleResumeThread = useCallback(async (session: HistorySession) => {
+    setCreating(true);
+    setError(null);
+    try {
+      const info = await resumeSession(session.id, session.cwd);
+      useSessionStore.getState().finalizeMessages(info.id);
+      addTab({
+        id: info.id,
+        acpSessionId: info.acp_session_id,
+        title: session.title.slice(0, 40) + (session.title.length > 40 ? "…" : ""),
+        cwd: session.cwd,
+        model: session.model || info.models[0]?.id || "",
+        reasoningEffort: "medium",
+        createdAt: Date.now(),
+        lastActiveAt: Date.now(),
+      });
+      setShowHome(false);
+    } catch (e) { setError(String(e)); }
+    finally { setCreating(false); }
+  }, [addTab]);
+
   const handleNewSession = useCallback(async () => {
     setCreating(true);
     setError(null);
@@ -155,6 +197,7 @@ export default function App() {
       const info = await createSession(".");
       addTab({
         id: info.id,
+        acpSessionId: info.acp_session_id,
         title: `Session ${tabs.length + 1}`,
         cwd: info.cwd,
         model: info.models[0]?.id || "",
@@ -175,6 +218,7 @@ export default function App() {
       const dirName = info.cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || info.cwd;
       addTab({
         id: info.id,
+        acpSessionId: info.acp_session_id,
         title: dirName,
         cwd: info.cwd,
         model: info.models[0]?.id || "",
@@ -197,6 +241,7 @@ export default function App() {
       const info = await createSession(".");
       addTab({
         id: info.id,
+        acpSessionId: info.acp_session_id,
         title: prompt ? prompt.slice(0, 30) + (prompt.length > 30 ? "…" : "") : `Session ${tabs.length + 1}`,
         cwd: info.cwd,
         model: info.models[0]?.id || "",
@@ -259,6 +304,7 @@ export default function App() {
       const info = await createSession(sourceTab.cwd);
       addTab({
         id: info.id,
+        acpSessionId: info.acp_session_id,
         title: `Fork of ${sourceTab.title}`,
         cwd: info.cwd,
         model: sourceTab.model,
@@ -301,6 +347,7 @@ export default function App() {
         const info = await createSession(".");
         addTab({
           id: info.id,
+          acpSessionId: info.acp_session_id,
           title: "Untitled",
           cwd: info.cwd,
           model: info.models[0]?.id || "",
@@ -504,6 +551,7 @@ export default function App() {
           creating={creating}
           onForkSession={handleForkSession}
           onCloseSession={handleCloseSession}
+          onOpenThreads={() => setShowPicker(true)}
           onOpenSettings={() => setShowSettings(true)}
           onOpenDashboard={() => setShowDashboard(true)}
           onOpenAgentsPage={() => setShowAgentsPage(true)}
@@ -533,6 +581,7 @@ export default function App() {
                 setActiveSession(id);
                 setShowHome(false);
               }}
+              onResumeThread={handleResumeThread}
               creating={creating}
             />
           ) : (
@@ -580,7 +629,7 @@ export default function App() {
 
       {confirmClose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-80 rounded-gb border border-gb-border bg-gb-surface-solid p-6 text-center dropdown-shadow">
+          <div className="w-80 rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-center shadow-2xl">
             <p className="mb-2 text-sm font-medium text-gb-text">Close this session?</p>
             <p className="mb-4 text-xs text-gb-muted">
               Messages in this session will be lost. The agent process will be terminated.

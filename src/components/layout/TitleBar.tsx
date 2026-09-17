@@ -72,7 +72,9 @@ export function TitleBar({
           onClick={onToggleSidebar} aria-label="Toggle sidebar">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h12v1H2V4zm0 3.5h12v1H2v-1zm0 3.5h12v1H2v-1z" /></svg>
         </button>
-        <span className="text-[13px] font-medium text-gb-text">Grok Build</span>
+        <span className="text-[13px] font-medium text-gb-text">
+          <span className="mr-1 text-gb-brand" aria-hidden>✻</span>Grok Build
+        </span>
 
         {/* Model picker */}
         <div ref={modelRef} className="relative">

@@ -9,13 +9,14 @@ interface SidebarProps {
   creating: boolean;
   onForkSession: (id: string) => void;
   onCloseSession: (id: string) => void;
+  onOpenThreads: () => void;
   onOpenSettings: () => void;
   onOpenDashboard: () => void;
   onOpenAgentsPage: () => void;
   onOpenAutomations: () => void;
 }
 
-export function Sidebar({ collapsed, onNewSession, onNewSessionInDir, creating, onForkSession, onCloseSession, onOpenSettings, onOpenDashboard, onOpenAgentsPage, onOpenAutomations }: SidebarProps) {
+export function Sidebar({ collapsed, onNewSession, onNewSessionInDir, creating, onForkSession, onCloseSession, onOpenThreads, onOpenSettings, onOpenDashboard, onOpenAgentsPage, onOpenAutomations }: SidebarProps) {
   if (collapsed) return null;
 
   return (
@@ -24,6 +25,10 @@ export function Sidebar({ collapsed, onNewSession, onNewSessionInDir, creating, 
         <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-gb-text hover:bg-gb-surface-hover disabled:opacity-30" onClick={onNewSession} disabled={creating}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           {creating ? "Starting…" : "New Session"}
+        </button>
+        <button className="mt-0.5 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onOpenThreads}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 3h11M2.5 6.5h11M2.5 10h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          Threads
         </button>
       </div>
       <ProjectList onOpenProject={onNewSessionInDir} disabled={creating} />

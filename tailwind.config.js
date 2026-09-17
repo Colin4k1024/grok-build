@@ -14,6 +14,7 @@ export default {
         "gb-text-secondary": "rgb(var(--gb-text-secondary) / <alpha-value>)",
         "gb-muted": "rgb(var(--gb-muted) / <alpha-value>)",
         "gb-accent": "rgb(var(--gb-accent) / <alpha-value>)",
+        "gb-brand": "rgb(var(--gb-brand) / <alpha-value>)",
         "gb-green": "rgb(var(--gb-green) / <alpha-value>)",
         "gb-yellow": "rgb(var(--gb-yellow) / <alpha-value>)",
         "gb-red": "rgb(var(--gb-red) / <alpha-value>)",

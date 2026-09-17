@@ -45,6 +45,9 @@ export interface CompactionMarker {
 
 export interface SessionTab {
   id: string;
+  /** ACP session id of the underlying agent thread — lets a tab survive app
+   *  restarts by re-resuming via session/load. */
+  acpSessionId?: string;
   title: string;
   cwd: string;
   model: string;
@@ -70,6 +73,10 @@ interface SessionState {
   addTab: (tab: SessionTab) => void;
   removeTab: (id: string) => void;
   renameTab: (id: string, title: string) => void;
+  /** Swap a tab's session id in place (e.g. after re-resuming a persisted
+   *  thread at boot, the tab keeps its position/title but binds to the new
+   *  live session id). */
+  rebindTabId: (oldId: string, newId: string, acpSessionId?: string) => void;
   closeOtherTabs: (keepId: string) => void;
   reorderTabs: (from: number, to: number) => void;
   updateTabActivity: (id: string) => void;
@@ -90,6 +97,9 @@ interface SessionState {
   setStreaming: (streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
+  /** Drop the streaming flag from every message — used after a session/load
+   *  replay completes so the restored transcript renders as settled history. */
+  finalizeMessages: (sessionId: string) => void;
   addToolCall: (sessionId: string, toolName: string) => void;
   addToolResult: (sessionId: string, toolName: string, output: string, success: boolean) => void;
   clearMessages: (sessionId: string) => void;
@@ -163,6 +173,22 @@ export const useSessionStore = create<SessionState>()(
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, title } : t)),
     })),
+
+  rebindTabId: (oldId, newId, acpSessionId) =>
+    set((state) => {
+      const { [oldId]: _old, ...restMessages } = state.messages;
+      // Prefer messages already recorded under the new id (session/load
+      // replay emits against the new live id before the rebind happens).
+      const migrated =
+        state.messages[newId]?.length ? state.messages[newId] : (state.messages[oldId] ?? []);
+      return {
+        tabs: state.tabs.map((t) =>
+          t.id === oldId ? { ...t, id: newId, acpSessionId: acpSessionId ?? t.acpSessionId } : t
+        ),
+        messages: { ...restMessages, [newId]: migrated },
+        activeSessionId: state.activeSessionId === oldId ? newId : state.activeSessionId,
+      };
+    }),
 
   closeOtherTabs: (keepId) =>
     set((state) => {
@@ -295,6 +321,18 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),
+
+  finalizeMessages: (sessionId) =>
+    set((state) => {
+      const msgs = state.messages[sessionId];
+      if (!msgs || !msgs.some((m) => m.streaming)) return {};
+      return {
+        messages: {
+          ...state.messages,
+          [sessionId]: msgs.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+        },
+      };
+    }),
 
   addUserMessage: (sessionId, content) =>
     set((state) => {
