@@ -12,8 +12,6 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
 import { GlobalSearch } from "./components/layout/GlobalSearch";
 import { RightPanel } from "./components/panels/RightPanel";
-import { StatusBar } from "./components/panels/StatusBar";
-import { ContextBar } from "./components/panels/ContextBar";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { SessionPicker } from "./components/session/SessionPicker";import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
@@ -751,7 +749,6 @@ export default function App() {
                   onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
                 />
               ))}
-              <ContextBar />
               <PromptInput
                 onSend={handleSend}
                 onCancel={handleCancel}
@@ -770,14 +767,6 @@ export default function App() {
 
         <RightPanel collapsed={responsiveRightCollapsed} />
       </div>
-
-      <StatusBar
-        connected={auth.authenticated}
-        workingDir={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd || "." : "."}
-        sandboxMode={false}
-        sessionCount={tabs.length}
-        streaming={isStreaming}
-      />
 
       {showPicker && (
         <SessionPicker onClose={() => setShowPicker(false)} />

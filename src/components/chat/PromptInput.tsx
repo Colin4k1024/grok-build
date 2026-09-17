@@ -71,6 +71,8 @@ export function PromptInput({
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeSessionId));
   const queuedCount = useSessionStore((s) => (activeSessionId ? s.queuedPrompts[activeSessionId]?.length ?? 0 : 0));
+  const tokenUsage = useSessionStore((s) => (activeSessionId ? s.tokenUsage[activeSessionId] : undefined));
+  const contextPct = tokenUsage && tokenUsage.size > 0 ? tokenUsage.used / tokenUsage.size : 0;
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -222,7 +224,20 @@ export function PromptInput({
         </div>
       )}
 
-      <div className="rounded-lg border border-gb-border/10 bg-gb-surface/50 px-3 py-2 focus-within:border-gb-accent/40">
+      {contextPct > 0.8 && (
+        <div className="mx-1 mb-1 h-0.5 rounded-full bg-gb-border/10">
+          <div
+            className="h-0.5 rounded-full bg-gradient-to-r from-gb-yellow to-gb-red"
+            style={{ width: `${Math.min(100, contextPct * 100)}%` }}
+            title="Context window nearly full — consider /compact"
+          />
+        </div>
+      )}
+
+      <div
+        className="rounded-lg border border-gb-border/10 bg-gb-surface/50 px-3 py-2 focus-within:border-gb-accent/40"
+        title={tokenUsage ? `Context: ${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
+      >
         <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[13px] text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "Running — Enter injects · Tab queues" : "Send a message… (@ files · $ skills · / commands)"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
