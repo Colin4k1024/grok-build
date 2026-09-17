@@ -699,6 +699,7 @@ export default function App() {
         creating={creating}
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       <div className="flex flex-1 overflow-hidden">

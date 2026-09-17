@@ -558,7 +558,10 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: "Grok Build",
-    titleBarStyle: "default",
+    // Codex-style chrome: hidden titlebar, traffic lights inset into the
+    // custom 40px toolbar (ISS-068).
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 12, y: 13 },
     backgroundColor: "#212121",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
