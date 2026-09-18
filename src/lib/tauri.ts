@@ -121,6 +121,7 @@ export interface AcpEventPayload {
   mode?: string;
   used?: number;
   size?: number;
+  retry_after_seconds?: number;
 }
 
 export interface PermissionOption {

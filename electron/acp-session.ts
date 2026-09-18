@@ -272,6 +272,20 @@ export class AcpSession {
       this.emit({ session_id: this.id, type: "TurnComplete" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      // Rate-limit probe (ISS-081): agent errors that look like quota
+      // throttling surface as a RateLimit event so the UI can banner with a
+      // retry time instead of a generic error.
+      const rl = msg.match(/rate.?limit|too many requests|429|quota/i);
+      if (rl) {
+        const retry = msg.match(/(?:retry|reset|try again)[^\d]{0,24}(\d+)\s*(s|sec|second)/i);
+        const retryAfter = retry ? parseInt(retry[1], 10) : 60;
+        this.emit({
+          session_id: this.id,
+          type: "RateLimit",
+          message: msg.slice(0, 300),
+          retry_after_seconds: retryAfter,
+        });
+      }
       this.emit({ session_id: this.id, type: "Error", message: msg });
       throw e;
     }

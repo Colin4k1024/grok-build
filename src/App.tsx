@@ -38,6 +38,8 @@ import {
 import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
+import { UsagePanel } from "./components/panels/UsagePanel";
+import { formatRetry } from "./lib/usage";
 import type { Command } from "./components/layout/CommandPalette";
 
 // Boot re-resume must run exactly once per app lifetime: StrictMode double-
@@ -61,6 +63,13 @@ export default function App() {
   const setTabWorkMode = useSessionStore((s) => s.setTabWorkMode);
   // Slash-command feedback toast (ISS-078): notices like "/pwd", "/usage".
   const [slashNotice, setSlashNotice] = useState<string | null>(null);
+  // /usage panel (ISS-081)
+  const [showUsage, setShowUsage] = useState(false);
+  useEffect(() => {
+    const open = () => setShowUsage(true);
+    window.addEventListener("gb-open-usage", open);
+    return () => window.removeEventListener("gb-open-usage", open);
+  }, []);
   useEffect(() => {
     if (!slashNotice) return;
     const t = window.setTimeout(() => setSlashNotice(null), 4000);
@@ -516,6 +525,7 @@ export default function App() {
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
           newThread: () => { setActiveSession(null); setShowHome(true); },
+          openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           notify: (m) => setSlashNotice(m),
         },
       });
@@ -845,6 +855,21 @@ export default function App() {
               <button className="text-gb-red/60 hover:text-gb-red" onClick={() => setError(null)}>✕</button>
             </div>
           )}
+          {(() => {
+            const activeLimit = activeSessionId ? useSessionStore.getState().rateLimits[activeSessionId] : undefined;
+            if (!activeLimit || activeLimit.until <= Date.now()) return null;
+            return (
+              <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/10 px-4 py-1.5 text-xs text-gb-yellow">
+                <span className="flex-1">⏳ 限流中 — {formatRetry(activeLimit.until)}：{activeLimit.message.slice(0, 120)}</span>
+                <button
+                  className="text-gb-yellow/70 hover:text-gb-yellow"
+                  onClick={() => useSessionStore.getState().setRateLimit(activeSessionId!, null)}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })()}
           {slashNotice && (
             <div
               className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-gb-border/40 bg-gb-surface-solid px-4 py-2 text-xs text-gb-text shadow-xl"
@@ -955,6 +980,7 @@ export default function App() {
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
         onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}
       />
+      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} />}
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
     </div>

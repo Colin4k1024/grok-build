@@ -33,6 +33,7 @@ export interface SlashContext {
     copyText(text: string): Promise<void>;
     showDiff(cwd: string, path?: string): Promise<string>;
     notify(message: string): void;
+    openUsage(): void;
   };
 }
 
@@ -109,11 +110,9 @@ export async function executeSlashCommand(
       return { type: "handled", notice: `已重命名为「${argStr}」` };
     }
     case "usage": {
-      if (!ctx.usage) return { type: "error", notice: "暂无用量数据（发送一条消息后可用）" };
-      const pct = ctx.usage.size > 0 ? Math.round((ctx.usage.used / ctx.usage.size) * 100) : 0;
-      const notice = `上下文：${(ctx.usage.used / 1000).toFixed(1)}k / ${(ctx.usage.size / 1000).toFixed(0)}k tokens（${pct}%）`;
-      ctx.actions.notify(notice);
-      return { type: "handled", notice };
+      // Opens the usage panel (ISS-081); per-thread data with 未知 fallbacks.
+      ctx.actions.openUsage();
+      return { type: "handled" };
     }
     case "diff": {
       if (!ctx.cwd) return { type: "error", notice: "当前会话没有工作目录" };
