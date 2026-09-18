@@ -130,6 +130,8 @@ interface SessionState {
    *  global flag tracks the active view). */
   setSessionStreaming: (sessionId: string, streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
+  /** Transactionally remove the trailing user message (failed sends). */
+  removeLastUserMessage: (sessionId: string) => void;
   /** Replace a session's transcript with disk-persisted history (resume fallback). */
   loadHistoryMessages: (sessionId: string, entries: { role: string; content: string; timestamp: number }[]) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
@@ -464,6 +466,23 @@ export const useSessionStore = create<SessionState>()(
           ],
         },
       };
+    }),
+
+  removeLastUserMessage: (sessionId) =>
+    set((state) => {
+      const msgs = state.messages[sessionId];
+      if (!msgs || msgs.length === 0) return {};
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === "user") {
+          return {
+            messages: {
+              ...state.messages,
+              [sessionId]: msgs.slice(0, i),
+            },
+          };
+        }
+      }
+      return {}; // no trailing user message to remove
     }),
 
   appendAssistantText: (sessionId, delta) => {

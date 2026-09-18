@@ -547,6 +547,21 @@ export async function claudeMarkImported(sourceId: string): Promise<void> {
   await invoke("claude_mark_imported", { sourceId });
 }
 
+export type ClaudeClaim =
+  | { status: "claimed"; entries: { role: string; content: string; timestamp: number }[]; skippedLines: number }
+  | { status: "already-imported" }
+  | { status: "error"; message: string };
+
+/** Atomic claim — duplicate destinations are impossible across windows. */
+export async function claudeClaimSession(sourceId: string): Promise<ClaudeClaim> {
+  return invoke<ClaudeClaim>("claude_claim_session", { sourceId });
+}
+
+/** Release a claim after destination creation failed (retry-safe). */
+export async function claudeUnmarkSession(sourceId: string): Promise<void> {
+  await invoke("claude_unmark_session", { sourceId });
+}
+
 /** Persist a seeded transcript so restart/session-load restores it. */
 export async function persistTranscript(args: {
   acpSessionId: string;

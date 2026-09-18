@@ -567,6 +567,8 @@ import {
   importClaudeInstructions,
   peekClaudeSession,
   markClaudeImported,
+  claimClaudeSession,
+  unmarkClaudeImported,
 } from "./claude-import";
 import { persistTranscript } from "./transcript-store";
 
@@ -584,6 +586,15 @@ ipcMain.handle("claude_peek_session", (_e, args: { sourceId?: string }) => {
 });
 ipcMain.handle("claude_mark_imported", (_e, args: { sourceId?: string }) => {
   markClaudeImported(args?.sourceId ?? "");
+  return ok(null);
+});
+// Atomic claim: registry check + parse + registration in ONE main-process
+// step — duplicate destinations are impossible even across windows.
+ipcMain.handle("claude_claim_session", (_e, args: { sourceId?: string }) => {
+  return ok(claimClaudeSession(args?.sourceId ?? ""));
+});
+ipcMain.handle("claude_unmark_session", (_e, args: { sourceId?: string }) => {
+  unmarkClaudeImported(args?.sourceId ?? "");
   return ok(null);
 });
 ipcMain.handle("claude_import_instructions", (_e, args: { projectRoot?: string }) => {
@@ -834,11 +845,14 @@ import {
 } from "./updater";
 
 function buildUpdaterAdapter(): UpdaterAdapter | null {
-  // Installer files resolved by the last downloadUpdate() in THIS process.
-  // A persisted "ready" restored after a restart has none — apply must then
-  // report false instead of silently no-op'ing (electron-updater's
-  // quitAndInstall does not throw when nothing is cached).
-  let cachedInstallerFiles: string[] | null = null;
+  // Installer files resolved by the last downloadUpdate() in THIS process,
+  // bound to the offered version and cleared before every download and on
+  // failure — a stale package A can never be installed while the machine
+  // offers package B, and a persisted "ready" restored after a restart has
+  // none (electron-updater's quitAndInstall does not throw in these cases,
+  // so the adapter must verify explicitly).
+  let cachedInstaller: { version: string; files: string[] } | null = null;
+  let lastOfferedVersion = "";
   const feed = updaterFeedUrl();
   const packaged = (() => {
     try {
@@ -859,16 +873,28 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       if (!res?.updateInfo) return null;
       const vi = res.updateInfo as { version?: string; releaseNotes?: unknown; releaseDate?: string };
       if (!vi.version) return null;
+      lastOfferedVersion = vi.version;
       const notes =
         typeof vi.releaseNotes === "string"
           ? vi.releaseNotes
           : null;
       return { version: vi.version, releaseNotes: notes, releaseDate: vi.releaseDate ?? null };
     },
-    fetchPackage: () =>
-      autoUpdater.downloadUpdate().then((files) => {
-        cachedInstallerFiles = Array.isArray(files) ? files : [String(files)];
-      }),
+    fetchPackage: () => {
+      cachedInstaller = null; // never install a stale prior download
+      return autoUpdater.downloadUpdate().then(
+        (files) => {
+          cachedInstaller = {
+            version: lastOfferedVersion,
+            files: Array.isArray(files) ? files : [String(files)],
+          };
+        },
+        (err: unknown) => {
+          cachedInstaller = null;
+          throw err;
+        }
+      );
+    },
     onProgress: (cb) => {
       autoUpdater.on("download-progress", (info) =>
         cb({
@@ -880,10 +906,13 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       );
     },
     applyAndRestart: () => {
-      if (!cachedInstallerFiles || cachedInstallerFiles.length === 0) {
+      if (!cachedInstaller || cachedInstaller.files.length === 0) {
         return false; // nothing installable in this process lifetime
       }
-      const stillThere = cachedInstallerFiles.filter((f) => fs.existsSync(f));
+      if (cachedInstaller.version !== lastOfferedVersion) {
+        return false; // cached package belongs to a stale offer
+      }
+      const stillThere = cachedInstaller.files.filter((f) => fs.existsSync(f));
       if (stillThere.length === 0) return false; // cache wiped on disk
       autoUpdater.quitAndInstall();
       return true;

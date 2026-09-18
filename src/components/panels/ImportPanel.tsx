@@ -3,8 +3,8 @@ import {
   claudeProbe,
   claudeListSessions,
   claudeImportInstructions,
-  claudePeekSession,
-  claudeMarkImported,
+  claudeClaimSession,
+  claudeUnmarkSession,
   persistTranscript,
   createSession,
   type ClaudeSessionItem,
@@ -59,25 +59,23 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
     setReport([]);
     const lines: string[] = [];
     for (const id of selected) {
-      // Idempotency guard (review round 2): the registry may have advanced
-      // since the preview rendered — never create a second destination.
-      if (sessions.find((x) => x.sourceId === id)?.imported) {
+      // Atomic claim (review r3): registry check + parse + registration in
+      // one main-process step — a stale preview or a second window can never
+      // produce a duplicate destination. The claim is released if creation
+      // fails, keeping the source retryable.
+      const info = sessions.find((s) => s.sourceId === id);
+      const claim = await claudeClaimSession(id);
+      if (claim.status === "already-imported") {
         lines.push(`• 会话 ${id.slice(0, 8)} 此前已导入（跳过）`);
         continue;
       }
-      // Retry-safe order (review P1): peek (no registration) → create the
-      // destination → persist the transcript to disk → only then mark the
-      // source imported. A failure anywhere before the mark stays retryable,
-      // and the transcript survives restart via the updates.jsonl replay.
-      const info = sessions.find((s) => s.sourceId === id);
-      const peek = await claudePeekSession(id);
-      const entries = peek.entries.filter(
-        (e) => e.role === "user" || e.role === "assistant"
-      );
-      if (peek.error || entries.length === 0) {
-        lines.push(`✗ 会话 ${id.slice(0, 8)}：${peek.error ?? "无可导入消息"}`);
+      if (claim.status === "error") {
+        lines.push(`✗ 会话 ${id.slice(0, 8)}：${claim.message}`);
         continue;
       }
+      const entries = claim.entries.filter(
+        (e) => e.role === "user" || e.role === "assistant"
+      );
       try {
         const created = await createSession(info?.cwd ?? projectRoot ?? ".");
         const title = `导入 · ${info?.title ?? id.slice(0, 8)}`;
@@ -98,10 +96,10 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
           lastActiveAt: Date.now(),
         });
         useSessionStore.getState().loadHistoryMessages(created.id, entries);
-        await claudeMarkImported(id);
-        lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${entries.length} 条${peek.skippedLines ? `，跳过 ${peek.skippedLines} 行损坏` : ""}，已持久化）`);
+        lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${entries.length} 条${claim.skippedLines ? `，跳过 ${claim.skippedLines} 行损坏` : ""}，已持久化）`);
       } catch (e) {
-        lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败（可重试）：${String(e)}`);
+        await claudeUnmarkSession(id).catch(() => {});
+        lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败（已释放申领，可重试）：${String(e)}`);
       }
     }
     if (mergeInstructions && projectRoot) {

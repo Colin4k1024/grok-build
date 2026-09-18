@@ -260,6 +260,40 @@ export function markClaudeImported(sourceId: string): void {
   }
 }
 
+/** Release a claim after destination creation failed (retry-safe). */
+export function unmarkClaudeImported(sourceId: string): void {
+  const reg = readRegistry();
+  const next = reg.sessions.filter((s) => s !== sourceId);
+  if (next.length !== reg.sessions.length) {
+    writeRegistry({ ...reg, sessions: next });
+  }
+}
+
+/**
+ * ATOMIC claim (review round 3): register-and-return in one main-process
+ * step, so two windows — or a preview rendered before another importer
+ * finished — cannot both create destinations for the same source. The
+ * caller must unmark if destination creation subsequently fails.
+ */
+export function claimClaudeSession(
+  sourceId: string
+):
+  | { status: "claimed"; entries: ImportedEntry[]; skippedLines: number }
+  | { status: "already-imported" }
+  | { status: "error"; message: string } {
+  if (!isValidSourceId(sourceId)) return { status: "error", message: "invalid session id" };
+  const reg = readRegistry();
+  if (reg.sessions.includes(sourceId)) return { status: "already-imported" };
+  const parsed = parseClaudeSession(sourceId);
+  if (parsed.error) return { status: "error", message: parsed.error };
+  if (parsed.entries.length === 0) {
+    return { status: "error", message: "no importable messages (corrupted or empty source)" };
+  }
+  reg.sessions.push(sourceId);
+  writeRegistry(reg);
+  return { status: "claimed", entries: parsed.entries, skippedLines: parsed.skippedLines };
+}
+
 /**
  * Idempotent session import: parses the source (read-only), registers the
  * sourceId, and returns the transcript for the caller to seed a new thread.

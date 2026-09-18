@@ -219,20 +219,22 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       .split("\n")
       .map((l, i) => `${i + 1}. ${l}`)
       .join("\n")}`;
-    // Send-first (review round 2): only after the prompt actually lands do
-    // we advance the machine and append the transcript entry — a rejected
-    // send leaves no phantom message and no state change.
+    // Message-first + transactional removal (review r3): the user entry is
+    // appended BEFORE the send so transcript order is correct (assistant
+    // deltas stream in after it); a rejected send removes it again and
+    // restores the prior machine state — no phantoms, no reordering.
     const prevState = reviewState;
+    useSessionStore.getState().addUserMessage(activeSessionId, prompt);
     try {
       await sendMessage(activeSessionId, prompt);
       setReviewState(reviewNext(prevState, { type: "changes-requested" }));
-      useSessionStore.getState().addUserMessage(activeSessionId, prompt);
       setNote("修改意见已发送到会话（changes-requested）。");
       setAction("none");
       setInput("");
     } catch (e) {
+      useSessionStore.getState().removeLastUserMessage(activeSessionId);
       setReviewState(prevState);
-      setNote(`发送失败（未计入修订请求）：${String(e)}`);
+      setNote(`发送失败（已回滚，未计入修订请求）：${String(e)}`);
     }
   };
 
