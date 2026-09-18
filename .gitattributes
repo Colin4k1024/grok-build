@@ -1,0 +1,3 @@
+# Windows runners default to autocrlf; vitest 2's .mjs transform chokes on
+# CRLF (TS files are fine — esbuild normalizes them). Keep .mjs LF everywhere.
+*.mjs text eol=lf

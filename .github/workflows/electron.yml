@@ -53,6 +53,14 @@ jobs:
         with:
           targets: ${{ matrix.rust-target }}
 
+      # The agent's proto build script needs a real protoc — the repo's
+      # bin/protoc is a dotslash wrapper that only works on dev machines.
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: 25.1
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       # Keyed per (job, target) by default — matrix legs never share a cache.
       - name: Rust cache
         uses: swatinem/rust-cache@v2
