@@ -50,8 +50,11 @@ export interface UpdaterAdapter {
   /** Fetch the current offer; resolves when the package is verified. */
   fetchPackage(): Promise<void>;
   onProgress(cb: (p: UpdaterProgress) => void): void;
-  /** Swap in the verified package and restart the app. */
-  applyAndRestart(): void;
+  /** Swap in the verified package and restart. Returns false when no cached
+   *  installer is installable (e.g. a persisted ready restored after a
+   *  restart) — electron-updater's quitAndInstall does NOT throw in that
+   *  case, so the adapter must verify the installer explicitly. */
+  applyAndRestart(): boolean;
 }
 
 export function updaterFeedUrl(): string | null {
@@ -174,12 +177,28 @@ export class UpdaterMachine {
     }
   }
 
-  /** Apply the verified package: swap-and-relaunch. */
+  /** Apply the verified package: swap-and-relaunch. A persisted "ready"
+   *  restored after a restart may outlive electron-updater's in-memory
+   *  install handle — when apply fails we fall back to available so the
+   *  caller re-fetches instead of hitting a dead-end ready state. */
   apply(): void {
     if (!this.adapter || this.status !== "ready") {
       throw new Error(`apply requires the ready state (was ${this.status})`);
     }
     this.transition("relaunch");
-    this.adapter.applyAndRestart();
+    try {
+      const installable = this.adapter.applyAndRestart();
+      if (installable === false) {
+        this.transition("available");
+        throw new Error(
+          "cached update no longer installable (restart cleared it) — retry the download"
+        );
+      }
+    } catch (e) {
+      this.transition("available");
+      throw new Error(
+        `apply failed — retry the download: ${e}`
+      );
+    }
   }
 }

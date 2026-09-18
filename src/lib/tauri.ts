@@ -512,6 +512,8 @@ export interface ClaudeSessionItem {
   title: string;
   mtime: number;
   size: number;
+  /** Already has an imported destination — UI must not re-import. */
+  imported: boolean;
 }
 
 export type ClaudeImportOutcome =
@@ -531,6 +533,43 @@ export async function claudeImportSession(sourceId: string): Promise<ClaudeImpor
 }
 export async function claudeImportInstructions(projectRoot: string): Promise<{ status: string; message?: string }> {
   return invoke<{ status: string; message?: string }>("claude_import_instructions", { projectRoot });
+}
+
+/** Preview a source session WITHOUT registering it (retry-safe import flow). */
+export async function claudePeekSession(
+  sourceId: string
+): Promise<{ entries: { role: string; content: string; timestamp: number }[]; skippedLines: number; error?: string }> {
+  return invoke("claude_peek_session", { sourceId });
+}
+
+/** Mark a source imported — call only after the destination thread exists. */
+export async function claudeMarkImported(sourceId: string): Promise<void> {
+  await invoke("claude_mark_imported", { sourceId });
+}
+
+export type ClaudeClaim =
+  | { status: "claimed"; entries: { role: string; content: string; timestamp: number }[]; skippedLines: number }
+  | { status: "already-imported" }
+  | { status: "error"; message: string };
+
+/** Atomic claim — duplicate destinations are impossible across windows. */
+export async function claudeClaimSession(sourceId: string): Promise<ClaudeClaim> {
+  return invoke<ClaudeClaim>("claude_claim_session", { sourceId });
+}
+
+/** Release a claim after destination creation failed (retry-safe). */
+export async function claudeUnmarkSession(sourceId: string): Promise<void> {
+  await invoke("claude_unmark_session", { sourceId });
+}
+
+/** Persist a seeded transcript so restart/session-load restores it. */
+export async function persistTranscript(args: {
+  acpSessionId: string;
+  cwd: string;
+  title: string;
+  entries: { role: string; content: string; timestamp: number }[];
+}): Promise<{ written: number }> {
+  return invoke<{ written: number }>("session_persist_transcript", args);
 }
 
 // ===== Review workflow (ISS-080) =====
@@ -595,6 +634,8 @@ export async function respondPermission(
 export interface PtySession {
   id: string;
   port: number;
+  /** Per-session auth token — required on the ws URL. */
+  token: string;
   pid: number;
   cols: number;
   rows: number;

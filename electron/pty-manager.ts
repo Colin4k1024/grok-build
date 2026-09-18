@@ -49,6 +49,8 @@ export interface PtySessionInfo {
   id: string;
   /** Loopback port of this session's ptyctl HTTP/ws server. */
   port: number;
+  /** Per-session auth token — every endpoint (incl. /ws) requires it. */
+  token: string;
   /** pid of the ptyctl controller (not the shell). */
   pid: number;
   cols: number;
@@ -171,7 +173,7 @@ export class PtyManager {
       interactiveShell: shell,
     });
 
-    const port = await new Promise<number>((resolve, reject) => {
+    const handshake = await new Promise<{ port: number; token: string }>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new PtyError(PTY_ERR_SPAWN, "ptyctl did not report a port in time")),
         SPAWN_TIMEOUT_MS
@@ -179,10 +181,11 @@ export class PtyManager {
       let buf = "";
       const onData = (chunk: Buffer) => {
         buf += chunk.toString("utf-8");
-        const m = buf.match(/(\d+)/);
+        // Handshake line: "<port> <token>"
+        const m = buf.match(/^(\d+)\s+([A-Za-z0-9-]{16,})/);
         if (m) {
           clearTimeout(timer);
-          resolve(parseInt(m[1], 10));
+          resolve({ port: parseInt(m[1], 10), token: m[2] });
         }
       };
       const fail = (msg: string) => {
@@ -199,14 +202,22 @@ export class PtyManager {
     });
 
     const id = randomUUID();
-    this.sessions.set(id, { proc: child, port });
+    this.sessions.set(id, { proc: child, port: handshake.port });
     child.removeAllListeners("exit");
     child.on("exit", (code) => {
       this.sessions.delete(id);
       this.events.onExit(id, code ?? -1);
     });
 
-    return { id, port, pid: child.pid ?? -1, cols, rows, shell: path.basename(shell) };
+    return {
+      id,
+      port: handshake.port,
+      token: handshake.token,
+      pid: child.pid ?? -1,
+      cols,
+      rows,
+      shell: path.basename(shell),
+    };
   }
 
   /** Kill this session's controller; the PTY group dies with it. Idempotent. */

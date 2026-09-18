@@ -237,6 +237,25 @@ export async function checkAuthStatus(deps: CheckDeps = {}): Promise<AuthStatus>
 
 // ---- login / logout --------------------------------------------------------------
 
+/** Minimal provider-side format checks: an arbitrary string must not pass
+ *  as a credential. Real validation still happens on first agent use; these
+ *  rules reject obvious garbage before anything is persisted. */
+const KEY_FORMAT_RULES: Record<string, { minLen: number; pattern?: RegExp }> = {
+  XAI_API_KEY: { minLen: 20, pattern: /^xai-[A-Za-z0-9_-]+$/ },
+  OPENAI_API_KEY: { minLen: 20, pattern: /^sk-[A-Za-z0-9_-]+$/ },
+  ANTHROPIC_API_KEY: { minLen: 20, pattern: /^sk-ant-[A-Za-z0-9_-]+$/ },
+  OPENROUTER_API_KEY: { minLen: 20, pattern: /^sk-or-[A-Za-z0-9_-]+$/ },
+};
+
+export function apiKeyLooksValid(envKey: string, value: string): boolean {
+  const rule = KEY_FORMAT_RULES[envKey];
+  const v = value.trim();
+  if (!rule) return v.length >= 20; // unknown providers: length floor only
+  if (v.length < rule.minLen) return false;
+  if (rule.pattern && !rule.pattern.test(v)) return false;
+  return true;
+}
+
 export async function loginWithApiKey(
   envKey: string,
   value: string,
@@ -247,6 +266,9 @@ export async function loginWithApiKey(
   }
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error("api key must be a non-empty string");
+  }
+  if (!apiKeyLooksValid(envKey, value)) {
+    throw new Error(`value does not look like a valid ${envKey} key (format/length check failed)`);
   }
   const keychain = deps.keychain ?? activeKeychain;
   const storePath = deps.storePath ?? apiKeyStorePath();

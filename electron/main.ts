@@ -265,6 +265,15 @@ ipcMain.handle("open_session_window", (_e, args: { sessionId?: string }) => {
       height: 860,
       title: `Grok Build — ${sessionId}`,
       backgroundColor: "#16171a",
+      // Same hardened surface as the main window — without the preload the
+      // detached UI has no window.electron bridge and cannot function.
+      webPreferences: {
+        preload: path.join(__dirname, "preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+        webSecurity: true,
+      },
     });
     if (isDev) {
       win.loadURL(`${devServerUrl}?session=${encodeURIComponent(sessionId)}`);
@@ -556,7 +565,12 @@ import {
   listClaudeSessions,
   importClaudeSession,
   importClaudeInstructions,
+  peekClaudeSession,
+  markClaudeImported,
+  claimClaudeSession,
+  unmarkClaudeImported,
 } from "./claude-import";
+import { persistTranscript } from "./transcript-store";
 
 // --- Selective import from Claude Code (ISS-083) ---
 ipcMain.handle("claude_probe", () => ok(probeClaudeSources()));
@@ -565,9 +579,51 @@ ipcMain.handle("claude_import_session", (_e, args: { sourceId?: string }) => {
   const ids = [...sessions.keys()];
   return ok(importClaudeSession(args?.sourceId ?? "", { existingGrokSessionIds: ids }));
 });
+// Review-P1 flow: peek (no registration) → caller creates the thread →
+// persist + mark. A failed creation stays retryable.
+ipcMain.handle("claude_peek_session", (_e, args: { sourceId?: string }) => {
+  return ok(peekClaudeSession(args?.sourceId ?? ""));
+});
+ipcMain.handle("claude_mark_imported", (_e, args: { sourceId?: string }) => {
+  markClaudeImported(args?.sourceId ?? "");
+  return ok(null);
+});
+// Atomic claim: registry check + parse + registration in ONE main-process
+// step — duplicate destinations are impossible even across windows.
+ipcMain.handle("claude_claim_session", (_e, args: { sourceId?: string }) => {
+  return ok(claimClaudeSession(args?.sourceId ?? ""));
+});
+ipcMain.handle("claude_unmark_session", (_e, args: { sourceId?: string }) => {
+  unmarkClaudeImported(args?.sourceId ?? "");
+  return ok(null);
+});
 ipcMain.handle("claude_import_instructions", (_e, args: { projectRoot?: string }) => {
   if (!args?.projectRoot) throw new Error("claude_import_instructions: missing projectRoot");
   return ok(importClaudeInstructions(args.projectRoot));
+});
+
+// Persist a seeded transcript (fork/import, review P1) so restart/session
+// load restores it through the standard updates.jsonl replay.
+ipcMain.handle("session_persist_transcript", (_e, args: {
+  acpSessionId?: string; cwd?: string; title?: string;
+  entries?: { role?: string; content?: string; timestamp?: number }[];
+}) => {
+  if (!args?.acpSessionId || !args?.cwd) {
+    throw new Error("session_persist_transcript: missing acpSessionId/cwd");
+  }
+  const entries = (args.entries ?? [])
+    .filter((e) => (e.role === "user" || e.role === "assistant") && typeof e.content === "string" && e.content)
+    .map((e) => ({
+      role: e.role as "user" | "assistant",
+      content: e.content as string,
+      timestamp: typeof e.timestamp === "number" ? e.timestamp : 0,
+    }));
+  return ok(persistTranscript({
+    acpSessionId: args.acpSessionId,
+    cwd: args.cwd,
+    title: args.title ?? "Imported thread",
+    entries,
+  }));
 });
 
 ipcMain.handle("git_turn_snapshot", (_e, args: { cwd: string }) =>
@@ -789,6 +845,14 @@ import {
 } from "./updater";
 
 function buildUpdaterAdapter(): UpdaterAdapter | null {
+  // Installer files resolved by the last downloadUpdate() in THIS process,
+  // bound to the offered version and cleared before every download and on
+  // failure — a stale package A can never be installed while the machine
+  // offers package B, and a persisted "ready" restored after a restart has
+  // none (electron-updater's quitAndInstall does not throw in these cases,
+  // so the adapter must verify explicitly).
+  let cachedInstaller: { version: string; files: string[] } | null = null;
+  let lastOfferedVersion = "";
   const feed = updaterFeedUrl();
   const packaged = (() => {
     try {
@@ -809,14 +873,28 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       if (!res?.updateInfo) return null;
       const vi = res.updateInfo as { version?: string; releaseNotes?: unknown; releaseDate?: string };
       if (!vi.version) return null;
+      lastOfferedVersion = vi.version;
       const notes =
         typeof vi.releaseNotes === "string"
           ? vi.releaseNotes
           : null;
       return { version: vi.version, releaseNotes: notes, releaseDate: vi.releaseDate ?? null };
     },
-    fetchPackage: () =>
-      autoUpdater.downloadUpdate().then(() => undefined),
+    fetchPackage: () => {
+      cachedInstaller = null; // never install a stale prior download
+      return autoUpdater.downloadUpdate().then(
+        (files) => {
+          cachedInstaller = {
+            version: lastOfferedVersion,
+            files: Array.isArray(files) ? files : [String(files)],
+          };
+        },
+        (err: unknown) => {
+          cachedInstaller = null;
+          throw err;
+        }
+      );
+    },
     onProgress: (cb) => {
       autoUpdater.on("download-progress", (info) =>
         cb({
@@ -828,7 +906,16 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       );
     },
     applyAndRestart: () => {
+      if (!cachedInstaller || cachedInstaller.files.length === 0) {
+        return false; // nothing installable in this process lifetime
+      }
+      if (cachedInstaller.version !== lastOfferedVersion) {
+        return false; // cached package belongs to a stale offer
+      }
+      const stillThere = cachedInstaller.files.filter((f) => fs.existsSync(f));
+      if (stillThere.length === 0) return false; // cache wiped on disk
       autoUpdater.quitAndInstall();
+      return true;
     },
   };
 }

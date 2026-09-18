@@ -34,7 +34,7 @@ import {
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged, getSessionHistoryMessages, gitDiff,
-  renameHistorySession } from "./lib/tauri";
+  renameHistorySession, persistTranscript } from "./lib/tauri";
 import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
@@ -429,9 +429,26 @@ export default function App() {
         lastActiveAt: Date.now(),
       });
       // Seed the new transcript with the forked copy — new backend id, so the
-      // fork and the source are write-isolated from each other.
+      // fork and the source are write-isolated — AND persist it so restart /
+      // session-load restores the forked history (review P1).
       useSessionStore.getState().loadHistoryMessages(info.id, snapshot);
-      setSlashNotice(`已派生新线程（复制 ${snapshot.length} 条记录）— agent 上下文从派生点重新开始`);
+      let persisted = true;
+      try {
+        await persistTranscript({
+          acpSessionId: info.acp_session_id,
+          cwd: info.cwd,
+          title: `Fork of ${sourceTab.title}`,
+          entries: snapshot,
+        });
+      } catch (persistErr) {
+        persisted = false;
+        console.error("[fork] transcript persist failed:", persistErr);
+      }
+      setSlashNotice(
+        persisted
+          ? `已派生新线程（复制 ${snapshot.length} 条记录，已持久化）— agent 上下文从派生点重新开始`
+          : `已派生新线程（复制 ${snapshot.length} 条记录）— ⚠️ 持久化失败，重启后转录不可恢复`
+      );
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }, [tabs, addTab]);

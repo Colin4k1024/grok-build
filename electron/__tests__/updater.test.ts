@@ -47,8 +47,9 @@ function fakeAdapter(
       return overrides.fetch?.();
     },
     onProgress: () => {},
-    applyAndRestart: () => {
+    applyAndRestart: (): boolean => {
       calls.applied += 1;
+      return true;
     },
   };
 }
@@ -154,6 +155,33 @@ describe("UpdaterMachine state machine", () => {
     fail = false; // retry succeeds
     await m.fetch();
     expect(m.getStatus().status).toBe("ready");
+  });
+
+  it("apply with no cached installer falls back to available (review r2: quitAndInstall does not throw)", async () => {
+    // A persisted ready restored after restart: the adapter reports false
+    // (electron-updater has no in-memory installer) instead of throwing.
+    const a = fakeAdapter({ poll: async () => manifest("2.0.0") });
+    (a as unknown as { applyAndRestart: () => boolean }).applyAndRestart = () => false;
+    const m = new UpdaterMachine(a, "1.0.0", stateFilePath());
+    await m.poll();
+    await m.fetch();
+    expect(m.getStatus().status).toBe("ready");
+
+    expect(() => m.apply()).toThrow(/retry the download/);
+    expect(m.getStatus()).toMatchObject({ status: "available", version: "2.0.0" });
+    expect(a.calls.applied).toBe(0); // nothing was even attempted
+  });
+
+  it("apply exception also reverts to available (adapter contract guards both paths)", async () => {
+    const a = fakeAdapter({ poll: async () => manifest("2.0.0") });
+    (a as unknown as { applyAndRestart: () => boolean }).applyAndRestart = () => {
+      throw new Error("spawn quit failed");
+    };
+    const m = new UpdaterMachine(a, "1.0.0", stateFilePath());
+    await m.poll();
+    await m.fetch();
+    expect(() => m.apply()).toThrow(/apply failed/);
+    expect(m.getStatus()).toMatchObject({ status: "available", version: "2.0.0" });
   });
 
   it("illegal transitions are rejected (no skip-ahead apply)", async () => {

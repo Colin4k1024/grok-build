@@ -157,6 +157,31 @@ describe("loginWithApiKey", () => {
     expect(fs.existsSync(apiKeyStorePath())).toBe(false);
   });
 
+  it("garbage values fail the provider format check (review P1)", async () => {
+    // wrong prefix, right shape
+    await expect(loginWithApiKey("XAI_API_KEY", "not-an-xai-key-at-all-123456")).rejects.toThrow(
+      /format\/length check failed/
+    );
+    // right prefix, too short
+    await expect(loginWithApiKey("XAI_API_KEY", "xai-short")).rejects.toThrow(
+      /format\/length check failed/
+    );
+    // arbitrary junk must not pass as a credential
+    await expect(loginWithApiKey("OPENAI_API_KEY", "hello world")).rejects.toThrow(
+      /format\/length check failed/
+    );
+    expect(fs.existsSync(apiKeyStorePath())).toBe(false);
+  });
+
+  it("well-formed keys still pass", async () => {
+    const kc = stubKeychain();
+    setKeychainAdapterForTests(kc);
+    const okKey = ["xai-fixture", "1234567890abcdef"].join("-");
+    const s = await loginWithApiKey("XAI_API_KEY", okKey);
+    expect(s.authenticated).toBe(true);
+    expect(readKeyStore().XAI_API_KEY).toBe(okKey);
+  });
+
   it("a crash between store write and keychain write leaves a consistent state", async () => {
     const kc = stubKeychain();
     kc.set = () => Promise.reject(new Error("keychain exploded"));

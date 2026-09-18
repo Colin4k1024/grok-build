@@ -62,7 +62,9 @@ export function InteractiveTerminal({ session, onClosed }: Props) {
     termRef.current = term;
     fitRef.current = fitAddon;
 
-    const ws = new WebSocket(`ws://127.0.0.1:${session.port}/ws`);
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${session.port}/ws?token=${encodeURIComponent(session.token)}`
+    );
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 

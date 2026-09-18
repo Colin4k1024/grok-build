@@ -110,6 +110,9 @@ export interface ClaudeSessionInfo {
   title: string;
   mtime: number;
   size: number;
+  /** True when this source already has an imported destination — the UI
+   *  must not offer a second import (idempotency, review round 2). */
+  imported: boolean;
 }
 
 /** Decode a claude projects dir name ("-Users-x-work" → "/Users/x/work"). */
@@ -120,6 +123,7 @@ function decodeCwd(dirName: string): string {
 export function listClaudeSessions(limit = 50): ClaudeSessionInfo[] {
   const projectsDir = path.join(claudeHome(), "projects");
   if (!fs.existsSync(projectsDir)) return [];
+  const importedSet = new Set(readRegistry().sessions);
   const out: ClaudeSessionInfo[] = [];
   for (const entry of fs.readdirSync(projectsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -138,6 +142,7 @@ export function listClaudeSessions(limit = 50): ClaudeSessionInfo[] {
           title: `${cwd.split("/").filter(Boolean).pop() ?? cwd} · ${sourceId.slice(0, 8)}`,
           mtime: st.mtimeMs,
           size: st.size,
+          imported: importedSet.has(sourceId),
         });
       } catch {
         // stat failed — skip
@@ -235,6 +240,59 @@ export type ImportOutcome =
   | { status: "already-imported" }
   | { status: "conflict" }
   | { status: "error"; message: string };
+
+/**
+ * Peek at a session WITHOUT registering it (preview step): lets the caller
+ * create the destination thread first and only mark the import on success —
+ * a failed thread creation stays retryable (review P1).
+ */
+export function peekClaudeSession(sourceId: string): ParseReport & { error?: string } {
+  return parseClaudeSession(sourceId);
+}
+
+/** Mark a source id as imported (call only after the destination exists). */
+export function markClaudeImported(sourceId: string): void {
+  if (!isValidSourceId(sourceId)) throw new Error("invalid session id");
+  const reg = readRegistry();
+  if (!reg.sessions.includes(sourceId)) {
+    reg.sessions.push(sourceId);
+    writeRegistry(reg);
+  }
+}
+
+/** Release a claim after destination creation failed (retry-safe). */
+export function unmarkClaudeImported(sourceId: string): void {
+  const reg = readRegistry();
+  const next = reg.sessions.filter((s) => s !== sourceId);
+  if (next.length !== reg.sessions.length) {
+    writeRegistry({ ...reg, sessions: next });
+  }
+}
+
+/**
+ * ATOMIC claim (review round 3): register-and-return in one main-process
+ * step, so two windows — or a preview rendered before another importer
+ * finished — cannot both create destinations for the same source. The
+ * caller must unmark if destination creation subsequently fails.
+ */
+export function claimClaudeSession(
+  sourceId: string
+):
+  | { status: "claimed"; entries: ImportedEntry[]; skippedLines: number }
+  | { status: "already-imported" }
+  | { status: "error"; message: string } {
+  if (!isValidSourceId(sourceId)) return { status: "error", message: "invalid session id" };
+  const reg = readRegistry();
+  if (reg.sessions.includes(sourceId)) return { status: "already-imported" };
+  const parsed = parseClaudeSession(sourceId);
+  if (parsed.error) return { status: "error", message: parsed.error };
+  if (parsed.entries.length === 0) {
+    return { status: "error", message: "no importable messages (corrupted or empty source)" };
+  }
+  reg.sessions.push(sourceId);
+  writeRegistry(reg);
+  return { status: "claimed", entries: parsed.entries, skippedLines: parsed.skippedLines };
+}
 
 /**
  * Idempotent session import: parses the source (read-only), registers the

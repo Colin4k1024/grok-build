@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   claudeProbe,
   claudeListSessions,
-  claudeImportSession,
   claudeImportInstructions,
+  claudeClaimSession,
+  claudeUnmarkSession,
+  persistTranscript,
+  createSession,
+  closeSession,
   type ClaudeSessionItem,
 } from "../../lib/tauri";
-import { createSession } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
 
 interface ImportPanelProps {
@@ -57,35 +60,55 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
     setReport([]);
     const lines: string[] = [];
     for (const id of selected) {
-      const r = await claudeImportSession(id);
-      if (r.status === "imported") {
-        const info = sessions.find((s) => s.sourceId === id);
-        try {
-          const created = await createSession(info?.cwd ?? projectRoot ?? ".");
-          useSessionStore.getState().addTab({
-            id: created.id,
-            acpSessionId: created.acp_session_id,
-            title: `导入 · ${info?.title ?? id.slice(0, 8)}`,
-            cwd: created.cwd,
-            model: created.models[0]?.id ?? "",
-            reasoningEffort: "medium",
-            createdAt: Date.now(),
-            lastActiveAt: Date.now(),
-          });
-          useSessionStore.getState().loadHistoryMessages(
-            created.id,
-            r.entries.filter((e) => e.role === "user" || e.role === "assistant")
-          );
-          lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${r.entries.length} 条${r.skippedLines ? `，跳过 ${r.skippedLines} 行损坏` : ""}）`);
-        } catch (e) {
-          lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败：${String(e)}`);
+      // Atomic claim (review r3): registry check + parse + registration in
+      // one main-process step — a stale preview or a second window can never
+      // produce a duplicate destination. The claim is released if creation
+      // fails, keeping the source retryable.
+      const info = sessions.find((s) => s.sourceId === id);
+      const claim = await claudeClaimSession(id);
+      if (claim.status === "already-imported") {
+        lines.push(`• 会话 ${id.slice(0, 8)} 此前已导入（跳过）`);
+        continue;
+      }
+      if (claim.status === "error") {
+        lines.push(`✗ 会话 ${id.slice(0, 8)}：${claim.message}`);
+        continue;
+      }
+      const entries = claim.entries.filter(
+        (e) => e.role === "user" || e.role === "assistant"
+      );
+      let createdId: string | null = null;
+      try {
+        const created = await createSession(info?.cwd ?? projectRoot ?? ".");
+        createdId = created.id;
+        const title = `导入 · ${info?.title ?? id.slice(0, 8)}`;
+        await persistTranscript({
+          acpSessionId: created.acp_session_id,
+          cwd: created.cwd,
+          title,
+          entries,
+        });
+        useSessionStore.getState().addTab({
+          id: created.id,
+          acpSessionId: created.acp_session_id,
+          title,
+          cwd: created.cwd,
+          model: created.models[0]?.id ?? "",
+          reasoningEffort: "medium",
+          createdAt: Date.now(),
+          lastActiveAt: Date.now(),
+        });
+        useSessionStore.getState().loadHistoryMessages(created.id, entries);
+        lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${entries.length} 条${claim.skippedLines ? `，跳过 ${claim.skippedLines} 行损坏` : ""}，已持久化）`);
+      } catch (e) {
+        // Failure cleanup (review r4): a created-but-unseeded session would
+        // be an orphaned live agent — close it BEFORE releasing the claim so
+        // retries never stack orphans.
+        if (createdId) {
+          try { await closeSession(createdId); } catch { /* already gone */ }
         }
-      } else if (r.status === "already-imported") {
-        lines.push(`• 会话 ${id.slice(0, 8)} 此前已导入（幂等跳过）`);
-      } else if (r.status === "conflict") {
-        lines.push(`✗ 会话 ${id.slice(0, 8)} 冲突：目标 id 已被占用`);
-      } else {
-        lines.push(`✗ 会话 ${id.slice(0, 8)}：${r.message}`);
+        await claudeUnmarkSession(id).catch(() => {});
+        lines.push(`✗ 会话 ${id.slice(0, 8)} 导入失败（会话已回收、申领已释放，可重试）：${String(e)}`);
       }
     }
     if (mergeInstructions && projectRoot) {
@@ -130,10 +153,20 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
                 <p className="py-2 text-center text-[11px] text-gb-muted">没有可导入的会话。</p>
               )}
               {sessions.map((s) => (
-                <label key={s.sourceId} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-gb-surface-hover">
-                  <input type="checkbox" checked={selected.has(s.sourceId)} onChange={() => toggle(s.sourceId)} />
+                <label
+                  key={s.sourceId}
+                  className={`flex items-center gap-2 rounded px-2 py-1 text-[11px] ${s.imported ? "opacity-50" : "cursor-pointer hover:bg-gb-surface-hover"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.sourceId)}
+                    onChange={() => toggle(s.sourceId)}
+                    disabled={s.imported}
+                  />
                   <span className="min-w-0 flex-1 truncate text-gb-text">{s.title}</span>
-                  <span className="shrink-0 text-[9px] text-gb-muted">{(s.size / 1024).toFixed(0)}k</span>
+                  <span className={`shrink-0 text-[9px] ${s.imported ? "text-gb-accent" : "text-gb-muted"}`}>
+                    {s.imported ? "已导入" : `${(s.size / 1024).toFixed(0)}k`}
+                  </span>
                 </label>
               ))}
             </div>
