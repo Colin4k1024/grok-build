@@ -13,6 +13,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { app } from "electron";
+import {
+  FsBridgeError,
+  FS_ERR_IO,
+  bridgeReadTextFile,
+  bridgeWriteTextFile,
+  type ReadParams,
+  type WriteParams,
+} from "./fs-bridge";
 
 // ---- agent binary resolution ------------------------------------------------
 
@@ -384,6 +392,24 @@ export class AcpSession {
     );
   }
 
+  /** Run a host-side fs bridge op and map failures to structured JSON-RPC
+   *  errors (never an empty-string success — that poisons agent context). */
+  private bridgeFsCall(
+    id: number | string,
+    method: string,
+    op: () => Promise<unknown>
+  ): void {
+    op()
+      .then((result) => this.respond(id, result))
+      .catch((e) => {
+        if (e instanceof FsBridgeError) {
+          this.respondError(id, e.code, e.message);
+        } else {
+          this.respondError(id, FS_ERR_IO, `${method} failed: ${e?.message ?? e}`);
+        }
+      });
+  }
+
   private failAllPending(err: Error): void {
     for (const [, p] of this.pending) p.reject(err);
     this.pending.clear();
@@ -482,13 +508,21 @@ export class AcpSession {
         });
         break;
       }
-      case "fs/read_text_file":
-        // Mirror the Tauri bridge: empty content (agent-side tools do real fs work).
-        this.respond(id, { content: "" });
+      case "fs/read_text_file": {
+        // Real host-side read jailed to the session root (ISS-074). The old
+        // stub returned "" which poisoned agent context with empty files.
+        this.bridgeFsCall(id, "fs/read_text_file", () =>
+          bridgeReadTextFile(this.cwd, params as ReadParams)
+        );
         break;
-      case "fs/write_text_file":
-        this.respond(id, null);
+      }
+      case "fs/write_text_file": {
+        this.bridgeFsCall(id, "fs/write_text_file", async () => {
+          await bridgeWriteTextFile(this.cwd, this.id, params as WriteParams);
+          return null;
+        });
         break;
+      }
       default:
         // terminal/* and anything else we didn't advertise support for
         this.respondError(id, -32601, `Method not supported by client: ${method}`);
