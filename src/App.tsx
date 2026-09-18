@@ -36,6 +36,13 @@ import {
   onTrayAction, onConfigChanged, getSessionHistoryMessages } from "./lib/tauri";
 import type { Command } from "./components/layout/CommandPalette";
 
+// Boot re-resume must run exactly once per app lifetime: StrictMode double-
+// mounts effects in dev, and a second run snapshots the store before the
+// first run's rebindTabId lands — both would resume the same persisted
+// threads, spawning duplicate agents for one session (storm observed
+// 2026-09-18: same session resumed 4x, auth errors from concurrent loads).
+let bootResumeStarted = false;
+
 export default function App() {
   useAcpEventListener();
 
@@ -123,6 +130,11 @@ export default function App() {
       // via zustand/persist. On boot, tabs whose backend session died with the
       // last quit are re-resumed from their persisted acp session id (codex
       // thread continuity); only tabs without an acp id get pruned.
+      if (bootResumeStarted) {
+        getConfig().then(setConfig).catch((e) => setError(String(e)));
+        return;
+      }
+      bootResumeStarted = true;
       const restored = useSessionStore.getState().tabs;
       if (restored.length > 0) {
         listSessions()
