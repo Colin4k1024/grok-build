@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog } from "electron";
 import { AcpSession, saveApiKey, getApiKey, deleteApiKey, isApiKeySet } from "./acp-session";
 import { checkAuthStatus, loginWithApiKey, logoutAuth, KNOWN_ENV_KEYS } from "./auth";
-import { listHistorySessions, getSessionHistory } from "./session-history";
+import { listHistorySessions, getSessionHistory, renameHistorySession } from "./session-history";
 import {
   getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer, type SaveInput,
 } from "./mcp-config";
@@ -423,6 +423,15 @@ ipcMain.handle("session_delete_history", (_e, args: { sessionId?: string; sessio
   if (!target) throw new Error(`No persisted session found for ${sessionId}`);
   fs.rmSync(target, { recursive: true, force: true });
   return ok(null);
+});
+
+// Persist a thread rename into summary.json (ISS-079) — the transcript is
+// never touched; atomic write; last write wins across concurrent renames.
+ipcMain.handle("session_rename_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string; title: string }) => {
+  const sessionId = args?.sessionId ?? args?.session_id;
+  if (!sessionId) throw new Error("session_rename_history: missing sessionId");
+  const title = renameHistorySession(sessionId, args.cwd, args.title);
+  return ok({ title });
 });
 
 ipcMain.handle("list_api_keys", (_e, args: { envKeys: string[] }) => {

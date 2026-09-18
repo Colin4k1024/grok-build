@@ -10,6 +10,8 @@ interface ThreadTreeProps {
   onNewSessionInDir: (cwd: string) => void;
   onResumeThread: (session: HistorySession) => void;
   onForkSession: (id: string) => void;
+  /** Persist a rename for a history thread (ISS-079). */
+  onRenameHistory: (session: HistorySession, title: string) => void;
   onCloseSession: (id: string) => void;
 }
 
@@ -67,7 +69,7 @@ function relTime(ts: number): string {
 
 /** Codex-style sidebar tree: Pinned / Projects (bookmarked folders and the
  *  threads that live in them, open or persisted) / Chats (everything else). */
-export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, onCloseSession }: ThreadTreeProps) {
+export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, onRenameHistory, onCloseSession }: ThreadTreeProps) {
   const tabs = useSessionStore((s) => s.tabs);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
@@ -109,7 +111,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   }, [refreshHistory, refreshProjects]);
 
   // tabs join the tree reactively.
-  const entries: ThreadEntry[] = useMemo(() => {
+  const { entries, archivedEntries } = useMemo(() => {
     const list: ThreadEntry[] = [];
     const coveredHistory = new Set<string>();
     const seenAcpIds = new Set<string>();
@@ -142,8 +144,24 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
       });
     }
     list.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    return list.filter((e) => !archived.has(e.key) && !archived.has(e.sessionId));
+    const isArchived = (e: ThreadEntry) => archived.has(e.key) || archived.has(e.sessionId);
+    return {
+      entries: list.filter((e) => !isArchived(e)),
+      archivedEntries: list.filter(isArchived),
+    };
   }, [tabs, history, archived]);
+
+  const [archivedOpen, setArchivedOpen] = useState(false);
+
+  const unarchiveEntry = useCallback((e: ThreadEntry) => {
+    setArchived((prev) => {
+      const next = new Set(prev);
+      next.delete(e.key);
+      next.delete(e.sessionId);
+      writeIdSet(ARCHIVE_KEY, [...next]);
+      return next;
+    });
+  }, []);
 
   const { pinnedEntries, projectGroups, chatEntries } = useMemo(() => {
     const pinnedList: ThreadEntry[] = [];
@@ -266,6 +284,24 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
     setMenu(null);
   }, []);
 
+  /** Commit an inline rename: live tabs update the store AND persist when
+   *  bound to a persisted thread; history entries persist via summary.json. */
+  const commitEntryRename = (e: ThreadEntry) => {
+    const title = renaming?.value.trim();
+    setRenaming(null);
+    if (!title) return;
+    if (e.tabId) {
+      renameTab(e.tabId, title);
+      if (e.sessionId && e.sessionId !== e.tabId) {
+        const hist = history.find((h) => h.id === e.sessionId);
+        if (hist) onRenameHistory(hist, title);
+      }
+    } else {
+      const hist = history.find((h) => h.id === e.sessionId);
+      if (hist) onRenameHistory(hist, title);
+    }
+  };
+
   const renderEntry = (e: ThreadEntry) => {
     const isActive = e.tabId && e.tabId === activeSessionId;
     // Three-state indicator (codex sidebar): running / waiting for approval /
@@ -278,15 +314,10 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         autoFocus
         value={renaming.value}
         onChange={(ev) => setRenaming({ key: e.key, value: ev.target.value })}
-        onBlur={() => {
-          if (e.tabId && renaming.value.trim()) renameTab(e.tabId, renaming.value.trim());
-          setRenaming(null);
-        }}
+        onBlur={() => commitEntryRename(e)}
         onKeyDown={(ev) => {
-          if (ev.key === "Enter") {
-            if (e.tabId && renaming.value.trim()) renameTab(e.tabId, renaming.value.trim());
-            setRenaming(null);
-          } else if (ev.key === "Escape") setRenaming(null);
+          if (ev.key === "Enter") commitEntryRename(e);
+          else if (ev.key === "Escape") setRenaming(null);
         }}
         className="mb-0.5 w-full rounded border border-gb-accent/40 bg-gb-bg px-2 py-1 text-xs text-gb-text outline-none"
       />
@@ -449,6 +480,35 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         )}
       </div>
 
+      {archivedEntries.length > 0 && (
+        <div className="mb-2">
+          <div className={sectionLabel} onClick={() => setArchivedOpen((v) => !v)}>
+            已归档
+            <span className="ml-1 rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{archivedEntries.length}</span>
+          </div>
+          {archivedOpen &&
+            archivedEntries.map((e) => (
+              <div
+                key={`arch-${e.key}`}
+                className="group mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gb-muted/70 hover:bg-gb-surface-hover"
+                title={`${e.title}\n${e.cwd}\n归档线程不在列表中显示`}
+              >
+                <span className="min-w-0 flex-1 truncate">{e.title}</span>
+                <button
+                  className="shrink-0 rounded px-1 py-0.5 text-[10px] text-gb-accent opacity-0 hover:bg-gb-bg group-hover:opacity-100"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    unarchiveEntry(e);
+                  }}
+                  title="恢复到列表"
+                >
+                  恢复
+                </button>
+              </div>
+            ))}
+        </div>
+      )}
+
       {menu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
@@ -457,11 +517,9 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
             <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => togglePin(menu.entry)}>
               {pinned.has(menu.entry.key) ? "取消置顶" : "置顶"}
             </button>
-            {menu.entry.tabId && (
-              <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { setRenaming({ key: menu.entry.key, value: menu.entry.title }); setMenu(null); }}>
-                重命名
-              </button>
-            )}
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { setRenaming({ key: menu.entry.key, value: menu.entry.title }); setMenu(null); }}>
+              重命名
+            </button>
             {menu.entry.tabId && (
               <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { onForkSession(menu.entry.tabId!); setMenu(null); }}>派生</button>
             )}
