@@ -110,6 +110,8 @@ export interface AcpEventPayload {
   compaction_tokens_after?: number | null;
   compaction_summary?: string | null;
   entries?: { content: string; status: string; priority: string }[];
+  questions?: UserQuestion[];
+  mode?: string;
   used?: number;
   size?: number;
 }
@@ -118,6 +120,19 @@ export interface PermissionOption {
   id: string;
   label: string;
   kind: string;
+}
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface UserQuestion {
+  question: string;
+  options: QuestionOption[];
+  multiSelect?: boolean;
+  id?: string;
 }
 
 export interface SessionListItem {
@@ -170,6 +185,15 @@ export async function createSession(cwd: string): Promise<SessionInfo> {
  * Resume a persisted thread: spawns the agent with `session/load` so the full
  * conversation context comes back and the transcript replays into the tab.
  */
+/** Respond to an agent ask_user_question request. response = { outcome: "accepted", answers } | { outcome: "cancelled" }. */
+export async function respondUserQuestion(
+  sessionId: string,
+  requestId: string,
+  response: Record<string, unknown>
+): Promise<void> {
+  await invoke("user_question_respond", { sessionId, requestId, response });
+}
+
 export async function resumeSession(acpSessionId: string, cwd: string): Promise<SessionInfo> {
   return invoke<SessionInfo>("session_resume", { acp_session_id: acpSessionId, cwd });
 }

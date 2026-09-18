@@ -180,6 +180,12 @@ ipcMain.handle("session_set_model", async (_e, args: Record<string, unknown>) =>
   mainWindow?.webContents.send("config_changed", { sessionId, modelId });
   return ok(null);
 });
+ipcMain.handle("user_question_respond", (_e, args: { sessionId: string; requestId: string; response: Record<string, unknown> }) => {
+  const rec = sessions.get(args.sessionId);
+  rec?.agent?.respondUserQuestion(args.requestId, args.response);
+  return ok(null);
+});
+
 ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; requestId: string; optionId: string }) => {
   const rec = sessions.get(args.sessionId);
   rec?.agent?.respondPermission(args.requestId, args.optionId);

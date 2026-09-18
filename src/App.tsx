@@ -12,6 +12,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { GlobalSearch } from "./components/layout/GlobalSearch";
 import { RightPanel } from "./components/panels/RightPanel";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
+import { QuestionCard } from "./components/chat/QuestionCard";
 import { SessionPicker } from "./components/session/SessionPicker";import { Settings } from "./pages/Settings";
 import { Dashboard } from "./pages/Dashboard";
 import { Home } from "./pages/Home";
@@ -42,7 +43,7 @@ export default function App() {
     tabs, messages, activeSessionId, isStreaming,
     setActiveSession, addTab, removeTab, renameTab,
     setStreaming, addUserMessage,
-    pendingPermissions, removePendingPermission,
+    pendingPermissions, removePendingPermission, pendingQuestions, removePendingQuestion,
   } = useSessionStore();
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -773,6 +774,16 @@ export default function App() {
                   command={perm.command}
                   options={perm.options}
                   onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
+                />
+              ))}
+              {activeSessionId && (pendingQuestions[activeSessionId] || []).map((q) => (
+                <QuestionCard
+                  key={q.requestId}
+                  sessionId={activeSessionId}
+                  requestId={q.requestId}
+                  questions={q.questions}
+                  mode={q.mode}
+                  onResolved={() => removePendingQuestion(activeSessionId!, q.requestId)}
                 />
               ))}
               <PromptInput

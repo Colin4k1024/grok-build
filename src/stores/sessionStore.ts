@@ -27,6 +27,12 @@ export interface Subagent {
   createdAt: number;
 }
 
+export interface PendingQuestion {
+  requestId: string;
+  questions: { question: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean; id?: string }[];
+  mode: string;
+}
+
 export interface PendingPermission {
   requestId: string;
   toolName: string;
@@ -72,6 +78,7 @@ interface SessionState {
   activeSessionId: string | null;
   messages: Record<string, ChatMessage[]>;
   pendingPermissions: Record<string, PendingPermission[]>;
+  pendingQuestions: Record<string, PendingQuestion[]>;
   subagents: Record<string, Subagent[]>;
   todos: Record<string, TodoItem[]>;
   tokenUsage: Record<string, { used: number; size: number }>;
@@ -102,6 +109,8 @@ interface SessionState {
   setTabWorkMode: (id: string, mode: WorkMode, branch?: string) => void;
   setTabApprovalMode: (id: string, mode: ApprovalMode) => void;
   addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
+  addPendingQuestion: (sessionId: string, q: PendingQuestion) => void;
+  removePendingQuestion: (sessionId: string, requestId: string) => void;
   removePendingPermission: (sessionId: string, requestId: string) => void;
   addSubagent: (sessionId: string, subagent: Subagent) => void;
   updateSubagent: (sessionId: string, id: string, updates: Partial<Subagent>) => void;
@@ -147,6 +156,7 @@ export const useSessionStore = create<SessionState>()(
   activeSessionId: null,
   messages: {},
   pendingPermissions: {},
+  pendingQuestions: {},
   subagents: {},
   todos: {},
   tokenUsage: {},
@@ -171,6 +181,7 @@ export const useSessionStore = create<SessionState>()(
       const newTabs = state.tabs.filter((t) => t.id !== id);
       const { [id]: _m, ...restMessages } = state.messages;
       const { [id]: _pp, ...restPendingPermissions } = state.pendingPermissions;
+      const { [id]: _pq, ...restPendingQuestions } = state.pendingQuestions;
       const { [id]: _sa, ...restSubagents } = state.subagents;
       const { [id]: _td, ...restTodos } = state.todos;
       const { [id]: _tu, ...restTokenUsage } = state.tokenUsage;
@@ -188,6 +199,7 @@ export const useSessionStore = create<SessionState>()(
         tabs: newTabs,
         messages: restMessages,
         pendingPermissions: restPendingPermissions,
+        pendingQuestions: restPendingQuestions,
         subagents: restSubagents,
         todos: restTodos,
         tokenUsage: restTokenUsage,
@@ -266,6 +278,24 @@ export const useSessionStore = create<SessionState>()(
   setTabApprovalMode: (id, mode) =>
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, approvalMode: mode } : t)),
+    })),
+
+  addPendingQuestion: (sessionId, q) =>
+    set((state) => ({
+      pendingQuestions: {
+        ...state.pendingQuestions,
+        [sessionId]: [...(state.pendingQuestions[sessionId] || []), q],
+      },
+    })),
+
+  removePendingQuestion: (sessionId, requestId) =>
+    set((state) => ({
+      pendingQuestions: {
+        ...state.pendingQuestions,
+        [sessionId]: (state.pendingQuestions[sessionId] || []).filter(
+          (x) => x.requestId !== requestId
+        ),
+      },
     })),
 
   addPendingPermission: (sessionId, perm) =>
