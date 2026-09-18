@@ -8,23 +8,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
     "electron:build": "bash electron/build.sh",
     "electron:dev": "npm run electron:build && concurrently -k \"npm:dev\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 NODE_ENV=development electron .\"",
     "electron:start": "npm run electron:build && electron .",
     "electron:pack": "npm run build && npm run electron:build && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-global-shortcut": "^2.0.0",
-    "@tauri-apps/plugin-notification": "^2.0.0",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-shell": "^2.0.0",
-    "@tauri-apps/plugin-updater": "^2.11.0",
+  },  "dependencies": {
     "@types/react-window": "^1.8.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
@@ -48,7 +38,6 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
