@@ -7,8 +7,11 @@ import { useSessionStore } from "../../stores/sessionStore";
 import {
   getMcpServers, gitStatus, gitDiff, runCommand, createSession, sendMessage,
   onAcpEvent, respondPermission, gitCommit, listWorktrees, removeWorktree, closeSession,
+  ptySpawn, ptyDispose, ptyEnabled,
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
+  type PtySession,
 } from "../../lib/tauri";
+import { InteractiveTerminal } from "./InteractiveTerminal";
 
 interface RightPanelProps {
   collapsed: boolean;
@@ -281,7 +284,86 @@ function ViewToggle({ view, onChange }: { view: "all" | "last-turn"; onChange: (
 
 // ---- Terminal ---------------------------------------------------------------
 
+/**
+ * Interactive PTY terminal (ISS-075): a persistent ptyctl session per open
+ * panel; xterm.js streams over its loopback WebSocket. Falls back to the
+ * legacy read-only run_command output when PTY is unavailable or disabled
+ * (GROK_DESKTOP_PTY=off — the documented rollback).
+ */
 function TerminalPanel({ cwd }: { cwd: string }) {
+  const [mode, setMode] = useState<"probing" | "live" | "legacy">("probing");
+  const [session, setSession] = useState<PtySession | null>(null);
+  const [restartKey, setRestartKey] = useState(0);
+
+  useEffect(() => {
+    let disposed = false;
+    let sessionId: string | null = null;
+    (async () => {
+      try {
+        if (!(await ptyEnabled())) throw new Error("pty disabled");
+        const s = await ptySpawn(cwd, 80, 24);
+        if (disposed) {
+          ptyDispose(s.id).catch(() => {});
+          return;
+        }
+        sessionId = s.id;
+        setSession(s);
+        setMode("live");
+      } catch {
+        if (!disposed) setMode("legacy");
+      }
+    })();
+    return () => {
+      disposed = true;
+      if (sessionId) ptyDispose(sessionId).catch(() => {});
+    };
+  }, [cwd, restartKey]);
+
+  const restart = () => {
+    setSession(null);
+    setMode("probing");
+    setRestartKey((k) => k + 1);
+  };
+
+  if (mode === "live" && session) {
+    return (
+      <div className="flex h-full flex-col bg-[#1c1c1c]">
+        <div className="min-h-0 flex-1">
+          <InteractiveTerminal
+            key={session.id}
+            session={session}
+            onClosed={() => {
+              /* banner handled inside InteractiveTerminal */
+            }}
+          />
+        </div>
+        <div className="flex items-center justify-between border-t border-gb-border/8 px-2 py-1">
+          <span className="font-mono text-[10px] text-gb-muted">
+            {session.shell} · pid {session.pid}（真实 PTY）
+          </span>
+          <button
+            onClick={restart}
+            className="rounded bg-gb-surface-hover px-2 py-0.5 text-[10px] text-gb-text hover:opacity-80"
+          >
+            Restart
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "probing") {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#1c1c1c] text-[11px] text-gb-muted">
+        正在启动交互式终端…
+      </div>
+    );
+  }
+
+  return <LegacyTerminalPanel cwd={cwd} />;
+}
+
+function LegacyTerminalPanel({ cwd }: { cwd: string }) {
   const [command, setCommand] = useState("");
   const [output, setOutput] = useState<string>("");
   const [running, setRunning] = useState(false);
