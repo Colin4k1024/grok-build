@@ -80,6 +80,22 @@ ipcMain.handle("logout", async () => {
   return ok(null);
 });
 
+// --- PTY terminal sessions (ISS-075, ADR 0002: Rust-side ptyctl) ---
+import { PtyManager } from "./pty-manager";
+
+const ptyManager = new PtyManager({
+  onExit: (id, code) => mainWindow?.webContents.send("pty_exit", { id, code }),
+});
+
+ipcMain.handle("pty_spawn", (_e, args: { cwd?: string; cols?: number; rows?: number }) => {
+  return ptyManager.open(args?.cwd ?? "", { cols: args?.cols, rows: args?.rows });
+});
+ipcMain.handle("pty_dispose", (_e, args: { id?: string }) => {
+  ptyManager.dispose(args?.id ?? "");
+  return ok(null);
+});
+ipcMain.handle("pty_enabled", () => ok(ptyManager.enabled()));
+
 // --- Model config persistence (ported from src-tauri/src/commands/config.rs) ---
 // Config lives at ~/.grok/default_models.json (same path the Rust side uses)
 // so the ACP agent process can read it.
@@ -716,6 +732,11 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+// Kill every live PTY controller on quit — no orphaned shells (ISS-075).
+app.on("will-quit", () => {
+  ptyManager.disposeAll();
 });
 
 app.on("before-quit", () => {

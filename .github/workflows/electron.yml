@@ -99,9 +99,9 @@ jobs:
         run: bash electron/build.sh
 
       - name: Build Rust agent binary
-        run: cargo build --release --target ${{ matrix.rust-target }} -p xai-grok-pager-bin
+        run: cargo build --release --target ${{ matrix.rust-target }} -p xai-grok-pager-bin -p ptyctl-cli
 
-      # extraResources expects the binary at target/release — normalize the
+      # extraResources expects the binaries at target/release — normalize the
       # cross-arch target dir into that path.
       - name: Stage agent binary
         shell: bash
@@ -109,8 +109,10 @@ jobs:
           mkdir -p target/release
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
             cp "target/${{ matrix.rust-target }}/release/xai-grok-pager.exe" target/release/xai-grok-pager.exe
+            cp "target/${{ matrix.rust-target }}/release/ptyctl.exe" target/release/ptyctl.exe
           else
             cp "target/${{ matrix.rust-target }}/release/xai-grok-pager" target/release/xai-grok-pager
+            cp "target/${{ matrix.rust-target }}/release/ptyctl" target/release/ptyctl
           fi
 
       # Pack gate: refuse to build an installer whose embedded agent binary is
@@ -120,8 +122,10 @@ jobs:
         run: |
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
             node scripts/check-agent-bin.mjs target/release/xai-grok-pager.exe
+            node scripts/check-agent-bin.mjs target/release/ptyctl.exe
           else
             node scripts/check-agent-bin.mjs target/release/xai-grok-pager
+            node scripts/check-agent-bin.mjs target/release/ptyctl
           fi
 
       - name: Package with electron-builder

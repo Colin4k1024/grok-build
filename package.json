@@ -14,7 +14,8 @@
     "electron:pack": "npm run build && npm run electron:build && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest"
-  },  "dependencies": {
+  },
+  "dependencies": {
     "@types/react-window": "^1.8.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
@@ -82,6 +83,10 @@
         {
           "from": "target/release/xai-grok-pager",
           "to": "xai-grok-pager"
+        },
+        {
+          "from": "target/release/ptyctl",
+          "to": "ptyctl"
         }
       ]
     },
@@ -94,6 +99,10 @@
         {
           "from": "target/release/xai-grok-pager.exe",
           "to": "xai-grok-pager.exe"
+        },
+        {
+          "from": "target/release/ptyctl.exe",
+          "to": "ptyctl.exe"
         }
       ]
     },
@@ -106,6 +115,10 @@
         {
           "from": "target/release/xai-grok-pager",
           "to": "xai-grok-pager"
+        },
+        {
+          "from": "target/release/ptyctl",
+          "to": "ptyctl"
         }
       ]
     },

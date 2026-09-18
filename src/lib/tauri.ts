@@ -525,6 +525,43 @@ export async function respondPermission(
   });
 }
 
+// ===== PTY terminal (ISS-075: Rust-side ptyctl, ADR 0002) =====
+
+export interface PtySession {
+  id: string;
+  port: number;
+  pid: number;
+  cols: number;
+  rows: number;
+  shell: string;
+}
+
+/** Start an interactive terminal session; bytes flow over its WebSocket. */
+export async function ptySpawn(
+  cwd: string,
+  cols = 80,
+  rows = 24
+): Promise<PtySession> {
+  return invoke<PtySession>("pty_spawn", { cwd, cols, rows });
+}
+
+/** Kill a session's controller; the PTY process group dies with it. */
+export async function ptyDispose(id: string): Promise<void> {
+  await invoke("pty_dispose", { id });
+}
+
+export async function ptyEnabled(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("pty_enabled");
+  } catch {
+    return false;
+  }
+}
+
+export function onPtyExit(handler: (p: { id: string; code: number }) => void): Promise<UnlistenFn> {
+  return safeListen<{ id: string; code: number }>("pty_exit", handler);
+}
+
 // ===== Window helpers =====
 
 export async function openSessionInNewWindow(sessionId: string, _title: string): Promise<void> {
