@@ -187,6 +187,9 @@ export async function bridgeReadTextFile(
 
   let buf: Buffer;
   try {
+    // TOCTOU hardening: stat, open, then verify the OPENED object matches
+    // the stat'd one (dev/ino) before reading through the descriptor — a
+    // symlink swapped between validation and open changes the identity.
     const st = fs.statSync(target);
     if (!st.isFile()) {
       throw new FsBridgeError(FS_ERR_IO, `not a regular file: ${params.path}`);
@@ -197,7 +200,19 @@ export async function bridgeReadTextFile(
         `file is ${st.size} bytes, over the ${maxBytes} byte limit`
       );
     }
-    buf = fs.readFileSync(target);
+    const fd = fs.openSync(target, "r");
+    try {
+      const opened = fs.fstatSync(fd);
+      if (opened.dev !== st.dev || opened.ino !== st.ino) {
+        throw new FsBridgeError(
+          FS_ERR_BOUNDARY,
+          `file changed under us (identity mismatch) — refusing to read: ${params.path}`
+        );
+      }
+      buf = fs.readFileSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (e) {
     if (e instanceof FsBridgeError) throw e;
     throw new FsBridgeError(FS_ERR_IO, `read failed: ${(e as Error).message}`);
@@ -258,9 +273,56 @@ export async function bridgeWriteTextFile(
   }
 
   try {
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, params.content, "utf-8");
+    // TOCTOU hardening (write side): re-validate the final parent directory
+    // immediately before creating anything, then write through a descriptor
+    // verified by identity for pre-existing targets. 'wx' refuses to follow
+    // a raced-in symlink (fails on any existing path), and a fresh name in
+    // a validated directory cannot escape the root.
+    const dir = path.dirname(target);
+    fs.mkdirSync(dir, { recursive: true });
+    const realRoot = fs.realpathSync.native(path.resolve(root));
+    const realDir = fs.realpathSync.native(dir);
+    if (!contains(realRoot, realDir)) {
+      throw new FsBridgeError(
+        FS_ERR_BOUNDARY,
+        `target directory resolves outside the session root: ${params.path}`
+      );
+    }
+    const flags = fs.existsSync(target) ? "r+" : "wx";
+    const fd = fs.openSync(target, flags);
+    try {
+      if (flags === "r+") {
+        // Pre-existing target: verify identity so a swap can't redirect us.
+        const st = fs.statSync(target);
+        const opened = fs.fstatSync(fd);
+        if (opened.dev !== st.dev || opened.ino !== st.ino) {
+          throw new FsBridgeError(
+            FS_ERR_BOUNDARY,
+            `file changed under us (identity mismatch) — refusing to write: ${params.path}`
+          );
+        }
+        fs.ftruncateSync(fd, 0);
+      }
+      fs.writeFileSync(fd, params.content, "utf-8");
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (e) {
+    if (e instanceof FsBridgeError) {
+      appendAudit(
+        {
+          ts: new Date().toISOString(),
+          sessionId,
+          op: "write",
+          path: target,
+          bytes: null,
+          outcome: "denied",
+          detail: e.message,
+        },
+        auditPath
+      );
+      throw e;
+    }
     appendAudit(
       {
         ts: new Date().toISOString(),

@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
-use tower_http::cors::CorsLayer;
 
 use crate::session::{PtySession, WaitCondition, WaitOutcome};
 use crate::term::ScreenOpts;
@@ -88,11 +87,16 @@ enum WsClientMessage {
     Resize { cols: u16, rows: u16 },
 }
 
-/// Build the axum router.
-pub fn build_router(session: PtySession) -> Router {
+/// Build the axum router. Every endpoint (HTTP and WebSocket) requires the
+/// per-session token: as the `?token=` query param or the `X-PTY-Token`
+/// header. The token is an unguessable value generated per controller
+/// process and handed only to the launching app — without it, no local
+/// process or cross-origin page can drive the user's shell.
+pub fn build_router(session: PtySession, auth_token: String) -> Router {
     let state: AppState = Arc::new(Mutex::new(session));
+    let token_state = Arc::new(auth_token);
 
-    Router::new()
+    let authed = Router::new()
         .route("/query/screen", get(handle_screen))
         .route("/query/cursor", get(handle_cursor))
         .route("/query/status", get(handle_status))
@@ -103,8 +107,76 @@ pub fn build_router(session: PtySession) -> Router {
         .route("/control/resize", post(handle_resize))
         .route("/control/stop", post(handle_stop))
         .route("/ws", get(handle_ws_upgrade))
-        .layer(CorsLayer::very_permissive())
-        .with_state(state)
+        .with_state(state);
+
+    authed
+        .layer(axum::middleware::from_fn_with_state(
+            token_state,
+            require_token,
+        ))
+        // No CORS layer on purpose: the controller is same-process tooling,
+        // and permissive CORS would let any web page talk to a discovered port.
+}
+
+/// Reject any request whose token does not match (query param or header).
+async fn require_token(
+    State(expected): State<Arc<String>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let provided = req
+        .headers()
+        .get("x-pty-token")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+        .or_else(|| {
+            req.uri()
+                .query()
+                .and_then(|q| {
+                    q.split('&').find_map(|kv| {
+                        let (k, v) = kv.split_once('=')?;
+                        if k == "token" {
+                            Some(urldecode(v))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        });
+    match provided {
+        Some(t) if constant_time_eq(t.as_bytes(), expected.as_bytes()) => next.run(req).await,
+        _ => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+    }
+}
+
+/// Constant-time comparison so token guessing gains no timing oracle.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Minimal percent-decoding for the token query value (uuid hex is safe,
+/// but decode defensively).
+fn urldecode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let hex: String = chars.by_ref().take(2).collect();
+            if let Ok(b) = u8::from_str_radix(&hex, 16) {
+                out.push(b as char);
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Parse a range string like "1:5", "5:", ":10", "5" into a Range<usize>.

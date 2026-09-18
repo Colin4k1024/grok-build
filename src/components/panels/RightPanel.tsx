@@ -228,7 +228,11 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       setAction("none");
       setInput("");
     } catch (e) {
-      setNote(String(e));
+      // Roll back the speculative mutations — the request never landed, so
+      // the machine must not stay changes-requested with a phantom stream.
+      setReviewState("reviewing");
+      useSessionStore.getState().setStreaming(false);
+      setNote(`发送失败（未计入修订请求）：${String(e)}`);
     }
   };
 

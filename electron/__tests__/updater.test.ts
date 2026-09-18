@@ -156,6 +156,29 @@ describe("UpdaterMachine state machine", () => {
     expect(m.getStatus().status).toBe("ready");
   });
 
+  it("apply failure falls back to available — restart-cleared cache is retryable (review P1)", async () => {
+    let failApply = true;
+    const a = fakeAdapter({
+      poll: async () => manifest("2.0.0"),
+    });
+    (a as unknown as { applyAndRestart: () => void }).applyAndRestart = () => {
+      if (failApply) throw new Error("no cached installer");
+    };
+    const m = new UpdaterMachine(a, "1.0.0", stateFilePath());
+    await m.poll();
+    await m.fetch();
+    expect(m.getStatus().status).toBe("ready");
+
+    // apply() throws synchronously when the cached installer is gone
+    expect(() => m.apply()).toThrow(/retry the download/);
+    expect(m.getStatus()).toMatchObject({ status: "available", version: "2.0.0" });
+
+    failApply = false;
+    await m.fetch(); // re-download then apply succeeds
+    m.apply();
+    expect(m.getStatus().status).toBe("relaunch");
+  });
+
   it("illegal transitions are rejected (no skip-ahead apply)", async () => {
     const a = fakeAdapter();
     const m = new UpdaterMachine(a, "1.0.0", stateFilePath());

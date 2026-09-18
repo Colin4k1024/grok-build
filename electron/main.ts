@@ -265,6 +265,15 @@ ipcMain.handle("open_session_window", (_e, args: { sessionId?: string }) => {
       height: 860,
       title: `Grok Build — ${sessionId}`,
       backgroundColor: "#16171a",
+      // Same hardened surface as the main window — without the preload the
+      // detached UI has no window.electron bridge and cannot function.
+      webPreferences: {
+        preload: path.join(__dirname, "preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+        webSecurity: true,
+      },
     });
     if (isDev) {
       win.loadURL(`${devServerUrl}?session=${encodeURIComponent(sessionId)}`);
@@ -556,7 +565,10 @@ import {
   listClaudeSessions,
   importClaudeSession,
   importClaudeInstructions,
+  peekClaudeSession,
+  markClaudeImported,
 } from "./claude-import";
+import { persistTranscript } from "./transcript-store";
 
 // --- Selective import from Claude Code (ISS-083) ---
 ipcMain.handle("claude_probe", () => ok(probeClaudeSources()));
@@ -565,9 +577,42 @@ ipcMain.handle("claude_import_session", (_e, args: { sourceId?: string }) => {
   const ids = [...sessions.keys()];
   return ok(importClaudeSession(args?.sourceId ?? "", { existingGrokSessionIds: ids }));
 });
+// Review-P1 flow: peek (no registration) → caller creates the thread →
+// persist + mark. A failed creation stays retryable.
+ipcMain.handle("claude_peek_session", (_e, args: { sourceId?: string }) => {
+  return ok(peekClaudeSession(args?.sourceId ?? ""));
+});
+ipcMain.handle("claude_mark_imported", (_e, args: { sourceId?: string }) => {
+  markClaudeImported(args?.sourceId ?? "");
+  return ok(null);
+});
 ipcMain.handle("claude_import_instructions", (_e, args: { projectRoot?: string }) => {
   if (!args?.projectRoot) throw new Error("claude_import_instructions: missing projectRoot");
   return ok(importClaudeInstructions(args.projectRoot));
+});
+
+// Persist a seeded transcript (fork/import, review P1) so restart/session
+// load restores it through the standard updates.jsonl replay.
+ipcMain.handle("session_persist_transcript", (_e, args: {
+  acpSessionId?: string; cwd?: string; title?: string;
+  entries?: { role?: string; content?: string; timestamp?: number }[];
+}) => {
+  if (!args?.acpSessionId || !args?.cwd) {
+    throw new Error("session_persist_transcript: missing acpSessionId/cwd");
+  }
+  const entries = (args.entries ?? [])
+    .filter((e) => (e.role === "user" || e.role === "assistant") && typeof e.content === "string" && e.content)
+    .map((e) => ({
+      role: e.role as "user" | "assistant",
+      content: e.content as string,
+      timestamp: typeof e.timestamp === "number" ? e.timestamp : 0,
+    }));
+  return ok(persistTranscript({
+    acpSessionId: args.acpSessionId,
+    cwd: args.cwd,
+    title: args.title ?? "Imported thread",
+    entries,
+  }));
 });
 
 ipcMain.handle("git_turn_snapshot", (_e, args: { cwd: string }) =>

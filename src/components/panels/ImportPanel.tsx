@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   claudeProbe,
   claudeListSessions,
-  claudeImportSession,
   claudeImportInstructions,
+  claudePeekSession,
+  claudeMarkImported,
+  persistTranscript,
+  createSession,
   type ClaudeSessionItem,
 } from "../../lib/tauri";
-import { createSession } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
 
 interface ImportPanelProps {
@@ -57,35 +59,43 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
     setReport([]);
     const lines: string[] = [];
     for (const id of selected) {
-      const r = await claudeImportSession(id);
-      if (r.status === "imported") {
-        const info = sessions.find((s) => s.sourceId === id);
-        try {
-          const created = await createSession(info?.cwd ?? projectRoot ?? ".");
-          useSessionStore.getState().addTab({
-            id: created.id,
-            acpSessionId: created.acp_session_id,
-            title: `导入 · ${info?.title ?? id.slice(0, 8)}`,
-            cwd: created.cwd,
-            model: created.models[0]?.id ?? "",
-            reasoningEffort: "medium",
-            createdAt: Date.now(),
-            lastActiveAt: Date.now(),
-          });
-          useSessionStore.getState().loadHistoryMessages(
-            created.id,
-            r.entries.filter((e) => e.role === "user" || e.role === "assistant")
-          );
-          lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${r.entries.length} 条${r.skippedLines ? `，跳过 ${r.skippedLines} 行损坏` : ""}）`);
-        } catch (e) {
-          lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败：${String(e)}`);
-        }
-      } else if (r.status === "already-imported") {
-        lines.push(`• 会话 ${id.slice(0, 8)} 此前已导入（幂等跳过）`);
-      } else if (r.status === "conflict") {
-        lines.push(`✗ 会话 ${id.slice(0, 8)} 冲突：目标 id 已被占用`);
-      } else {
-        lines.push(`✗ 会话 ${id.slice(0, 8)}：${r.message}`);
+      // Retry-safe order (review P1): peek (no registration) → create the
+      // destination → persist the transcript to disk → only then mark the
+      // source imported. A failure anywhere before the mark stays retryable,
+      // and the transcript survives restart via the updates.jsonl replay.
+      const info = sessions.find((s) => s.sourceId === id);
+      const peek = await claudePeekSession(id);
+      const entries = peek.entries.filter(
+        (e) => e.role === "user" || e.role === "assistant"
+      );
+      if (peek.error || entries.length === 0) {
+        lines.push(`✗ 会话 ${id.slice(0, 8)}：${peek.error ?? "无可导入消息"}`);
+        continue;
+      }
+      try {
+        const created = await createSession(info?.cwd ?? projectRoot ?? ".");
+        const title = `导入 · ${info?.title ?? id.slice(0, 8)}`;
+        await persistTranscript({
+          acpSessionId: created.acp_session_id,
+          cwd: created.cwd,
+          title,
+          entries,
+        });
+        useSessionStore.getState().addTab({
+          id: created.id,
+          acpSessionId: created.acp_session_id,
+          title,
+          cwd: created.cwd,
+          model: created.models[0]?.id ?? "",
+          reasoningEffort: "medium",
+          createdAt: Date.now(),
+          lastActiveAt: Date.now(),
+        });
+        useSessionStore.getState().loadHistoryMessages(created.id, entries);
+        await claudeMarkImported(id);
+        lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${entries.length} 条${peek.skippedLines ? `，跳过 ${peek.skippedLines} 行损坏` : ""}，已持久化）`);
+      } catch (e) {
+        lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败（可重试）：${String(e)}`);
       }
     }
     if (mergeInstructions && projectRoot) {

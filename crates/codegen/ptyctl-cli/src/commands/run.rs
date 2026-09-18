@@ -69,8 +69,12 @@ pub async fn run(
     let session = PtySession::start(config).await?;
     let pid = session.status_basic().1;
 
+    // Per-process unguessable token: every endpoint requires it, so a
+    // discovered loopback port alone grants no shell control.
+    let auth_token = uuid::Uuid::new_v4().simple().to_string();
+
     // Build the HTTP server.
-    let router = server::build_router(session);
+    let router = server::build_router(session, auth_token.clone());
 
     // Bind to the requested port.
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -98,8 +102,10 @@ pub async fn run(
             eprintln!("PID: {p}");
         }
         eprintln!("Server listening on port: {actual_port}");
+        eprintln!("Auth token: {auth_token}");
     } else {
-        println!("{actual_port}");
+        // Machine-readable handshake: "<port> <token>" on one stdout line.
+        println!("{actual_port} {auth_token}");
     }
 
     // Serve until shutdown.

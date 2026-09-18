@@ -533,6 +533,28 @@ export async function claudeImportInstructions(projectRoot: string): Promise<{ s
   return invoke<{ status: string; message?: string }>("claude_import_instructions", { projectRoot });
 }
 
+/** Preview a source session WITHOUT registering it (retry-safe import flow). */
+export async function claudePeekSession(
+  sourceId: string
+): Promise<{ entries: { role: string; content: string; timestamp: number }[]; skippedLines: number; error?: string }> {
+  return invoke("claude_peek_session", { sourceId });
+}
+
+/** Mark a source imported — call only after the destination thread exists. */
+export async function claudeMarkImported(sourceId: string): Promise<void> {
+  await invoke("claude_mark_imported", { sourceId });
+}
+
+/** Persist a seeded transcript so restart/session-load restores it. */
+export async function persistTranscript(args: {
+  acpSessionId: string;
+  cwd: string;
+  title: string;
+  entries: { role: string; content: string; timestamp: number }[];
+}): Promise<{ written: number }> {
+  return invoke<{ written: number }>("session_persist_transcript", args);
+}
+
 // ===== Review workflow (ISS-080) =====
 
 /** Dangling worktree snapshot (`git stash create`); null when clean. */
@@ -595,6 +617,8 @@ export async function respondPermission(
 export interface PtySession {
   id: string;
   port: number;
+  /** Per-session auth token — required on the ws URL. */
+  token: string;
   pid: number;
   cols: number;
   rows: number;

@@ -237,6 +237,25 @@ export type ImportOutcome =
   | { status: "error"; message: string };
 
 /**
+ * Peek at a session WITHOUT registering it (preview step): lets the caller
+ * create the destination thread first and only mark the import on success —
+ * a failed thread creation stays retryable (review P1).
+ */
+export function peekClaudeSession(sourceId: string): ParseReport & { error?: string } {
+  return parseClaudeSession(sourceId);
+}
+
+/** Mark a source id as imported (call only after the destination exists). */
+export function markClaudeImported(sourceId: string): void {
+  if (!isValidSourceId(sourceId)) throw new Error("invalid session id");
+  const reg = readRegistry();
+  if (!reg.sessions.includes(sourceId)) {
+    reg.sessions.push(sourceId);
+    writeRegistry(reg);
+  }
+}
+
+/**
  * Idempotent session import: parses the source (read-only), registers the
  * sourceId, and returns the transcript for the caller to seed a new thread.
  * Repeats return already-imported; a collision with a live grok session id

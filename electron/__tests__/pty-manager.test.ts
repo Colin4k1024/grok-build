@@ -73,6 +73,8 @@ skipped("PTY lifecycle (spawn → running → exit → disposed)", () => {
     const info = await m.open(tmp);
     expect(info.port).toBeGreaterThan(0);
     expect(info.pid).toBeGreaterThan(0);
+    // Review P1: per-session unguessable auth token must come with the port.
+    expect(info.token).toMatch(/^[A-Za-z0-9-]{16,}$/);
     expect(m.alive(info.id)).toBe(true);
 
     m.dispose(info.id);
