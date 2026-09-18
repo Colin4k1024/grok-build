@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog } from "electron";
 import { AcpSession, saveApiKey, getApiKey, deleteApiKey, isApiKeySet } from "./acp-session";
+import { checkAuthStatus, loginWithApiKey, logoutAuth, KNOWN_ENV_KEYS } from "./auth";
 import { listHistorySessions, getSessionHistory } from "./session-history";
 import {
   getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer, type SaveInput,
@@ -52,12 +53,32 @@ ipcMain.handle = ((channel: string, listener: (...args: unknown[]) => unknown) =
   });
 }) as typeof ipcMain.handle;
 
-ipcMain.handle("check_auth_status", () =>
-  ok({ authenticated: true, username: "dev" })
-);
+// --- Auth (ISS-073): real API-key validation, no hardcoded dev user.
+// GROK_DESKTOP_AUTH=off rolls back to the dev bypass.
+ipcMain.handle("check_auth_status", () => checkAuthStatus());
 
-ipcMain.handle("login", () => ok({ authenticated: true, username: "dev" }));
-ipcMain.handle("logout", () => ok(null));
+ipcMain.handle("login", async () => {
+  // OAuth/device-code flow is probe-gated; without a reachable endpoint the
+  // renderer uses login_api_key (first-screen API key validation).
+  const status = await checkAuthStatus({ oauthFetch: fetch });
+  if (status.oauthAvailable) {
+    return ok({ authenticated: false, username: null, oauthAvailable: true });
+  }
+  throw new Error("OAuth endpoint unavailable — sign in with an API key (login_api_key)");
+});
+
+ipcMain.handle("login_api_key", (_e, args: { envKey?: string; value?: string }) => {
+  const envKey = typeof args?.envKey === "string" ? args.envKey : "";
+  const value = typeof args?.value === "string" ? args.value : "";
+  return loginWithApiKey(envKey, value);
+});
+
+ipcMain.handle("auth_env_keys", () => ok([...KNOWN_ENV_KEYS]));
+
+ipcMain.handle("logout", async () => {
+  await logoutAuth();
+  return ok(null);
+});
 
 // --- Model config persistence (ported from src-tauri/src/commands/config.rs) ---
 // Config lives at ~/.grok/default_models.json (same path the Rust side uses)
