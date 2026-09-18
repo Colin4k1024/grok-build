@@ -207,6 +207,11 @@ describe("getSessionHistory", () => {
     fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
     expect(() => getSessionHistory("ghost", "/w/alpha")).toThrow(/No history found/);
   });
+
+  it("missing sessions ROOT throws the clean business error, not raw ENOENT (#164)", () => {
+    // sessions/ does not exist at all — no readdirSync ENOENT may leak.
+    expect(() => getSessionHistory("any", "/w/alpha")).toThrow(/No history found/);
+  });
 });
 
 describe("renameHistorySession (ISS-079)", () => {

@@ -84,6 +84,29 @@ function decodeName(raw: string): string {
   return n;
 }
 
+/** Split a TOML header path on dots, honoring quoted segments —
+ *  `[mcp_servers."weird.name"]` is mcp_servers + weird.name, not three parts
+ *  (the old blind split made such sections invisible; #163). */
+function splitHeader(raw: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuote = false;
+  for (const ch of raw) {
+    if (ch === '"') {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (ch === "." && !inQuote) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 function scanSections(lines: string[]): SectionRange[] {
   const out: SectionRange[] = [];
   let current: SectionRange | null = null;
@@ -91,7 +114,7 @@ function scanSections(lines: string[]): SectionRange[] {
     const m = lines[i].match(/^\s*\[([^\]]+)\]/);
     if (m) {
       if (current) current.end = i;
-      const parts = m[1].split(".");
+      const parts = splitHeader(m[1]);
       if (parts[0] === "mcp_servers" && parts.length >= 2) {
         const name = decodeName(parts.slice(1, parts.length - 1).join(".") || parts[1]);
         const isEnv = parts[parts.length - 1] === "env" && parts.length >= 3;
@@ -168,8 +191,10 @@ export function getMcpServers(): McpServerInfo[] {
 }
 
 function serializeServer(name: string, input: SaveInput): string {
+  // Dotted names MUST be quoted on write, or the next scan splits them again.
+  const key = name.includes(".") ? `"${name}"` : name;
   const out: string[] = [];
-  out.push(`[mcp_servers.${name}]`);
+  out.push(`[mcp_servers.${key}]`);
   if (input.command) out.push(`command = ${JSON.stringify(input.command)}`);
   if (input.args && input.args.length > 0) {
     out.push(`args = [${input.args.map((s) => JSON.stringify(s)).join(", ")}]`);
@@ -180,7 +205,7 @@ function serializeServer(name: string, input: SaveInput): string {
   if (typeof input.tool_timeout_sec === "number") out.push(`tool_timeout_sec = ${input.tool_timeout_sec}`);
   if (input.env && input.env.length > 0) {
     out.push("");
-    out.push(`[mcp_servers.${name}.env]`);
+    out.push(`[mcp_servers.${key}.env]`);
     for (const [k, v] of input.env) out.push(`${k} = ${JSON.stringify(v)}`);
   }
   return out.join("\n");
