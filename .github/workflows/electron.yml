@@ -65,7 +65,11 @@ jobs:
 
       - name: Export PROTOC for build scripts
         shell: bash
-        run: echo "PROTOC=$(command -v protoc)" >> "$GITHUB_ENV"
+        run: |
+          P="$(command -v protoc)"
+          # git-bash reports /c/... paths; Win32 CreateProcess needs C:\...
+          if command -v cygpath >/dev/null 2>&1; then P="$(cygpath -w "$P")"; fi
+          echo "PROTOC=$P" >> "$GITHUB_ENV"
 
       # rust-toolchain.toml pins 1.94.0 with a fixed target list that lacks
       # some cross-compile targets (e.g. x86_64-apple-darwin) — make sure the
