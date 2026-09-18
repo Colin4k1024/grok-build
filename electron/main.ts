@@ -551,6 +551,24 @@ ipcMain.handle("git_diff", async (_e, args: { cwd: string; path?: string }) => {
 // Triage Approve — stage everything and commit on the reviewed branch.
 // --- Review workflow git primitives (ISS-080) ---
 import { turnSnapshot, diffSince, conflictedFiles } from "./git-review";
+import {
+  probeClaudeSources,
+  listClaudeSessions,
+  importClaudeSession,
+  importClaudeInstructions,
+} from "./claude-import";
+
+// --- Selective import from Claude Code (ISS-083) ---
+ipcMain.handle("claude_probe", () => ok(probeClaudeSources()));
+ipcMain.handle("claude_list_sessions", () => ok(listClaudeSessions()));
+ipcMain.handle("claude_import_session", (_e, args: { sourceId?: string }) => {
+  const ids = [...sessions.keys()];
+  return ok(importClaudeSession(args?.sourceId ?? "", { existingGrokSessionIds: ids }));
+});
+ipcMain.handle("claude_import_instructions", (_e, args: { projectRoot?: string }) => {
+  if (!args?.projectRoot) throw new Error("claude_import_instructions: missing projectRoot");
+  return ok(importClaudeInstructions(args.projectRoot));
+});
 
 ipcMain.handle("git_turn_snapshot", (_e, args: { cwd: string }) =>
   turnSnapshot(args?.cwd ?? ".").then((sha) => ok({ sha }))

@@ -31,6 +31,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 
   // ---- review ----
   { name: "diff", description: "Show the working-tree diff (optionally one path)", argumentHint: "[path]", group: "review", kind: "local" },
+  { name: "import", description: "Import sessions & instructions from Claude Code (preview + confirm)", group: "review", kind: "local" },
   { name: "review", description: "Open the review workflow for the current changes", group: "review", kind: "degraded", requires: "ISS-080 review loop" },
 
   // ---- info ----

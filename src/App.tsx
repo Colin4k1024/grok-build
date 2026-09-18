@@ -39,6 +39,7 @@ import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
 import { UsagePanel } from "./components/panels/UsagePanel";
+import { ImportPanel } from "./components/panels/ImportPanel";
 import { formatRetry } from "./lib/usage";
 import type { Command } from "./components/layout/CommandPalette";
 
@@ -63,12 +64,18 @@ export default function App() {
   const setTabWorkMode = useSessionStore((s) => s.setTabWorkMode);
   // Slash-command feedback toast (ISS-078): notices like "/pwd", "/usage".
   const [slashNotice, setSlashNotice] = useState<string | null>(null);
-  // /usage panel (ISS-081)
+  // /usage panel (ISS-081) and /import panel (ISS-083)
   const [showUsage, setShowUsage] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   useEffect(() => {
-    const open = () => setShowUsage(true);
-    window.addEventListener("gb-open-usage", open);
-    return () => window.removeEventListener("gb-open-usage", open);
+    const openUsage = () => setShowUsage(true);
+    const openImport = () => setShowImport(true);
+    window.addEventListener("gb-open-usage", openUsage);
+    window.addEventListener("gb-open-import", openImport);
+    return () => {
+      window.removeEventListener("gb-open-usage", openUsage);
+      window.removeEventListener("gb-open-import", openImport);
+    };
   }, []);
   useEffect(() => {
     if (!slashNotice) return;
@@ -526,6 +533,7 @@ export default function App() {
           showDiff: (cwd, p) => gitDiff(cwd, p),
           newThread: () => { setActiveSession(null); setShowHome(true); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
+          openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           notify: (m) => setSlashNotice(m),
         },
       });
@@ -981,6 +989,12 @@ export default function App() {
         onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}
       />
       {showUsage && <UsagePanel onClose={() => setShowUsage(false)} />}
+      {showImport && (
+        <ImportPanel
+          onClose={() => setShowImport(false)}
+          projectRoot={useSessionStore.getState().tabs.find((t) => t.id === useSessionStore.getState().activeSessionId)?.cwd}
+        />
+      )}
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
     </div>

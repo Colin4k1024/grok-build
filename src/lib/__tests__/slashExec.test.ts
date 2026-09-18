@@ -12,6 +12,7 @@ function makeCtx(overrides: Partial<SlashContext> = {}): SlashContext {
     copyText: vi.fn(async () => undefined),
     showDiff: vi.fn(async () => "diff --git a/x b/x\n+hello"),
     openUsage: vi.fn(),
+    openImport: vi.fn(),
     notify: vi.fn(),
   };
   return {
@@ -36,11 +37,11 @@ describe("registry (ISS-078 scope)", () => {
     }
   });
 
-  it("non-goal commands are absent", () => {
+  it("non-goal commands are absent (import landed with ISS-083)", () => {
     const names = new Set(SLASH_COMMANDS.map((c) => c.name));
-    expect(names.has("voice")).toBe(false);
-    expect(names.has("import")).toBe(false);
+    expect(names.has("voice")).toBe(false); // ISS-082: degraded to dictation, no /voice entry
     expect(names.has("ide")).toBe(false);
+    expect(names.has("import")).toBe(true); // delivered in ISS-083
   });
 
   it("no duplicate names or aliases; every entry is grouped and kinded", () => {
@@ -167,6 +168,13 @@ describe("local commands", () => {
     const ctx2 = makeCtx();
     await executeSlashCommand("/worktree local", ctx2);
     expect(ctx2.actions.setWorkMode).toHaveBeenCalledWith("s1", "local", undefined);
+  });
+
+  it("/import opens the preview panel (ISS-083)", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/import", ctx);
+    expect(r.type).toBe("handled");
+    expect(ctx.actions.openImport).toHaveBeenCalled();
   });
 
   it("/new returns to the home screen", async () => {
