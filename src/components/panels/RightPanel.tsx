@@ -219,19 +219,19 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       .split("\n")
       .map((l, i) => `${i + 1}. ${l}`)
       .join("\n")}`;
+    // Send-first (review round 2): only after the prompt actually lands do
+    // we advance the machine and append the transcript entry — a rejected
+    // send leaves no phantom message and no state change.
+    const prevState = reviewState;
     try {
-      setReviewState((st) => reviewNext(st, { type: "changes-requested" }));
-      useSessionStore.getState().addUserMessage(activeSessionId, prompt);
-      useSessionStore.getState().setStreaming(true);
       await sendMessage(activeSessionId, prompt);
+      setReviewState(reviewNext(prevState, { type: "changes-requested" }));
+      useSessionStore.getState().addUserMessage(activeSessionId, prompt);
       setNote("修改意见已发送到会话（changes-requested）。");
       setAction("none");
       setInput("");
     } catch (e) {
-      // Roll back the speculative mutations — the request never landed, so
-      // the machine must not stay changes-requested with a phantom stream.
-      setReviewState("reviewing");
-      useSessionStore.getState().setStreaming(false);
+      setReviewState(prevState);
       setNote(`发送失败（未计入修订请求）：${String(e)}`);
     }
   };

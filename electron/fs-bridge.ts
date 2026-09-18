@@ -288,14 +288,18 @@ export async function bridgeWriteTextFile(
         `target directory resolves outside the session root: ${params.path}`
       );
     }
-    const flags = fs.existsSync(target) ? "r+" : "wx";
+    const existed = fs.existsSync(target);
+    const preStat = existed ? fs.statSync(target) : null;
+    const flags = existed ? "r+" : "wx";
     const fd = fs.openSync(target, flags);
     try {
-      if (flags === "r+") {
-        // Pre-existing target: verify identity so a swap can't redirect us.
-        const st = fs.statSync(target);
+      if (preStat) {
+        // Pre-existing target: compare the OPENED object against the
+        // PRE-OPEN identity. (Statting the path again would resolve whatever
+        // the attacker swapped in and always match — the pre-open stat is the
+        // trusted reference; a swap between stat and open changes identity.)
         const opened = fs.fstatSync(fd);
-        if (opened.dev !== st.dev || opened.ino !== st.ino) {
+        if (opened.dev !== preStat.dev || opened.ino !== preStat.ino) {
           throw new FsBridgeError(
             FS_ERR_BOUNDARY,
             `file changed under us (identity mismatch) — refusing to write: ${params.path}`

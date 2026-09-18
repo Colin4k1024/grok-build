@@ -110,6 +110,9 @@ export interface ClaudeSessionInfo {
   title: string;
   mtime: number;
   size: number;
+  /** True when this source already has an imported destination — the UI
+   *  must not offer a second import (idempotency, review round 2). */
+  imported: boolean;
 }
 
 /** Decode a claude projects dir name ("-Users-x-work" → "/Users/x/work"). */
@@ -120,6 +123,7 @@ function decodeCwd(dirName: string): string {
 export function listClaudeSessions(limit = 50): ClaudeSessionInfo[] {
   const projectsDir = path.join(claudeHome(), "projects");
   if (!fs.existsSync(projectsDir)) return [];
+  const importedSet = new Set(readRegistry().sessions);
   const out: ClaudeSessionInfo[] = [];
   for (const entry of fs.readdirSync(projectsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -138,6 +142,7 @@ export function listClaudeSessions(limit = 50): ClaudeSessionInfo[] {
           title: `${cwd.split("/").filter(Boolean).pop() ?? cwd} · ${sourceId.slice(0, 8)}`,
           mtime: st.mtimeMs,
           size: st.size,
+          imported: importedSet.has(sourceId),
         });
       } catch {
         // stat failed — skip

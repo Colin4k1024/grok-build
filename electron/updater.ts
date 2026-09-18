@@ -50,8 +50,11 @@ export interface UpdaterAdapter {
   /** Fetch the current offer; resolves when the package is verified. */
   fetchPackage(): Promise<void>;
   onProgress(cb: (p: UpdaterProgress) => void): void;
-  /** Swap in the verified package and restart the app. */
-  applyAndRestart(): void;
+  /** Swap in the verified package and restart. Returns false when no cached
+   *  installer is installable (e.g. a persisted ready restored after a
+   *  restart) — electron-updater's quitAndInstall does NOT throw in that
+   *  case, so the adapter must verify the installer explicitly. */
+  applyAndRestart(): boolean;
 }
 
 export function updaterFeedUrl(): string | null {
@@ -184,11 +187,17 @@ export class UpdaterMachine {
     }
     this.transition("relaunch");
     try {
-      this.adapter.applyAndRestart();
+      const installable = this.adapter.applyAndRestart();
+      if (installable === false) {
+        this.transition("available");
+        throw new Error(
+          "cached update no longer installable (restart cleared it) — retry the download"
+        );
+      }
     } catch (e) {
       this.transition("available");
       throw new Error(
-        `cached update no longer installable (restart cleared it) — retry the download: ${e}`
+        `apply failed — retry the download: ${e}`
       );
     }
   }

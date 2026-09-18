@@ -432,6 +432,7 @@ export default function App() {
       // fork and the source are write-isolated — AND persist it so restart /
       // session-load restores the forked history (review P1).
       useSessionStore.getState().loadHistoryMessages(info.id, snapshot);
+      let persisted = true;
       try {
         await persistTranscript({
           acpSessionId: info.acp_session_id,
@@ -440,9 +441,14 @@ export default function App() {
           entries: snapshot,
         });
       } catch (persistErr) {
+        persisted = false;
         console.error("[fork] transcript persist failed:", persistErr);
       }
-      setSlashNotice(`已派生新线程（复制 ${snapshot.length} 条记录，已持久化）— agent 上下文从派生点重新开始`);
+      setSlashNotice(
+        persisted
+          ? `已派生新线程（复制 ${snapshot.length} 条记录，已持久化）— agent 上下文从派生点重新开始`
+          : `已派生新线程（复制 ${snapshot.length} 条记录）— ⚠️ 持久化失败，重启后转录不可恢复`
+      );
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }, [tabs, addTab]);

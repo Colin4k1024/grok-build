@@ -512,6 +512,8 @@ export interface ClaudeSessionItem {
   title: string;
   mtime: number;
   size: number;
+  /** Already has an imported destination — UI must not re-import. */
+  imported: boolean;
 }
 
 export type ClaudeImportOutcome =

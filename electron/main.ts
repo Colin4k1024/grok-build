@@ -834,6 +834,11 @@ import {
 } from "./updater";
 
 function buildUpdaterAdapter(): UpdaterAdapter | null {
+  // Installer files resolved by the last downloadUpdate() in THIS process.
+  // A persisted "ready" restored after a restart has none — apply must then
+  // report false instead of silently no-op'ing (electron-updater's
+  // quitAndInstall does not throw when nothing is cached).
+  let cachedInstallerFiles: string[] | null = null;
   const feed = updaterFeedUrl();
   const packaged = (() => {
     try {
@@ -861,7 +866,9 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       return { version: vi.version, releaseNotes: notes, releaseDate: vi.releaseDate ?? null };
     },
     fetchPackage: () =>
-      autoUpdater.downloadUpdate().then(() => undefined),
+      autoUpdater.downloadUpdate().then((files) => {
+        cachedInstallerFiles = Array.isArray(files) ? files : [String(files)];
+      }),
     onProgress: (cb) => {
       autoUpdater.on("download-progress", (info) =>
         cb({
@@ -873,7 +880,13 @@ function buildUpdaterAdapter(): UpdaterAdapter | null {
       );
     },
     applyAndRestart: () => {
+      if (!cachedInstallerFiles || cachedInstallerFiles.length === 0) {
+        return false; // nothing installable in this process lifetime
+      }
+      const stillThere = cachedInstallerFiles.filter((f) => fs.existsSync(f));
+      if (stillThere.length === 0) return false; // cache wiped on disk
       autoUpdater.quitAndInstall();
+      return true;
     },
   };
 }

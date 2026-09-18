@@ -59,6 +59,12 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
     setReport([]);
     const lines: string[] = [];
     for (const id of selected) {
+      // Idempotency guard (review round 2): the registry may have advanced
+      // since the preview rendered — never create a second destination.
+      if (sessions.find((x) => x.sourceId === id)?.imported) {
+        lines.push(`• 会话 ${id.slice(0, 8)} 此前已导入（跳过）`);
+        continue;
+      }
       // Retry-safe order (review P1): peek (no registration) → create the
       // destination → persist the transcript to disk → only then mark the
       // source imported. A failure anywhere before the mark stays retryable,
@@ -140,10 +146,20 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
                 <p className="py-2 text-center text-[11px] text-gb-muted">没有可导入的会话。</p>
               )}
               {sessions.map((s) => (
-                <label key={s.sourceId} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-gb-surface-hover">
-                  <input type="checkbox" checked={selected.has(s.sourceId)} onChange={() => toggle(s.sourceId)} />
+                <label
+                  key={s.sourceId}
+                  className={`flex items-center gap-2 rounded px-2 py-1 text-[11px] ${s.imported ? "opacity-50" : "cursor-pointer hover:bg-gb-surface-hover"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.sourceId)}
+                    onChange={() => toggle(s.sourceId)}
+                    disabled={s.imported}
+                  />
                   <span className="min-w-0 flex-1 truncate text-gb-text">{s.title}</span>
-                  <span className="shrink-0 text-[9px] text-gb-muted">{(s.size / 1024).toFixed(0)}k</span>
+                  <span className={`shrink-0 text-[9px] ${s.imported ? "text-gb-accent" : "text-gb-muted"}`}>
+                    {s.imported ? "已导入" : `${(s.size / 1024).toFixed(0)}k`}
+                  </span>
                 </label>
               ))}
             </div>
