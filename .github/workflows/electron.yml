@@ -1,0 +1,119 @@
+name: Electron Release Build
+
+# ISS-071: tag-level packaging pipeline for the Electron shell.
+# PR/push gates (test + typecheck + build) live in ci.yml — this workflow only
+# produces distributables. It uploads artifacts and NEVER creates a Release
+# (publishing is decided with signing in ISS-076).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rust-target: aarch64-apple-darwin
+            arch: arm64
+            label: macOS ARM
+          - platform: macos-latest
+            rust-target: x86_64-apple-darwin
+            arch: x64
+            label: macOS Intel
+          - platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            arch: x64
+            label: Windows x64
+          - platform: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            arch: x64
+            label: Linux x64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      # Keyed per (job, target) by default — matrix legs never share a cache.
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          key: ${{ matrix.rust-target }}
+
+      # Fail-fast chain: every step must pass before the next runs. A red
+      # build/test/pack-gate step fails the job — no skip-to-green.
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Unit tests (Vitest)
+        run: npm test
+
+      - name: Typecheck + frontend build
+        run: npm run build
+
+      - name: Electron main bundle
+        run: bash electron/build.sh
+
+      - name: Build Rust agent binary
+        run: cargo build --release --target ${{ matrix.rust-target }} -p xai-grok-pager-bin
+
+      # extraResources expects the binary at target/release — normalize the
+      # cross-arch target dir into that path.
+      - name: Stage agent binary
+        shell: bash
+        run: |
+          mkdir -p target/release
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.rust-target }}/release/xai-grok-pager.exe" target/release/xai-grok-pager.exe
+          else
+            cp "target/${{ matrix.rust-target }}/release/xai-grok-pager" target/release/xai-grok-pager
+          fi
+
+      # Pack gate: refuse to build an installer whose embedded agent binary is
+      # missing or truncated (empty-shell guard, ISS-071 negative criterion).
+      - name: Pack gate — agent binary present
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            node scripts/check-agent-bin.mjs target/release/xai-grok-pager.exe
+          else
+            node scripts/check-agent-bin.mjs target/release/xai-grok-pager
+          fi
+
+      - name: Package with electron-builder
+        shell: bash
+        run: npx electron-builder --publish never --arch ${{ matrix.arch }}
+        env:
+          # Unsigned artifacts for now — signing/notarization is ISS-076.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: grok-build-electron-${{ matrix.rust-target }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.AppImage
+          if-no-files-found: error
