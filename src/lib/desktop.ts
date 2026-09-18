@@ -4,7 +4,7 @@
  * Node APIs (clipboard, shell, notifications, etc.).
  */
 
-import { invoke } from "./tauri";
+import { invoke, safeListen } from "./tauri";
 
 // --- clipboard (was @tauri-apps/plugin-clipboard-manager) ---
 export async function writeText(text: string): Promise<void> {
@@ -49,7 +49,7 @@ export async function requestPermission(): Promise<string> {
   return invoke<string>("notification_request_permission");
 }
 
-// --- updater (was @tauri-apps/plugin-updater) ---
+// --- updater (electron-updater via IPC, ISS-076) ---
 export interface UpdateInfo {
   version: string;
   body?: string | null;
@@ -64,7 +64,29 @@ export interface UpdateHandle {
 }
 
 export async function check(): Promise<UpdateHandle | null> {
-  return invoke<UpdateHandle | null>("updater_check");
+  const manifest = await invoke<UpdateInfo | null>("updater_check");
+  if (!manifest) return null;
+  return {
+    version: manifest.version,
+    body: manifest.body ?? null,
+    date: manifest.date ?? null,
+    downloadAndInstall: async (onProgress) => {
+      let lastPercent = 0;
+      const un = await safeListen<{ kind: string; percent?: number }>("updater_event", (e) => {
+        if (e?.kind === "progress" && typeof e.percent === "number" && onProgress) {
+          lastPercent = e.percent;
+          onProgress({ event: "progress", data: { chunkLength: e.percent, contentLength: 100 } });
+        }
+      });
+      try {
+        await invoke("updater_download");
+        void lastPercent;
+        await invoke("updater_install");
+      } finally {
+        un();
+      }
+    },
+  };
 }
 
 // --- process (was @tauri-apps/plugin-process) ---

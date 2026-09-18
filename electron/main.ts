@@ -668,7 +668,78 @@ ipcMain.handle("set_badge", (_e, args: { count: number }) => {
   return ok(null);
 });
 
-ipcMain.handle("updater_check", () => ok(null)); // no update server configured in dev
+// --- Auto-update (ISS-076): electron-updater behind a power-loss-safe
+// state machine. Disabled unless a feed exists (GROK_UPDATE_URL or the
+// packaged app-update.yml) — updater_check then returns null, which the
+// renderer renders as "manual download" (the documented rollback).
+import { autoUpdater } from "electron-updater";
+import {
+  UpdaterMachine,
+  updaterFeedUrl,
+  type UpdaterAdapter,
+  type UpdateManifest,
+} from "./updater";
+
+function buildUpdaterAdapter(): UpdaterAdapter | null {
+  const feed = updaterFeedUrl();
+  const packaged = (() => {
+    try {
+      return app.isPackaged;
+    } catch {
+      return false;
+    }
+  })();
+  if (!feed && !packaged) return null;
+  if (feed) {
+    autoUpdater.setFeedURL({ provider: "generic", url: feed });
+  }
+  autoUpdater.autoDownload = false;
+  autoUpdater.allowDowngrade = false;
+  return {
+    pollFeed: async (): Promise<UpdateManifest | null> => {
+      const res = await autoUpdater.checkForUpdates();
+      if (!res?.updateInfo) return null;
+      const vi = res.updateInfo as { version?: string; releaseNotes?: unknown; releaseDate?: string };
+      if (!vi.version) return null;
+      const notes =
+        typeof vi.releaseNotes === "string"
+          ? vi.releaseNotes
+          : null;
+      return { version: vi.version, releaseNotes: notes, releaseDate: vi.releaseDate ?? null };
+    },
+    fetchPackage: () =>
+      autoUpdater.downloadUpdate().then(() => undefined),
+    onProgress: (cb) => {
+      autoUpdater.on("download-progress", (info) =>
+        cb({
+          percent: info.percent,
+          bytesPerSecond: info.bytesPerSecond,
+          transferred: info.transferred,
+          total: info.total,
+        })
+      );
+    },
+    applyAndRestart: () => {
+      autoUpdater.quitAndInstall();
+    },
+  };
+}
+
+const updater = new UpdaterMachine(buildUpdaterAdapter(), app.getVersion());
+updater.onProgress((p) => mainWindow?.webContents.send("updater_event", { kind: "progress", ...p }));
+
+ipcMain.handle("updater_check", async () => {
+  const manifest = await updater.poll().catch(() => null);
+  return ok(manifest);
+});
+ipcMain.handle("updater_download", async () => {
+  await updater.fetch();
+  return ok(updater.getStatus());
+});
+ipcMain.handle("updater_install", () => {
+  updater.apply();
+  return ok(null);
+});
 ipcMain.handle("app_relaunch", () => {
   app.relaunch();
   app.exit(0);
