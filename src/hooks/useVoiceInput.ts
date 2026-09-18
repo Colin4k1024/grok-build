@@ -1,4 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import {
+  next as voiceNext,
+  isDegradedReason,
+  type VoiceState,
+} from "../lib/voiceMachine";
 
 // Minimal Web Speech API typing
 interface SpeechRecognitionEvent extends Event {
@@ -38,6 +43,12 @@ export function useVoiceInput(
   const [language, setLanguage] = useState<Lang>("auto");
   const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // ISS-082: formal voice session machine + explicit degradation channel.
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
+  const [degraded, setDegraded] = useState<string | null>(null);
+  const mutedRef = useRef(false);
+  const advance = (event: Parameters<typeof voiceNext>[1]) =>
+    setVoiceState((st) => voiceNext(st, event));
 
   const createRecognition = useCallback((): SpeechRecognitionLike | null => {
     const SR = (window as unknown as {
@@ -56,9 +67,13 @@ export function useVoiceInput(
   const startRecording = useCallback(() => {
     const rec = createRecognition();
     if (!rec) {
-      console.error("Speech Recognition not supported in this browser");
+      // Negative (ISS-082): no engine → explicit degraded notice, never a
+      // silent no-op.
+      setDegraded("此环境不支持语音识别 — 已降级为键盘输入");
+      advance({ type: "start-requested", supported: false });
       return;
     }
+    advance({ type: "start-requested", supported: true });
 
     rec.onresult = (e: SpeechRecognitionEvent) => {
       let interim = "";
@@ -73,6 +88,7 @@ export function useVoiceInput(
         }
       }
       if (interim) {
+        advance({ type: "first-audio" });
         setInterimText(interim);
         onTranscript(interim, false);
       }
@@ -84,12 +100,20 @@ export function useVoiceInput(
 
     rec.onerror = (e: SpeechRecognitionErrorEvent) => {
       console.error("Speech recognition error:", e.error);
+      advance({ type: "engine-error", reason: e.error });
       setIsRecording(false);
+      if (isDegradedReason(e.error)) {
+        setDegraded(
+          e.error === "network"
+            ? "网络不可用 — 语音已降级回键盘输入"
+            : "麦克风不可用/未授权 — 语音已降级回键盘输入"
+        );
+      }
     };
 
     rec.onend = () => {
-      // Auto-restart if still recording (some browsers stop after silence)
-      if (recognitionRef.current === rec && isRecording) {
+      // Auto-restart while live (silence timeouts); muted/ended stay down.
+      if (recognitionRef.current === rec && isRecording && !mutedRef.current) {
         try { rec.start(); } catch { /* already started */ }
       } else {
         setIsRecording(false);
@@ -101,8 +125,10 @@ export function useVoiceInput(
     try {
       rec.start();
       setIsRecording(true);
+      advance({ type: "engine-started" });
     } catch (e) {
       console.error("Failed to start recognition:", e);
+      advance({ type: "engine-error", reason: "start-failed" });
     }
   }, [createRecognition, onTranscript, isRecording]);
 
@@ -115,6 +141,29 @@ export function useVoiceInput(
     recognitionRef.current = null;
     setIsRecording(false);
     setInterimText("");
+    advance({ type: "stop-requested" });
+  }, []);
+
+  /** Mute pauses capture while the session stays open (ISS-082). */
+  const mute = useCallback(() => {
+    mutedRef.current = true;
+    const rec = recognitionRef.current;
+    if (rec) {
+      rec.onend = null;
+      try { rec.stop(); } catch { /* already stopped */ }
+    }
+    setInterimText("");
+    advance({ type: "mute-requested" });
+  }, []);
+
+  const unmute = useCallback(() => {
+    mutedRef.current = false;
+    const rec = recognitionRef.current;
+    if (rec) {
+      rec.onend = null;
+      try { rec.start(); } catch { /* already started */ }
+      advance({ type: "unmute-requested" });
+    }
   }, []);
 
   const toggleRecording = useCallback(() => {
@@ -156,5 +205,11 @@ export function useVoiceInput(
     toggleRecording,
     startRecording,
     stopRecording,
+    // ISS-082 additions
+    voiceState,
+    degraded,
+    dismissDegraded: useCallback(() => setDegraded(null), []),
+    mute,
+    unmute,
   };
 }

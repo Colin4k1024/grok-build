@@ -62,7 +62,10 @@ export function PromptInput({
   const skillsLoaded = useRef(false);
 
   const { images, onDrop, onDragOver, removeImage, clearImages } = useImagePaste();
-  const { isRecording, interimText, toggleRecording, startRecording, stopRecording, language, setLanguage } = useVoiceInput((transcript) => {
+  const {
+    isRecording, interimText, toggleRecording, startRecording, stopRecording,
+    language, setLanguage, voiceState, degraded, dismissDegraded, mute, unmute,
+  } = useVoiceInput((transcript) => {
     setText(prev => prev + transcript);
   });
 
@@ -70,14 +73,20 @@ export function PromptInput({
   useEffect(() => {
     const down = (e: Event) => {
       const ke = e as globalThis.KeyboardEvent;
-      if (ke.ctrlKey && ke.key.toLowerCase() === "m" && !isRecording) {
+      if (ke.ctrlKey && ke.shiftKey && ke.key.toLowerCase() === "m" && isRecording) {
+        ke.preventDefault();
+        // Mute toggle pauses capture without ending the session (ISS-082)
+        if (voiceState === "muted") unmute(); else mute();
+        return;
+      }
+      if (ke.ctrlKey && !ke.shiftKey && ke.key.toLowerCase() === "m" && !isRecording) {
         ke.preventDefault();
         startRecording();
       }
     };
     const up = (e: Event) => {
       const ke = e as globalThis.KeyboardEvent;
-      if (ke.ctrlKey && ke.key.toLowerCase() === "m" && isRecording) {
+      if (ke.ctrlKey && !ke.shiftKey && ke.key.toLowerCase() === "m" && isRecording) {
         ke.preventDefault();
         stopRecording();
       }
@@ -88,7 +97,7 @@ export function PromptInput({
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [isRecording, startRecording, stopRecording]);
+  }, [isRecording, startRecording, stopRecording, voiceState, mute, unmute]);
 
   // Composer-embedded session controls read live state from the store so the
   // control row never goes stale across tab switches.
@@ -238,10 +247,23 @@ export function PromptInput({
         </div>
       )}
 
+      {degraded && (
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-yellow/10 px-2.5 py-1 text-[11px] text-gb-yellow">
+          <span className="flex-1">{degraded}</span>
+          <button onClick={dismissDegraded} className="text-gb-yellow/70 hover:text-gb-yellow">✕</button>
+        </div>
+      )}
       {isRecording && (
         <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-red/10 px-2.5 py-1">
-          <span className="flex items-center gap-1.5 text-[11px] text-gb-red"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-red" />录音中</span>
-          <span className="flex-1 truncate text-[11px] text-gb-muted">{interimText || "正在聆听…"}</span>
+          <span className="flex items-center gap-1.5 text-[11px] text-gb-red">
+            {voiceState === "muted"
+              ? <><span className="h-1.5 w-1.5 rounded-full bg-gb-muted" />已静音（Ctrl+Shift+M 恢复）</>
+              : <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-red" />{voiceState === "connecting" ? "连接中" : "录音中"}</>}
+          </span>
+          <span className="flex-1 truncate text-[11px] text-gb-muted">{voiceState === "muted" ? "（暂停捕捉）" : interimText || "正在聆听…"}</span>
+          <button onClick={() => (voiceState === "muted" ? unmute() : mute())} className="rounded px-1 text-[10px] text-gb-muted hover:text-gb-text" title="静音切换 (Ctrl+Shift+M)">
+            {voiceState === "muted" ? "取消静音" : "静音"}
+          </button>
           <select value={language} onChange={e => setLanguage(e.target.value as "auto"|"zh-CN"|"en-US")} className="rounded bg-transparent px-1 text-[10px] text-gb-muted outline-none"><option value="auto">自动</option><option value="zh-CN">中文</option><option value="en-US">EN</option></select>
         </div>
       )}
