@@ -90,6 +90,13 @@ export interface DefaultModels {
 export interface AuthStatus {
   authenticated: boolean;
   username: string | null;
+  /** Auth surface in effect: OAuth endpoint, API-key store, or dev bypass. */
+  mode?: "oauth" | "api-key" | "dev";
+  /** True when the OAuth/device-code endpoint probe succeeded. */
+  oauthAvailable?: boolean;
+  /** Where the winning credential came from. */
+  source?: "file" | "keychain" | "env";
+  envKey?: string;
 }
 
 export interface AcpEventPayload {
@@ -316,6 +323,20 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 
 export async function login(): Promise<AuthStatus> {
   return invoke<AuthStatus>("login");
+}
+
+/** API-key first-screen login (ISS-073): store the provider key securely. */
+export async function loginWithApiKey(envKey: string, value: string): Promise<AuthStatus> {
+  return invoke<AuthStatus>("login_api_key", { envKey, value });
+}
+
+/** Env keys the desktop shell accepts as provider credentials. */
+export async function listAuthEnvKeys(): Promise<string[]> {
+  try {
+    return await invoke<string[]>("auth_env_keys");
+  } catch {
+    return [];
+  }
 }
 
 export async function logout(): Promise<void> {

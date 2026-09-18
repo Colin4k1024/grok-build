@@ -7,11 +7,10 @@
  * `acp_event` payloads the frontend already understands.
  */
 
-import { spawn, execFile, ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { app } from "electron";
 import {
   FsBridgeError,
@@ -55,31 +54,19 @@ export function resolveAgentBinary(): string {
   return "xai-grok-pager";
 }
 
-// ---- API key store (file-backed; keychain parity can come later) ------------
+// ---- API key store — delegated to ./auth (ISS-073): atomic file store with
+// macOS keychain write-through under the legacy service name; read-through
+// keeps keys entered in the Tauri build working.
 
-const GROK_HOME = path.join(os.homedir(), ".grok");
-const API_KEYS_PATH = path.join(GROK_HOME, "api_keys.json");
-
-function readKeyStore(): Record<string, string> {
-  try {
-    if (fs.existsSync(API_KEYS_PATH)) {
-      return JSON.parse(fs.readFileSync(API_KEYS_PATH, "utf-8"));
-    }
-  } catch (e) {
-    console.error("[apikey] failed to read store:", e);
-  }
-  return {};
-}
-
-function writeKeyStore(store: Record<string, string>): void {
-  fs.mkdirSync(GROK_HOME, { recursive: true });
-  fs.writeFileSync(API_KEYS_PATH, JSON.stringify(store, null, 2), { mode: 0o600 });
-}
+import { readKeyStore, writeKeyStoreAtomic, securityKeychain } from "./auth";
 
 export function saveApiKey(envKey: string, value: string): void {
   const store = readKeyStore();
   store[envKey] = value;
-  writeKeyStore(store);
+  writeKeyStoreAtomic(store);
+  securityKeychain
+    .set(envKey, value)
+    .catch((e) => console.error("[apikey] keychain write-through failed:", e));
 }
 
 export function getApiKey(envKey: string): string | null {
@@ -89,42 +76,13 @@ export function getApiKey(envKey: string): string | null {
 export function deleteApiKey(envKey: string): void {
   const store = readKeyStore();
   delete store[envKey];
-  writeKeyStore(store);
+  writeKeyStoreAtomic(store);
+  securityKeychain.remove(envKey).catch(() => {});
 }
 
 export function isApiKeySet(envKey: string): boolean {
   const v = readKeyStore()[envKey] ?? process.env[envKey];
   return typeof v === "string" && v.length > 0;
-}
-
-/**
- * Keychain compat: the Tauri build stored keys in the macOS Keychain under
- * service "com.xai.grokbuild.desktop". Read-through so existing users don't
- * have to re-enter keys. Results are cached for the process lifetime; misses
- * are cached too so we never prompt twice for the same key.
- */
-const KEYCHAIN_SERVICE = "com.xai.grokbuild.desktop";
-const keychainCache = new Map<string, string | null>();
-
-function keychainLookup(envKey: string): Promise<string | null> {
-  if (keychainCache.has(envKey)) return Promise.resolve(keychainCache.get(envKey) ?? null);
-  if (process.platform !== "darwin") return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const child = execFile(
-      "/usr/bin/security",
-      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", envKey, "-w"],
-      { timeout: 8000 },
-      (err, stdout) => {
-        const value = err ? null : stdout.trim() || null;
-        keychainCache.set(envKey, value);
-        resolve(value);
-      }
-    );
-    child.on("error", () => {
-      keychainCache.set(envKey, null);
-      resolve(null);
-    });
-  });
 }
 
 /**
@@ -136,7 +94,7 @@ export async function buildAgentEnv(envKeys: string[] = []): Promise<NodeJS.Proc
   await Promise.all(
     envKeys.map(async (k) => {
       if (!env[k]) {
-        const v = await keychainLookup(k);
+        const v = await securityKeychain.find(k);
         if (v) env[k] = v;
       }
     })
