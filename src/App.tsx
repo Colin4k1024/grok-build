@@ -123,8 +123,11 @@ export default function App() {
         const item = items.find((s) => s.id === detachedSessionId);
         if (item) {
           addTab({ id: item.id, title: "Detached", cwd: item.cwd, model: "", reasoningEffort: "medium", createdAt: Date.now(), lastActiveAt: Date.now() });
+        } else {
+          // Detaching a dead session shows an explicit error, not a blank pane.
+          setError(`会话 ${detachedSessionId} 不存在或已关闭`);
         }
-      }).catch(() => {});
+      }).catch((e) => setError(`无法加载会话：${String(e)}`));
     } else {
       // Thread-tab-route-checkpoint: sessionStore persists tabs + activeSessionId
       // via zustand/persist. On boot, tabs whose backend session died with the
@@ -683,6 +686,17 @@ export default function App() {
 
   // Detached window: render only the chat area
   if (detachedSessionId) {
+    if (error) {
+      return (
+        <div className="flex h-full items-center justify-center bg-gb-bg">
+          <div className="max-w-md rounded-xl border border-gb-red/30 bg-gb-red/5 p-6 text-center">
+            <p className="text-sm font-medium text-gb-red">无法打开独立会话窗口</p>
+            <p className="mt-2 text-xs text-gb-muted">{error}</p>
+            <p className="mt-3 text-[10px] text-gb-muted">可关闭此窗口回到主窗口继续。</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full flex-col text-gb-text">
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">

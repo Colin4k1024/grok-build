@@ -1,6 +1,7 @@
 // VS Code-style editor tab strip: one tab per open session, plus a
 // pinned Home tab on the left (like VS Code's Welcome tab).
 import { useSessionStore } from "../../stores/sessionStore";
+import { openSessionInNewWindow } from "../../lib/tauri";
 
 interface EditorTabsProps {
   showHome: boolean;
@@ -49,6 +50,22 @@ export function EditorTabs({ showHome, onOpenHome, onCloseSession, streaming }: 
               <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="运行中" />
             )}
             <span className="truncate">{tab.title}</span>
+            <button
+              aria-label="在新窗口打开"
+              title="在新窗口打开（detach）"
+              className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-gb-surface-hover group-hover:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                openSessionInNewWindow(tab.id, tab.title).catch((err) =>
+                  console.error("[detach] failed:", err)
+                );
+              }}
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+                <rect x="1.5" y="3.5" width="7" height="7" rx="1" />
+                <path d="M4 3.5V2a.5.5 0 01.5-.5H10a.5.5 0 01.5.5V8a.5.5 0 01-.5.5H8.5" />
+              </svg>
+            </button>
             <button
               aria-label="关闭标签页"
               className="ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-gb-surface-hover group-hover:opacity-100"

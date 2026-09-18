@@ -228,7 +228,61 @@ ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; req
   rec?.agent?.respondPermission(args.requestId, args.optionId);
   return ok(null);
 });
-ipcMain.handle("open_session_window", () => ok(null));
+// --- Detached session windows (ISS-077) -----------------------------------
+// Write-lock: while a session is detached, only its detached window may send
+// prompts; the main window follows read-only (and vice versa). Closing the
+// detached window releases the lock — the agent session is never killed.
+import { DetachRegistry, type DetachHandle } from "./detach";
+import type { BrowserWindow as BrowserWindowType } from "electron";
+
+const detachRegistry = new DetachRegistry();
+/** webContents.id of each session's detached window (write-lock owner). */
+const detachedSenderIds = new Map<string, number>();
+
+function asHandle(win: BrowserWindowType): DetachHandle {
+  return {
+    focus: () => win.focus(),
+    close: () => win.close(),
+    isDestroyed: () => win.isDestroyed(),
+    send: (channel, payload) => {
+      if (!win.isDestroyed()) win.webContents.send(channel, payload);
+    },
+  };
+}
+
+ipcMain.handle("open_session_window", (_e, args: { sessionId?: string }) => {
+  const sessionId = args?.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) {
+    throw new Error("open_session_window: missing sessionId");
+  }
+  // Detaching a dead session is a structured error, never a blank window.
+  const rec = sessions.get(sessionId);
+  if (!rec) throw new Error(`session ${sessionId} not found — cannot detach`);
+
+  const result = detachRegistry.acquire(sessionId, () => {
+    const win = new BrowserWindow({
+      width: 760,
+      height: 860,
+      title: `Grok Build — ${sessionId}`,
+      backgroundColor: "#16171a",
+    });
+    if (isDev) {
+      win.loadURL(`${devServerUrl}?session=${encodeURIComponent(sessionId)}`);
+    } else {
+      win.loadFile(path.join(__dirname, "../dist/index.html"), {
+        search: `session=${encodeURIComponent(sessionId)}`,
+      });
+    }
+    // Closing the window releases the write lock; the agent session lives on.
+    win.on("closed", () => {
+      detachRegistry.release(sessionId);
+      detachedSenderIds.delete(sessionId);
+    });
+    detachedSenderIds.set(sessionId, win.webContents.id);
+    return asHandle(win);
+  });
+  return ok({ focused: result.existed });
+});
 
 // Shared spawn path for session_create and session_resume: creates the
 // record, spawns the agent (fresh or resuming a persisted acp session) and
@@ -248,6 +302,11 @@ async function startSessionRecord(cwd: string, resumeAcpId?: string) {
 
   const emit = (event: Record<string, unknown>) => {
     mainWindow?.webContents.send("acp_event", event);
+    // Fan out to detached windows so the read-only side keeps following.
+    detachRegistry.prune();
+    for (const w of detachRegistry.eventTargets()) {
+      w.send("acp_event", event);
+    }
   };
   try {
     const envKeys = Array.from(new Set(cfg.models.flatMap((m) => m.env_key ?? [])));
@@ -299,12 +358,21 @@ ipcMain.handle("session_list", () =>
   )
 );
 
-ipcMain.handle("session_send", async (_e, args: { session_id: string; message: string; images: { data: string; mime_type: string }[] }) => {
+ipcMain.handle("session_send", (e, args: { session_id: string; message: string; images: { data: string; mime_type: string }[] }) => {
   const session = sessions.get(args.session_id);
   if (!session) throw new Error(`Session ${args.session_id} not found`);
   if (!session.agent) throw new Error(`Session ${args.session_id} has no live agent`);
-  await session.agent.prompt(args.message, args.images ?? []);
-  return ok(null);
+  // Write lock (ISS-077): while detached, only the owning window may send;
+  // every other surface follows read-only.
+  if (detachRegistry.isDetached(args.session_id)) {
+    const allowed = detachedSenderIds.get(args.session_id);
+    if (allowed !== e.sender.id) {
+      throw new Error(
+        `Session ${args.session_id} is detached to another window — this view is read-only`
+      );
+    }
+  }
+  return session.agent.prompt(args.message, args.images ?? []).then(() => ok(null));
 });
 
 ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: string }) => {
@@ -790,6 +858,10 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    // Explicit detached-window handling (ISS-077): no orphan chrome after the
+    // main window dies. Agent sessions survive — tabs resume on relaunch.
+    detachRegistry.closeAll();
+    detachedSenderIds.clear();
   });
 }
 
