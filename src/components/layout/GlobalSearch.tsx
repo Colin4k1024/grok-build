@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
-import { listHistorySessions, type HistorySession } from "../../lib/tauri";
+import { listHistorySessions, getSessionHistoryMessages, type HistorySession } from "../../lib/tauri";
 
 interface GlobalSearchProps {
   onClose: () => void;
@@ -24,6 +24,8 @@ export function GlobalSearch({ onClose, onOpenTab, onResumeThread }: GlobalSearc
   const [history, setHistory] = useState<HistorySession[]>([]);
   const tabs = useSessionStore((s) => s.tabs);
   const messages = useSessionStore((s) => s.messages);
+  // Snippets found inside CLOSED threads' disk transcripts (async fill-in).
+  const [diskSnippets, setDiskSnippets] = useState<Record<string, string>>({});
 
   useEffect(() => {
     listHistorySessions().then(setHistory).catch(() => {});
@@ -66,20 +68,56 @@ export function GlobalSearch({ onClose, onOpenTab, onResumeThread }: GlobalSearc
       }
     }
 
-    // Persisted threads.
+    // Persisted threads — title matches + async disk-transcript snippets.
     for (const h of history) {
       if (covered.has(h.id)) continue;
-      if (matchTitle(h.title, h.cwd)) {
+      const snippet = diskSnippets[h.id];
+      if (matchTitle(h.title, h.cwd) || snippet) {
         out.push({
           key: `hist-${h.id}`,
           title: h.title,
           cwd: h.cwd,
+          snippet,
           session: h,
         });
       }
     }
     return out.slice(0, 30);
-  }, [query, tabs, messages, history]);
+  }, [query, tabs, messages, history, diskSnippets]);
+
+  // Message-content search over CLOSED threads: disk transcripts below.
+  useEffect(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      setDiskSnippets({});
+      return;
+    }
+    let cancelled = false;
+    const covered = new Set(tabs.map((t) => t.acpSessionId || t.id));
+    const candidates = history.filter((h) => !covered.has(h.id)).slice(0, 20);
+    (async () => {
+      const found: Record<string, string> = {};
+      for (const h of candidates) {
+        if (cancelled) return;
+        try {
+          const msgs = await getSessionHistoryMessages(h.id, h.cwd);
+          for (const m of msgs) {
+            const hit = m.content.toLowerCase().indexOf(q);
+            if (hit >= 0) {
+              found[h.id] = "…" + m.content.slice(Math.max(0, hit - 30), hit + q.length + 40).trim() + "…";
+              break;
+            }
+          }
+        } catch {
+          /* unreadable transcript — title search still applies */
+        }
+      }
+      if (!cancelled) setDiskSnippets(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [query, history, tabs]);
 
   const open = (r: Result) => {
     if (r.tabId) onOpenTab(r.tabId);

@@ -13,6 +13,8 @@ interface Props {
  *  manages checkouts); in worktree mode picking a branch creates/reuses that
  *  worktree. */
 export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
+  // Stale-response guard: only the latest cwd's results may land (review r1-leftover).
+  const genRef = useRef(0);
   const [open, setOpen] = useState(false);
   const [branches, setBranches] = useState<string[]>([]);
   const ref = useRef<HTMLDivElement>(null);
@@ -27,8 +29,10 @@ export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
   }, [open]);
 
   const load = useCallback(() => {
+    const gen = ++genRef.current;
     listWorktrees(cwd)
       .then((wts) => {
+        if (gen !== genRef.current) return; // stale cwd response — drop
         const seen = new Set<string>();
         const list: string[] = [];
         for (const wt of wts) {
@@ -39,7 +43,9 @@ export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
         }
         setBranches(list);
       })
-      .catch(() => setBranches([]));
+      .catch(() => {
+        if (gen === genRef.current) setBranches([]);
+      });
   }, [cwd]);
 
   useEffect(() => {

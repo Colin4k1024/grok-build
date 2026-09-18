@@ -15,6 +15,8 @@ interface Props {
 /** Work-mode picker: Work locally (current checkout) or in an isolated
  *  worktree on a chosen branch — codex composer semantics. */
 export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) {
+  // Stale-response guard: only the latest cwd's results may land (review r1-leftover).
+  const genRef = useRef(0);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [branchName, setBranchName] = useState("");
@@ -33,7 +35,13 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
   useEffect(() => {
     if (open) {
       setBranches([]);
-      listBranches(cwd).then(setBranches).catch(() => {});
+      const gen = ++genRef.current;
+      listBranches(cwd)
+        .then((list) => {
+          if (gen !== genRef.current) return; // stale cwd response — drop
+          setBranches(list);
+        })
+        .catch(() => {});
     }
   }, [open, cwd]);
 
