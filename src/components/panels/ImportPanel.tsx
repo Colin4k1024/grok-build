@@ -7,6 +7,7 @@ import {
   claudeUnmarkSession,
   persistTranscript,
   createSession,
+  closeSession,
   type ClaudeSessionItem,
 } from "../../lib/tauri";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -76,8 +77,10 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
       const entries = claim.entries.filter(
         (e) => e.role === "user" || e.role === "assistant"
       );
+      let createdId: string | null = null;
       try {
         const created = await createSession(info?.cwd ?? projectRoot ?? ".");
+        createdId = created.id;
         const title = `导入 · ${info?.title ?? id.slice(0, 8)}`;
         await persistTranscript({
           acpSessionId: created.acp_session_id,
@@ -98,8 +101,14 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
         useSessionStore.getState().loadHistoryMessages(created.id, entries);
         lines.push(`✓ 会话 ${id.slice(0, 8)} 已导入（${entries.length} 条${claim.skippedLines ? `，跳过 ${claim.skippedLines} 行损坏` : ""}，已持久化）`);
       } catch (e) {
+        // Failure cleanup (review r4): a created-but-unseeded session would
+        // be an orphaned live agent — close it BEFORE releasing the claim so
+        // retries never stack orphans.
+        if (createdId) {
+          try { await closeSession(createdId); } catch { /* already gone */ }
+        }
         await claudeUnmarkSession(id).catch(() => {});
-        lines.push(`✗ 会话 ${id.slice(0, 8)} 建线程失败（已释放申领，可重试）：${String(e)}`);
+        lines.push(`✗ 会话 ${id.slice(0, 8)} 导入失败（会话已回收、申领已释放，可重试）：${String(e)}`);
       }
     }
     if (mergeInstructions && projectRoot) {
