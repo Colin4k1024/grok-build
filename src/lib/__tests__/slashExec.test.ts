@@ -11,6 +11,7 @@ function makeCtx(overrides: Partial<SlashContext> = {}): SlashContext {
     newThread: vi.fn(),
     copyText: vi.fn(async () => undefined),
     showDiff: vi.fn(async () => "diff --git a/x b/x\n+hello"),
+    openUsage: vi.fn(),
     notify: vi.fn(),
   };
   return {
@@ -134,15 +135,11 @@ describe("local commands", () => {
     expect(ctx.actions.renameThread).toHaveBeenCalledWith("s1", "my cool thread");
   });
 
-  it("/usage formats token usage", async () => {
-    const r = await executeSlashCommand("/usage", makeCtx());
+  it("/usage opens the usage panel (ISS-081)", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/usage", ctx);
     expect(r.type).toBe("handled");
-    expect((r as { notice?: string }).notice).toContain("21%");
-  });
-
-  it("/usage without data errors politely", async () => {
-    const r = await executeSlashCommand("/usage", makeCtx({ usage: null }));
-    expect(r.type).toBe("error");
+    expect(ctx.actions.openUsage).toHaveBeenCalled();
   });
 
   it("/diff surfaces the git diff via the scoped cwd", async () => {

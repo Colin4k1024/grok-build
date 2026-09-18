@@ -82,6 +82,8 @@ interface SessionState {
   subagents: Record<string, Subagent[]>;
   todos: Record<string, TodoItem[]>;
   tokenUsage: Record<string, { used: number; size: number }>;
+  /** Rate-limit banner state per session (epoch-ms retry deadline). */
+  rateLimits: Record<string, { until: number; message: string }>;
   compacting: Record<string, boolean>;
   compactionMarkers: Record<string, CompactionMarker[]>;
   preCompactSnapshot: Record<string, ChatMessage[]>;
@@ -117,6 +119,8 @@ interface SessionState {
   setTodos: (sessionId: string, todos: TodoItem[]) => void;
   toggleTodo: (sessionId: string, id: string) => void;
   setTokenUsage: (sessionId: string, used: number, size: number) => void;
+  /** Set/clear the rate-limit banner for a session. */
+  setRateLimit: (sessionId: string, limit: { until: number; message: string } | null) => void;
   setCompacting: (sessionId: string, compacting: boolean) => void;
   snapshotForCompaction: (sessionId: string) => void;
   addCompactionMarker: (sessionId: string, marker: Omit<CompactionMarker, "id" | "rolledBack">) => void;
@@ -160,6 +164,7 @@ export const useSessionStore = create<SessionState>()(
   subagents: {},
   todos: {},
   tokenUsage: {},
+  rateLimits: {},
   compacting: {},
   compactionMarkers: {},
   preCompactSnapshot: {},
@@ -185,6 +190,7 @@ export const useSessionStore = create<SessionState>()(
       const { [id]: _sa, ...restSubagents } = state.subagents;
       const { [id]: _td, ...restTodos } = state.todos;
       const { [id]: _tu, ...restTokenUsage } = state.tokenUsage;
+      const { [id]: _rl, ...restRateLimits } = state.rateLimits;
       const { [id]: _co, ...restCompacting } = state.compacting;
       const { [id]: _cm, ...restCompactionMarkers } = state.compactionMarkers;
       const { [id]: _pc, ...restPreCompactSnapshot } = state.preCompactSnapshot;
@@ -203,6 +209,7 @@ export const useSessionStore = create<SessionState>()(
         subagents: restSubagents,
         todos: restTodos,
         tokenUsage: restTokenUsage,
+        rateLimits: restRateLimits,
         compacting: restCompacting,
         compactionMarkers: restCompactionMarkers,
         preCompactSnapshot: restPreCompactSnapshot,
@@ -352,9 +359,25 @@ export const useSessionStore = create<SessionState>()(
     })),
 
   setTokenUsage: (sessionId, used, size) =>
-    set((state) => ({
-      tokenUsage: { ...state.tokenUsage, [sessionId]: { used, size } },
-    })),
+    set((state) => {
+      const current = state.tokenUsage[sessionId];
+      // Monotonic guard (ISS-081): out-of-order or stale usage events must
+      // never shrink the counter — drop them instead of showing wrong numbers.
+      if (current && used < current.used) {
+        return current.size === size ? {} : { tokenUsage: { ...state.tokenUsage, [sessionId]: { used: current.used, size } } };
+      }
+      return { tokenUsage: { ...state.tokenUsage, [sessionId]: { used, size } } };
+    }),
+
+  setRateLimit: (sessionId, limit) =>
+    set((state) => {
+      if (limit === null) {
+        if (!(sessionId in state.rateLimits)) return {};
+        const { [sessionId]: _drop, ...rest } = state.rateLimits;
+        return { rateLimits: rest };
+      }
+      return { rateLimits: { ...state.rateLimits, [sessionId]: limit } };
+    }),
 
   setCompacting: (sessionId, compacting) =>
     set((state) => ({
@@ -562,11 +585,12 @@ export const useSessionStore = create<SessionState>()(
       const { [sessionId]: _sa, ...restSub } = state.subagents;
       const { [sessionId]: _td, ...restTodos } = state.todos;
       const { [sessionId]: _tu, ...restUsage } = state.tokenUsage;
+      const { [sessionId]: _rl, ...restRateLimits } = state.rateLimits;
       const { [sessionId]: _co, ...restCompact } = state.compacting;
       const { [sessionId]: _cm, ...restMarkers } = state.compactionMarkers;
       const { [sessionId]: _pc, ...restSnap } = state.preCompactSnapshot;
       const { [sessionId]: _q, ...restQueued } = state.queuedPrompts;
-      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap, queuedPrompts: restQueued };
+      return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, rateLimits: restRateLimits, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap, queuedPrompts: restQueued };
     }),
     }),
     {

@@ -119,6 +119,14 @@ export function useAcpEventListener() {
           setStreaming(false);
           setSessionStreaming(sid, false);
           break;
+        case "RateLimit":
+          useSessionStore.getState().setRateLimit(sid, {
+            until: Date.now() + Math.max(1, event.retry_after_seconds ?? 60) * 1000,
+            message: event.message ?? "rate limited",
+          });
+          setStreaming(false);
+          setSessionStreaming(sid, false);
+          break;
         case "PlanUpdate":
           if (event.entries) {
             setTodos(sid, event.entries.map((e, i) => ({
