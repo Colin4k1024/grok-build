@@ -495,6 +495,44 @@ export async function gitCommit(cwd: string, message: string): Promise<string> {
   return invoke<string>("git_commit", { cwd, message });
 }
 
+// ===== Claude Code import (ISS-083) =====
+
+export interface ClaudeProbeInfo {
+  available: boolean;
+  root: string;
+  sessions: number;
+  projects: number;
+  hasInstructions: boolean;
+  docs: number;
+}
+
+export interface ClaudeSessionItem {
+  sourceId: string;
+  cwd: string;
+  title: string;
+  mtime: number;
+  size: number;
+}
+
+export type ClaudeImportOutcome =
+  | { status: "imported"; entries: { role: string; content: string; timestamp: number }[]; skippedLines: number }
+  | { status: "already-imported" }
+  | { status: "conflict" }
+  | { status: "error"; message: string };
+
+export async function claudeProbe(): Promise<ClaudeProbeInfo> {
+  return invoke<ClaudeProbeInfo>("claude_probe");
+}
+export async function claudeListSessions(): Promise<ClaudeSessionItem[]> {
+  return invoke<ClaudeSessionItem[]>("claude_list_sessions");
+}
+export async function claudeImportSession(sourceId: string): Promise<ClaudeImportOutcome> {
+  return invoke<ClaudeImportOutcome>("claude_import_session", { sourceId });
+}
+export async function claudeImportInstructions(projectRoot: string): Promise<{ status: string; message?: string }> {
+  return invoke<{ status: string; message?: string }>("claude_import_instructions", { projectRoot });
+}
+
 // ===== Review workflow (ISS-080) =====
 
 /** Dangling worktree snapshot (`git stash create`); null when clean. */

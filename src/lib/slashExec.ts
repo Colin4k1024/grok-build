@@ -34,6 +34,7 @@ export interface SlashContext {
     showDiff(cwd: string, path?: string): Promise<string>;
     notify(message: string): void;
     openUsage(): void;
+    openImport(): void;
   };
 }
 
@@ -112,6 +113,10 @@ export async function executeSlashCommand(
     case "usage": {
       // Opens the usage panel (ISS-081); per-thread data with 未知 fallbacks.
       ctx.actions.openUsage();
+      return { type: "handled" };
+    }
+    case "import": {
+      ctx.actions.openImport();
       return { type: "handled" };
     }
     case "diff": {
