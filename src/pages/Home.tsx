@@ -11,7 +11,7 @@ interface HomeProps {
   onStart: (
     prompt: string,
     images: { data: string; mime_type: string }[],
-    prefs: { cwd: string; model: string; approval: ApprovalMode }
+    prefs: { cwd: string; model: string; effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"; approval: ApprovalMode }
   ) => void;
   onOpenSession: (id: string) => void;
   onResumeThread: (session: HistorySession) => void;
@@ -88,7 +88,7 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
         </div>
 
         <PromptInput
-          onSend={(message, images) => onStart(message, images, { cwd: projectCwd, model, approval })}
+          onSend={(message, images) => onStart(message, images, { cwd: projectCwd, model, effort, approval })}
           onCancel={() => {}}
           isStreaming={false}
           disabled={creating}

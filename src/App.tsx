@@ -310,7 +310,7 @@ export default function App() {
   const handleStartFromHome = useCallback(async (
     prompt: string,
     images: { data: string; mime_type: string }[],
-    prefs: { cwd: string; model: string; approval: ApprovalMode }
+    prefs: { cwd: string; model: string; effort: SessionTab["reasoningEffort"]; approval: ApprovalMode }
   ) => {
     setCreating(true);
     setError(null);
@@ -323,7 +323,7 @@ export default function App() {
         cwd: info.cwd,
         model: prefs.model || info.models[0]?.id || "",
         approvalMode: prefs.approval,
-        reasoningEffort: "medium",
+        reasoningEffort: prefs.effort ?? "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
@@ -345,17 +345,9 @@ export default function App() {
     finally { setCreating(false); }
   }, [addTab, addUserMessage, setStreaming, tabs.length]);
 
-  // Cmd+N / Ctrl+N -> New Session
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey) {
-        e.preventDefault();
-        handleNewSession();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleNewSession]);
+  // Cmd+N is owned solely by the useKeyboardShortcuts registry below — a
+  // second listener here fired handleNewSession twice per keypress
+  // (duplicate sessions, review r1-leftover).
 
   // ⌘⇧[ / ⌘⇧] — cycle through open threads (codex desktop sequence nav).
   // The sidebar thread list is the switcher; there is no tab bar.

@@ -51,12 +51,20 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
     ];
 
     const handler = (e: KeyboardEvent) => {
-      // Don't hijack text editing inside inputs.
+      // Don't hijack text editing: while typing in an input, textarea, or
+      // contenteditable host, only combos that never conflict with editing
+      // (⌘, ⌘G ⌘B ⌘J) may fire; ⌘N/⌘W/⌘O/⌘1-9 wait for a non-edit focus
+      // (review r1-leftover: the old comment claimed a guard that wasn't
+      // there).
       const target = e.target as HTMLElement | null;
-      if (mod(e) && target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
-        // Allow the shortcut anyway — none of these conflict with editing.
-      }
+      const editing = !!target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      );
+      const allowedWhileEditing = new Set(["settings", "search", "sidebar", "terminal"]);
       for (const s of shortcuts) {
+        if (editing && !allowedWhileEditing.has(s.id)) continue;
         if (s.test(e)) {
           e.preventDefault();
           s.run(e);
