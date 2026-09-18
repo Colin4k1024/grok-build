@@ -268,7 +268,7 @@ async fn capture_screen(output_path: &Path) -> Result<(), ComputerUseError> {
     #[cfg(target_os = "linux")]
     {
         let status = tokio::process::Command::new("scrot")
-            .args([&output_path.to_string_lossy()])
+            .args([output_path.as_os_str()])
             .status()
             .await?;
         if !status.success() {
