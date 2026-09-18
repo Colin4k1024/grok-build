@@ -69,12 +69,6 @@
       "dist-electron/**/*",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "target/release/xai-grok-pager",
-        "to": "xai-grok-pager"
-      }
-    ],
     "asar": true,
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -83,7 +77,13 @@
         "zip"
       ],
       "icon": "build/icon.icns",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "extraResources": [
+        {
+          "from": "target/release/xai-grok-pager",
+          "to": "xai-grok-pager"
+        }
+      ]
     },
     "win": {
       "target": [
@@ -101,7 +101,13 @@
       "target": [
         "AppImage"
       ],
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "extraResources": [
+        {
+          "from": "target/release/xai-grok-pager",
+          "to": "xai-grok-pager"
+        }
+      ]
     },
     "dmg": {
       "title": "Grok Build"
