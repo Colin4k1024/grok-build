@@ -50,7 +50,9 @@ export function ApprovalCard({
     if (remaining <= 0) {
       if (respondedRef.current) return;
       respondedRef.current = true;
-      const opt = denyOption ?? options[options.length - 1];
+      // Timeout is a deny intent — never fall back to an allow id when the
+      // option list has no Deny entry (parity with the click-path guard).
+      const opt = denyOption;
       if (opt) {
         respondPermission(sessionId, requestId, opt.id, false)
           .catch((e) => console.error("auto-deny failed:", e))

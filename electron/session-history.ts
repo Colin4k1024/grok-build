@@ -187,6 +187,9 @@ function findSessionDir(sessionId: string, cwd: string): string | null {
   if (fs.existsSync(inCwd("summary.json"))) {
     return path.join(sessionsRoot(), encoded, sessionId);
   }
+  // A missing sessions root must fail with the clean business error, not a
+  // raw ENOENT from readdirSync (ISS-075 test round: #164).
+  if (!fs.existsSync(sessionsRoot())) return null;
   return (
     fs
       .readdirSync(sessionsRoot(), { withFileTypes: true })

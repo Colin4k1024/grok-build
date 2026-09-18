@@ -186,18 +186,15 @@ describe("30s timeout auto-deny", () => {
     expect(usePermissionsStore.getState().rules).toEqual([]);
   });
 
-  it("without any Deny option the timeout currently falls back to the LAST option (tracked as follow-up)", async () => {
-    // Current behavior: the timeout branch uses `denyOption ?? options[last]`,
-    // so an option list without a Deny entry auto-sends the allow id after 30s.
-    // The click path refuses this fallback; the asymmetry is filed separately —
-    // this test pins today's behavior so the fix lands consciously.
+  it("without any Deny option the timeout closes the card WITHOUT sending anything (#162)", async () => {
+    // Timeout is deny intent: falling back to the last option (an allow id)
+    // would silently grant permission — now aligned with the click guard.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const props = setup({ options: [OPTIONS[0]] });
 
     await tickSeconds(31);
 
-    expect(respondPermission).toHaveBeenCalledTimes(1);
-    expect(respondPermission).toHaveBeenCalledWith("s1", "r1", "o-allow-once", false);
+    expect(respondPermission).not.toHaveBeenCalled();
     expect(props.onResolved).toHaveBeenCalled();
     expect(usePermissionsStore.getState().rules).toEqual([]);
   });

@@ -98,6 +98,21 @@ describe("getMcpServers", () => {
     expect(getMcpServers()[0].name).toBe("weird");
   });
 
+  it("quoted DOTTED server names parse and round-trip in place (#163)", () => {
+    writeConfig('[mcp_servers."my.server"]\ncommand = "old"\n');
+
+    expect(getMcpServers()[0]).toMatchObject({ name: "my.server", command: "old" });
+
+    saveMcpServer({
+      name: "my.server",
+      command: "new",
+      args: [],
+      url: null,
+      env: [],
+    });
+    expect(getMcpServers()[0]).toMatchObject({ name: "my.server", command: "new" });
+  });
+
   it("enabled = false parses", () => {
     writeConfig('[mcp_servers.off]\ncommand = "x"\nenabled = false\n');
 
