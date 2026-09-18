@@ -56,11 +56,11 @@ export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         )}
 
         <button
-          className="w-full rounded-lg bg-gb-accent px-4 py-3 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40"
+          className="w-full rounded-lg bg-gb-accent px-4 py-3 text-sm font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
           onClick={handleLogin}
           disabled={loading}
         >
-          {loading ? "Opening browser..." : "Sign in with OAuth"}
+          {loading ? "正在打开浏览器…" : "使用 OAuth 登录"}
         </button>
 
         <button

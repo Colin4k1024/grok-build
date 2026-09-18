@@ -35,25 +35,25 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <header className="flex h-10 shrink-0 items-center justify-between border-b border-gb-border bg-gb-surface px-4">
         <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold">Dashboard</h2>
-          <span className="text-[10px] text-gb-muted">Global overview</span>
+          <h2 className="text-sm font-semibold">仪表盘</h2>
+          <span className="text-[10px] text-gb-muted">全局概览</span>
         </div>
         <button
           className="rounded px-2 py-1 text-xs text-gb-muted hover:bg-gb-bg hover:text-gb-text"
           onClick={onClose}
         >
-          ← Back to Chat
+          ← 返回对话
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4">
         {/* Stats bar */}
         <div className="mb-4 grid grid-cols-4 gap-3">
-          <StatCard label="Active Sessions" value={String(activeSessions)} />
-          <StatCard label="Streaming" value={String(streamingSessions)} accent={streamingSessions > 0 ? "blue" : undefined} />
-          <StatCard label="Total Tokens" value={formatTokens(totalTokensUsed)} />
+          <StatCard label="活跃会话" value={String(activeSessions)} />
+          <StatCard label="流式输出中" value={String(streamingSessions)} accent={streamingSessions > 0 ? "blue" : undefined} />
+          <StatCard label="Token 总量" value={formatTokens(totalTokensUsed)} />
           <StatCard
-            label="Context Capacity"
+            label="上下文容量"
             value={totalTokensSize > 0 ? `${Math.round((totalTokensUsed / totalTokensSize) * 100)}%` : "—"}
           />
         </div>
@@ -61,9 +61,9 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
         <div className="flex gap-4">
           {/* Session cards */}
           <div className="flex-1">
-            <h3 className="mb-2 text-xs font-semibold text-gb-muted">SESSIONS</h3>
+            <h3 className="mb-2 text-xs font-semibold text-gb-muted">会话</h3>
             {tabs.length === 0 ? (
-              <p className="py-8 text-center text-xs text-gb-muted">No active sessions</p>
+              <p className="py-8 text-center text-xs text-gb-muted">暂无活跃会话</p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {tabs.map((tab) => {
@@ -85,7 +85,7 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
                       <div className="flex items-center justify-between">
                         <span className="truncate text-xs font-medium">{tab.title || "Untitled"}</span>
                         {isActive && (
-                          <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[9px] text-gb-accent">ACTIVE</span>
+                          <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[9px] text-gb-accent">活跃</span>
                         )}
                       </div>
                       <div className="mt-1 truncate text-[10px] text-gb-muted">{tab.cwd}</div>
@@ -110,10 +110,10 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
 
           {/* Subagent activity stream */}
           <div className="w-72 shrink-0">
-            <h3 className="mb-2 text-xs font-semibold text-gb-muted">SUBAGENT ACTIVITY</h3>
+            <h3 className="mb-2 text-xs font-semibold text-gb-muted">子代理动态</h3>
             <div className="h-96 overflow-y-auto rounded-lg border border-gb-border bg-gb-surface p-2">
               {allSubagents.length === 0 ? (
-                <p className="py-8 text-center text-[10px] text-gb-muted">No subagent activity</p>
+                <p className="py-8 text-center text-[10px] text-gb-muted">暂无子代理动态</p>
               ) : (
                 <div className="space-y-1">
                   {allSubagents.slice(0, 50).map((agent) => (

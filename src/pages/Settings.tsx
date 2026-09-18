@@ -14,18 +14,18 @@ import { VoiceSettings } from "../components/settings/VoiceSettings";
 type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "agent" | "trusted" | "voice" | "general" | "about";
 
 const TAB_LABELS: Record<SettingsTab, string> = {
-  models: "Models",
-  apikeys: "API Keys",
-  mcp: "MCP Servers",
-  plugins: "Plugins",
-  worktrees: "Worktrees",
-  appearance: "Appearance",
-  permissions: "Permissions",
+  models: "模型",
+  apikeys: "API 密钥",
+  mcp: "MCP 服务器",
+  plugins: "插件",
+  worktrees: "Worktree",
+  appearance: "外观",
+  permissions: "权限",
   agent: "Agent",
-  trusted: "Trusted Folders",
-  voice: "Voice",
-  general: "General",
-  about: "About",
+  trusted: "受信任目录",
+  voice: "语音",
+  general: "通用",
+  about: "关于",
 };
 
 /** Keyword aliases so search hits on common synonyms (e.g. "theme" matches
@@ -81,14 +81,14 @@ export function Settings({ onClose, initialTab }: { onClose: () => void; initial
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-gb-border/8 px-4">
-        <h2 className="text-[13px] font-medium">Settings</h2>
+        <h2 className="text-[13px] font-medium">设置</h2>
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search settings…"
+          placeholder="搜索设置…"
           className="max-w-[240px] flex-1 rounded-md border border-gb-border/10 bg-gb-surface px-2.5 py-1 text-[12px] text-gb-text placeholder:text-gb-muted focus:border-gb-accent/40 focus:outline-none"
-          aria-label="Search settings"
+          aria-label="搜索设置"
         />
         <button className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onClose}>← Back</button>
       </header>

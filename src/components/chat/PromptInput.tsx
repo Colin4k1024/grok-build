@@ -205,35 +205,44 @@ export function PromptInput({
   const ctrlWorkMode = home ? "local" as WorkMode : (activeTab?.workMode ?? "local");
 
   return (
-    <div className="relative px-4 pb-3 pt-2" onDrop={onDrop} onDragOver={onDragOver}>
+    <div className="relative mx-auto w-full max-w-3xl px-6 pb-5 pt-2" onDrop={onDrop} onDragOver={onDragOver}>
       {showSlash && slashQuery && <SlashComplete query={slashQuery} onSelect={handleSlashSelect} onClose={() => setShowSlash(false)} anchorBottom={120} />}
 
-      {trigger && triggerMatches.length > 0 && (
+      {trigger && (
         <div className="absolute bottom-full left-4 z-50 mb-1 w-80 overflow-hidden rounded-md border border-gb-border/10 bg-gb-surface-solid py-0.5 shadow-lg" role="listbox">
           <p className="border-b border-gb-border/8 px-2.5 py-1 text-[10px] uppercase tracking-wide text-gb-muted">
-            {trigger.char === "@" ? "Files" : "Skills"}
+            {trigger.char === "@" ? "文件" : "技能"}
           </p>
-          {triggerMatches.map((m, i) => (
+          {triggerMatches.length === 0 && (
+            <p className="px-2.5 py-2 text-[11px] text-gb-muted">
+              {trigger.char === "@" ? "无匹配文件" : "无匹配技能"}
+            </p>
+          )}
+          {triggerMatches.map((m, i) => {
+            const desc = trigger.char === "$" ? skills.find((sk) => sk.name === m)?.description : undefined;
+            return (
             <button
               key={m}
               role="option"
               aria-selected={i === pickIdx}
               onMouseDown={(e) => { e.preventDefault(); applyTriggerSelection(m); }}
-              className={`block w-full truncate px-2.5 py-1.5 text-left text-[12px] ${
+              className={`block w-full px-2.5 py-1.5 text-left text-[12px] ${
                 i === pickIdx ? "bg-gb-surface-hover text-gb-text" : "text-gb-text-secondary"
               }`}
             >
-              {trigger.char === "$" ? `$${m}` : m}
+              <span className="block truncate">{trigger.char === "$" ? `$${m}` : m}</span>
+              {desc && <span className="block truncate text-[10px] text-gb-muted">{desc}</span>}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {isRecording && (
         <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-red/10 px-2.5 py-1">
-          <span className="flex items-center gap-1.5 text-[11px] text-gb-red"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-red" />Recording</span>
-          <span className="flex-1 truncate text-[11px] text-gb-muted">{interimText || "Listening…"}</span>
-          <select value={language} onChange={e => setLanguage(e.target.value as "auto"|"zh-CN"|"en-US")} className="rounded bg-transparent px-1 text-[10px] text-gb-muted outline-none"><option value="auto">Auto</option><option value="zh-CN">中文</option><option value="en-US">EN</option></select>
+          <span className="flex items-center gap-1.5 text-[11px] text-gb-red"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-red" />录音中</span>
+          <span className="flex-1 truncate text-[11px] text-gb-muted">{interimText || "正在聆听…"}</span>
+          <select value={language} onChange={e => setLanguage(e.target.value as "auto"|"zh-CN"|"en-US")} className="rounded bg-transparent px-1 text-[10px] text-gb-muted outline-none"><option value="auto">自动</option><option value="zh-CN">中文</option><option value="en-US">EN</option></select>
         </div>
       )}
 
@@ -253,16 +262,16 @@ export function PromptInput({
           <div
             className="h-0.5 rounded-full bg-gradient-to-r from-gb-yellow to-gb-red"
             style={{ width: `${Math.min(100, contextPct * 100)}%` }}
-            title="Context window nearly full — consider /compact"
+            title="上下文窗口将满 — 建议使用 /compact"
           />
         </div>
       )}
 
       <div
-        className="rounded-lg border border-gb-border/10 bg-gb-surface/50 px-3 py-2 focus-within:border-gb-accent/40"
-        title={tokenUsage ? `Context: ${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
+        className="rounded-2xl border border-gb-border bg-gb-surface px-3.5 py-2.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] focus-within:border-gb-muted/60"
+        title={tokenUsage ? `上下文：${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
       >
-        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[13px] text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "Running — Enter injects · Tab queues" : "Send a message… (@ files · $ skills · / commands)"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
+        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
           {showSessionControls && ctrlCwd && onSwitchProject && (
@@ -304,21 +313,21 @@ export function PromptInput({
           <div className="flex-1" />
 
           {queuedCount > 0 && (
-            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent" title="Queued prompts (Tab)">
-              {queuedCount} queued
+            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent" title="已排队的追问（Tab）">
+              {queuedCount} 排队中
             </span>
           )}
           <button
             className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors ${isRecording ? "text-gb-red" : "text-gb-muted hover:text-gb-text"}`}
-            onClick={toggleRecording} disabled={disabled} title="Voice input"
+            onClick={toggleRecording} disabled={disabled} title="语音输入"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2a2 2 0 00-2 2v3a2 2 0 004 0V4a2 2 0 00-2-2z" fill="currentColor" /><path d="M4 7a4 4 0 008 0M8 11v3" stroke="currentColor" strokeWidth="1.2" /></svg>
           </button>
           {isStreaming ? (
-            <button className="shrink-0 rounded-md bg-gb-red/15 px-3 py-1.5 text-[12px] font-medium text-gb-red hover:bg-gb-red/25" onClick={onCancel} title="Stop (Esc)">Stop</button>
+            <button className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gb-red text-white hover:opacity-85" onClick={onCancel} title="停止 (Esc)"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1.5" /></svg></button>
           ) : (
-            <button className="shrink-0 rounded-md bg-gb-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:opacity-80 disabled:opacity-20" onClick={handleSend} disabled={(!text.trim() && images.length === 0) || disabled} title="Send (Enter)">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 8l11-5-4.5 11-1.5-4.5L2 8z" fill="currentColor" /></svg>
+            <button className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gb-text text-gb-bg hover:opacity-80 disabled:opacity-20" onClick={handleSend} disabled={(!text.trim() && images.length === 0) || disabled} title="发送 (Enter)">
+              <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 12V2M3 6l4-4 4 4" /></svg>
             </button>
           )}
         </div>

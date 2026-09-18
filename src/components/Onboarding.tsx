@@ -5,28 +5,28 @@ const ONBOARDING_KEY = "gb-onboarding-completed";
 const STEPS = [
   {
     icon: "🤖",
-    title: "Welcome to Grok Build",
-    body: "Your AI coding assistant with multi-session support, ACP bridge, and terminal embedding. Let's take a quick tour.",
+    title: "欢迎使用 Grok Build",
+    body: "你的 AI 编程助手，支持多会话、ACP 桥接和内嵌终端。先快速了解一下吧。",
   },
   {
     icon: "📑",
-    title: "Multi-Session Tabs",
-    body: "Create multiple sessions with Cmd+T. Each tab is an independent agent conversation in its own working directory. Switch tabs with Cmd+1-9.",
+    title: "多会话标签",
+    body: "用 Cmd+T 创建多个会话。每个标签页都是独立工作目录中的 Agent 对话，用 Cmd+1-9 切换。",
   },
   {
     icon: "💬",
-    title: "Chat & Tools",
-    body: "Send messages in the input area. The agent can use tools — approve them inline when needed. Tool results appear as cards in the message stream.",
+    title: "对话与工具",
+    body: "在输入区发送消息。Agent 可以使用工具——需要时直接在对话中批准。工具结果以卡片形式显示在消息流中。",
   },
   {
     icon: "⚡",
-    title: "Command Palette",
-    body: "Press Cmd+Shift+P (or Cmd+K) to open the command palette. Search and execute any action — create sessions, open settings, toggle panels, and more.",
+    title: "命令面板",
+    body: "按 Cmd+Shift+P（或 Cmd+K）打开命令面板，搜索并执行任意操作——新建会话、打开设置、切换面板等。",
   },
   {
     icon: "🔧",
-    title: "Settings & Plugins",
-    body: "Configure models, API keys, MCP servers, plugins, and themes in Settings. Use the Dashboard (from the sidebar) to overview all sessions and subagents.",
+    title: "设置与插件",
+    body: "在「设置」中配置模型、API 密钥、MCP 服务器、插件和主题。通过侧边栏的「仪表盘」总览所有会话和子代理。",
   },
 ];
 
@@ -87,7 +87,7 @@ export function Onboarding({ onComplete }: Props) {
             onClick={handleSkip}
             className="text-[10px] text-gb-muted hover:text-gb-text"
           >
-            Skip
+            跳过
           </button>
         </div>
 
@@ -114,9 +114,9 @@ export function Onboarding({ onComplete }: Props) {
             )}
             <button
               onClick={handleNext}
-              className="rounded bg-gb-accent px-4 py-1.5 text-xs text-white"
+              className="rounded bg-gb-accent px-4 py-1.5 text-xs text-gb-bg"
             >
-              {isLast ? "Get Started" : "Next"}
+              {isLast ? "开始使用" : "下一步"}
             </button>
           </div>
         </div>

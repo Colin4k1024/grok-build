@@ -16,8 +16,8 @@ interface CatalogEntry {
 const CATALOG: CatalogEntry[] = [
   {
     name: "filesystem",
-    description: "Read, write, and search files on the local filesystem",
-    category: "Development",
+    description: "读取、写入和搜索本地文件系统",
+    category: "开发",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/"],
     envKeys: [],
@@ -25,8 +25,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "github",
-    description: "Manage GitHub repos, issues, PRs, and code search",
-    category: "Development",
+    description: "管理 GitHub 仓库、Issue、PR 与代码搜索",
+    category: "开发",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
     envKeys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
@@ -34,8 +34,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "slack",
-    description: "Search and send messages in Slack workspaces",
-    category: "Communication",
+    description: "在 Slack 工作区中搜索和发送消息",
+    category: "沟通",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-slack"],
     envKeys: ["SLACK_BOT_TOKEN"],
@@ -43,8 +43,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "google-drive",
-    description: "Search and read files from Google Drive",
-    category: "Productivity",
+    description: "搜索和读取 Google Drive 文件",
+    category: "效率",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-google-drive"],
     envKeys: ["GOOGLE_DRIVE_OAUTH_TOKEN"],
@@ -52,8 +52,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "postgres",
-    description: "Execute SQL queries against a PostgreSQL database",
-    category: "Data",
+    description: "对 PostgreSQL 数据库执行 SQL 查询",
+    category: "数据",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-postgres"],
     envKeys: ["DATABASE_URL"],
@@ -61,8 +61,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "brave-search",
-    description: "Web and local search via Brave Search API",
-    category: "Search",
+    description: "通过 Brave Search API 进行网页与本地搜索",
+    category: "搜索",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-brave-search"],
     envKeys: ["BRAVE_API_KEY"],
@@ -70,8 +70,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "memory",
-    description: "Persistent key-value memory store for agent context",
-    category: "Utility",
+    description: "为 Agent 上下文提供持久化键值存储",
+    category: "工具",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-memory"],
     envKeys: [],
@@ -79,8 +79,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "puppeteer",
-    description: "Browser automation — navigate, screenshot, click, fill forms",
-    category: "Automation",
+    description: "浏览器自动化 —— 导航、截图、点击、填表",
+    category: "自动化",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-puppeteer"],
     envKeys: [],
@@ -88,8 +88,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "sequential-thinking",
-    description: "Dynamic problem-solving through thought sequencing",
-    category: "Utility",
+    description: "通过思维序列化进行动态问题求解",
+    category: "工具",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
     envKeys: [],
@@ -97,8 +97,8 @@ const CATALOG: CatalogEntry[] = [
   },
   {
     name: "time",
-    description: "Time zone conversion and current time",
-    category: "Utility",
+    description: "时区转换与当前时间",
+    category: "工具",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-time"],
     envKeys: [],
@@ -213,7 +213,7 @@ export function PluginManager() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search plugins..."
+              placeholder="搜索插件…"
               className="flex-1 rounded border border-gb-border bg-gb-surface px-3 py-1.5 text-xs text-gb-text"
             />
           </div>
@@ -258,7 +258,7 @@ export function PluginManager() {
                       </div>
                     </div>
                     {installed ? (
-                      <span className="rounded bg-gb-green/10 px-1.5 py-0.5 text-[9px] text-gb-green">INSTALLED</span>
+                      <span className="rounded bg-gb-green/10 px-1.5 py-0.5 text-[9px] text-gb-green">已安装</span>
                     ) : (
                       <button
                         onClick={(e) => {
@@ -266,9 +266,9 @@ export function PluginManager() {
                           handleInstall(entry);
                         }}
                         disabled={installing === entry.name}
-                        className="rounded bg-gb-accent px-2 py-1 text-[10px] text-white disabled:opacity-50"
+                        className="rounded bg-gb-accent px-2 py-1 text-[10px] text-gb-bg disabled:opacity-50"
                       >
-                        {installing === entry.name ? "Installing..." : "Install"}
+                        {installing === entry.name ? "安装中…" : "安装"}
                       </button>
                     )}
                   </div>
@@ -283,9 +283,9 @@ export function PluginManager() {
         </>
       ) : (        <div className="space-y-2">
           {loading ? (
-            <p className="text-xs text-gb-muted">Loading...</p>
+            <p className="text-xs text-gb-muted">加载中…</p>
           ) : servers.length === 0 ? (
-            <p className="py-4 text-center text-xs text-gb-muted">No plugins installed</p>
+            <p className="py-4 text-center text-xs text-gb-muted">尚未安装插件</p>
           ) : (
             servers.map((server) => (
               <div key={server.name} className="rounded-lg border border-gb-border bg-gb-surface p-3">
@@ -306,7 +306,7 @@ export function PluginManager() {
                         server.enabled ? "bg-gb-accent" : "bg-gb-border"
                       }`}
                     >
-                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-gb-bg transition-transform ${
                         server.enabled ? "translate-x-3" : "translate-x-0.5"
                       }`} />
                     </button>
@@ -316,8 +316,8 @@ export function PluginManager() {
                   </div>
                 </div>
                 <div className="mt-2 space-y-0.5 text-[10px] text-gb-muted">
-                  {server.command && <div>Command: <code className="text-gb-text">{server.command} {server.args.join(" ")}</code></div>}
-                  {server.url && <div>URL: <code className="text-gb-text">{server.url}</code></div>}
+                  {server.command && <div>命令：<code className="text-gb-text">{server.command} {server.args.join(" ")}</code></div>}
+                  {server.url && <div>URL：<code className="text-gb-text">{server.url}</code></div>}
                   {server.env.length > 0 && (
                     <div>Env: {server.env.map(([k]) => k).join(", ")}</div>
                   )}
@@ -387,7 +387,7 @@ function PluginDetailModal({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close details"
+            aria-label="关闭详情"
             className="rounded p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
           >
             ✕
@@ -400,7 +400,7 @@ function PluginDetailModal({
 
         <div className="mb-4 space-y-2 text-[11px]">
           <div>
-            <p className="text-gb-muted">Command</p>
+            <p className="text-gb-muted">命令</p>
             <code className="block rounded bg-gb-bg px-2 py-1 font-mono text-gb-text">
               {entry.command} {entry.args.join(" ")}
             </code>
@@ -415,7 +415,7 @@ function PluginDetailModal({
           )}
           {entry.envKeys.length > 0 && (
             <div>
-              <p className="text-gb-muted">Required environment variables</p>
+              <p className="text-gb-muted">必需的环境变量</p>
               <ul className="list-disc pl-5 text-gb-yellow">
                 {entry.envKeys.map((k) => (
                   <li key={k}>
@@ -438,9 +438,9 @@ function PluginDetailModal({
             <button
               onClick={() => onInstall(entry)}
               disabled={installing}
-              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-85 disabled:opacity-40"
+              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-bg hover:opacity-85 disabled:opacity-40"
             >
-              {installing ? "Installing…" : "Install"}
+              {installing ? "安装中…" : "安装"}
             </button>
           )}
           {installed && (

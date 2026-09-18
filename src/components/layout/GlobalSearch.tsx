@@ -101,7 +101,7 @@ export function GlobalSearch({ onClose, onOpenTab, onResumeThread }: GlobalSearc
             if (e.key === "Escape") onClose();
             if (e.key === "Enter" && results[0]) open(results[0]);
           }}
-          placeholder="Search threads and messages…"
+          placeholder="搜索会话和消息…"
           className="border-b border-gb-border/8 bg-transparent px-4 py-3 text-sm text-gb-text outline-none placeholder:text-gb-muted"
         />
         <div className="flex-1 overflow-y-auto p-2">

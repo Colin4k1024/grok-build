@@ -75,9 +75,9 @@ export function SubagentPanel() {
 
   const statusLabels: Record<Subagent["status"], string> = {
     spawning: "Spawning",
-    running: "Running",
-    done: "Done",
-    failed: "Failed",
+    running: "运行中",
+    done: "完成",
+    failed: "失败",
   };
 
   const activityIcon = (kind: AgentActivity["kind"]) => {
@@ -150,7 +150,7 @@ export function SubagentPanel() {
                   handleCancel(agent.id);
                 }}
                 className="shrink-0 rounded px-1.5 py-0.5 text-[9px] text-gb-red hover:bg-gb-red/10"
-                aria-label="Cancel subagent"
+                aria-label="取消子代理"
               >
                 Cancel
               </button>

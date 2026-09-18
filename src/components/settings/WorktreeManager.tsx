@@ -72,7 +72,7 @@ export function WorktreeManager() {
 
   async function handleRemove(path: string, isMain: boolean) {
     if (isMain) {
-      setError("Cannot remove the main worktree");
+      setError("不能移除主 worktree");
       return;
     }
     if (!confirm(`Remove worktree at ${path}?`)) return;
@@ -88,14 +88,14 @@ export function WorktreeManager() {
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-gb-text">Git Worktrees</h3>
-          <p className="text-[10px] text-gb-muted">Working directory: <code>{cwd}</code></p>
+          <h3 className="text-sm font-semibold text-gb-text">Git Worktree</h3>
+          <p className="text-[10px] text-gb-muted">工作目录：<code>{cwd}</code></p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface hover:text-gb-text"
         >
-          {showForm ? "Cancel" : "+ New Worktree"}
+          {showForm ? "取消" : "+ 新建 Worktree"}
         </button>
       </div>
 
@@ -106,7 +106,7 @@ export function WorktreeManager() {
       {showForm && (
         <div className="rounded-lg border border-gb-border bg-gb-surface p-4 space-y-3">
           <div>
-            <label className="mb-1 block text-[10px] font-medium text-gb-muted">Branch</label>
+            <label className="mb-1 block text-[10px] font-medium text-gb-muted">分支</label>
             <input
               list="branch-list"
               value={selectedBranch}
@@ -119,7 +119,7 @@ export function WorktreeManager() {
             </datalist>
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-medium text-gb-muted">Worktree Path (relative or absolute)</label>
+            <label className="mb-1 block text-[10px] font-medium text-gb-muted">Worktree 路径（相对或绝对）</label>
             <input
               value={worktreePath}
               onChange={(e) => setWorktreePath(e.target.value)}
@@ -131,18 +131,18 @@ export function WorktreeManager() {
             <button
               onClick={handleCreate}
               disabled={creating || !selectedBranch || !worktreePath}
-              className="rounded bg-gb-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
             >
-              {creating ? "Creating..." : "Create & Open Session"}
+              {creating ? "创建中…" : "创建并打开会话"}
             </button>
           </div>
         </div>
       )}
 
       {loading ? (
-        <p className="text-xs text-gb-muted">Loading worktrees...</p>
+        <p className="text-xs text-gb-muted">加载 Worktree 中…</p>
       ) : worktrees.length === 0 ? (
-        <p className="py-4 text-center text-xs text-gb-muted">No worktrees found</p>
+        <p className="py-4 text-center text-xs text-gb-muted">未找到 Worktree</p>
       ) : (
         <div className="space-y-2">
           {worktrees.map((wt) => (
@@ -151,7 +151,7 @@ export function WorktreeManager() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gb-text">{wt.branch || "(detached)"}</span>
                   {wt.is_main && (
-                    <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[9px] text-gb-accent">MAIN</span>
+                    <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[9px] text-gb-accent">主分支</span>
                   )}
                 </div>
                 {!wt.is_main && (

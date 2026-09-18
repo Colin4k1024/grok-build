@@ -38,7 +38,7 @@ export function AgentMenu() {
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Agent settings"
+        title="Agent 设置"
       >
         <span className="text-[11px]">🤖</span>
         <span>Agent</span>
@@ -50,33 +50,33 @@ export function AgentMenu() {
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-gb-border/10 bg-gb-surface-solid py-1 shadow-lg">
           <div className="border-b border-gb-border/8 px-3 py-2">
-            <p className="text-[10px] font-medium uppercase text-gb-muted">Agent status</p>
+            <p className="text-[10px] font-medium uppercase text-gb-muted">Agent 状态</p>
             <p className="mt-0.5 text-[12px] text-gb-text">
-              {activeTab?.title || "Active session"}
+              {activeTab?.title || "当前会话"}
             </p>
             <p className="text-[10px] text-gb-muted">
-              {running} running · {total} total subagent{total === 1 ? "" : "s"}
+              {running} 个运行中 · 共 {total} 个子代理
             </p>
           </div>
 
           <div className="px-3 py-2">
             <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">
-              Reasoning effort
+              推理强度
             </p>
             <p className="text-[11px] text-gb-text-secondary">
-              Current: <span className="text-gb-text">{activeTab?.reasoningEffort || "medium"}</span>
+              当前：<span className="text-gb-text">{activeTab?.reasoningEffort || "medium"}</span>
             </p>
             <p className="mt-1 text-[10px] text-gb-muted">
-              Change effort via the dropdown in the title bar.
+              通过标题栏的下拉菜单调整推理强度。
             </p>
           </div>
 
           <div className="border-t border-gb-border/8 px-3 py-2">
             <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">
-              Permissions
+              权限
             </p>
             <p className="text-[10px] text-gb-muted">
-              Approval rules live under Settings → Permissions.
+              审批规则在「设置 → 权限」中管理。
             </p>
           </div>
         </div>

@@ -44,7 +44,7 @@ export function ThreadSummaryPanel() {
 
   if (!activeSessionId || !summary) {
     return (
-      <p className="py-8 text-center text-xs text-gb-muted">No messages to summarize.</p>
+      <p className="py-8 text-center text-xs text-gb-muted">暂无可摘要的消息。</p>
     );
   }
 
@@ -72,13 +72,13 @@ export function ThreadSummaryPanel() {
       {!collapsed && (
         <div className="flex-1 space-y-3 overflow-y-auto p-3 text-[12px]">
           <div>
-            <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">Session</p>
+            <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">会话</p>
             <p className="text-gb-text">{activeTab?.title || "Untitled"}</p>
             <p className="mt-0.5 text-[10px] text-gb-muted">{activeTab?.cwd || "."}</p>
           </div>
 
           <div>
-            <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">Activity</p>
+            <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">动态</p>
             <ul className="space-y-0.5 text-gb-text-secondary">
               <li>{summary.messageCount} messages ({summary.userCount} from you)</li>
               <li>{summary.toolCallCount} tool calls</li>
@@ -90,7 +90,7 @@ export function ThreadSummaryPanel() {
 
           {summary.firstUser && (
             <div>
-              <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">Started with</p>
+              <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">开始于</p>
               <p className="rounded bg-gb-bg-secondary p-2 text-[11px] text-gb-text-secondary">
                 {summary.firstUser}
                 {summary.firstUser.length >= 140 ? "…" : ""}
@@ -100,7 +100,7 @@ export function ThreadSummaryPanel() {
 
           {summary.lastAssistant && (
             <div>
-              <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">Latest reply</p>
+              <p className="mb-1 text-[10px] font-medium uppercase text-gb-muted">最新回复</p>
               <p className="rounded bg-gb-bg-secondary p-2 text-[11px] text-gb-text-secondary">
                 {summary.lastAssistant}
                 {summary.lastAssistant.length >= 140 ? "…" : ""}

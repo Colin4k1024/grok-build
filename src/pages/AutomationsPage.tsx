@@ -92,19 +92,19 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 px-4">
-        <h2 className="text-[13px] font-medium">Automations</h2>
+        <h2 className="text-[13px] font-medium">自动化</h2>
         <div className="flex gap-2">
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-white hover:opacity-85"
+            className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-gb-bg hover:opacity-85"
           >
-            {showForm ? "Cancel" : "+ New automation"}
+            {showForm ? "取消" : "+ 新建自动化"}
           </button>
           <button
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
             onClick={onClose}
           >
-            ← Back
+            ← 返回
           </button>
         </div>
       </header>
@@ -115,7 +115,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Automation name"
+              placeholder="自动化名称"
               className="w-full rounded border border-gb-border bg-gb-bg px-3 py-1.5 text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
             />
             <input
@@ -124,7 +124,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
                 setSchedule(e.target.value);
                 setScheduleError(null);
               }}
-              placeholder="Cron schedule (e.g. 0 9 * * *)"
+              placeholder="Cron 表达式（例如 0 9 * * *）"
               className={`w-full rounded border bg-gb-bg px-3 py-1.5 font-mono text-[12px] text-gb-text outline-none ${
                 scheduleError ? "border-gb-red/50" : "border-gb-border focus:border-gb-accent/50"
               }`}
@@ -135,14 +135,14 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Prompt to send when triggered"
+              placeholder="触发时发送的提示词"
               rows={3}
               className="w-full resize-none rounded border border-gb-border bg-gb-bg px-3 py-1.5 text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
             />
             <button
               onClick={handleCreate}
               disabled={!name.trim() || !prompt.trim()}
-              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-40"
+              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-bg disabled:opacity-40"
             >
               Create
             </button>
@@ -170,25 +170,25 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
                       onClick={() => handleRunNow(a.id)}
                       disabled={!activeSessionId}
                       className="rounded border border-gb-border/20 px-2 py-1 text-[11px] text-gb-muted hover:text-gb-text disabled:opacity-40"
-                      title={activeSessionId ? "Run in active session" : "No active session"}
+                      title={activeSessionId ? "在当前会话中运行" : "暂无活跃会话"}
                     >
-                      ▶ Run
+                      ▶ 运行
                     </button>
                     <button
                       onClick={() => handleDelete(a.id)}
                       className="rounded px-2 py-1 text-[11px] text-gb-red hover:bg-gb-red/10"
                     >
-                      Delete
+                      删除
                     </button>
                   </div>
                 </div>
                 <p className="mt-2 line-clamp-2 text-[11px] text-gb-text-secondary">{a.prompt}</p>
                 <p className="mt-1 text-[10px] text-gb-muted">
                   {a.runCount > 0
-                    ? `${a.runCount} run${a.runCount === 1 ? "" : "s"} · last ${
-                        a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : "never"
+                    ? `${a.runCount} 次运行 · 最近一次 ${
+                        a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : "从未"
                       }`
-                    : "Never run"}
+                    : "从未运行"}
                 </p>
               </div>
             ))}

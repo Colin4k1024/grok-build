@@ -174,6 +174,21 @@ export async function resumeSession(acpSessionId: string, cwd: string): Promise<
   return invoke<SessionInfo>("session_resume", { acp_session_id: acpSessionId, cwd });
 }
 
+export interface HistoryMessage {
+  role: string;
+  content: string;
+  timestamp: number;
+}
+
+/** Disk-persisted transcript of a history thread (fallback when ACP replay is empty). */
+export async function getSessionHistoryMessages(sessionId: string, cwd: string): Promise<HistoryMessage[]> {
+  try {
+    return await invoke<HistoryMessage[]>("session_get_history", { session_id: sessionId, cwd });
+  } catch {
+    return [];
+  }
+}
+
 export async function sendMessage(
   sessionId: string,
   message: string,

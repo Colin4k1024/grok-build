@@ -7,9 +7,9 @@ interface Props {
 }
 
 const OPTIONS: { id: ApprovalMode; label: string; hint: string }[] = [
-  { id: "full-access", label: "Full access", hint: "Edit files and run commands without asking" },
-  { id: "ask", label: "Ask before edits", hint: "Propose changes and wait for approval" },
-  { id: "read-only", label: "Read only", hint: "Analyze and plan; deny write actions" },
+  { id: "full-access", label: "完全访问", hint: "直接编辑文件并运行命令，不再询问" },
+  { id: "ask", label: "修改前询问", hint: "先提出变更，等待批准后再执行" },
+  { id: "read-only", label: "只读", hint: "仅分析和规划，禁止写入操作" },
 ];
 
 /** Codex-style approval gate picker (composer-embedded). */
@@ -35,7 +35,7 @@ export function ApprovalModeSelect({ mode, onChange }: Props) {
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gb-text-secondary transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Approval mode"
+        title="审批模式"
       >
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" className="opacity-70">
           <path d="M6 1l4 2v3c0 2.5-1.7 4.4-4 5-2.3-.6-4-2.5-4-5V3l4-2z" stroke="currentColor" strokeWidth="1.1" />

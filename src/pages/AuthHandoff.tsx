@@ -70,7 +70,7 @@ export function AuthHandoff() {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
               </svg>
             </div>
-            <h1 className="mb-1 text-lg font-semibold text-gb-text">Waiting for sign-in…</h1>
+            <h1 className="mb-1 text-lg font-semibold text-gb-text">等待登录…</h1>
             <p className="mb-4 text-[13px] text-gb-muted">
               Complete the sign-in flow in your browser. This page will update automatically.
             </p>
@@ -85,13 +85,13 @@ export function AuthHandoff() {
                 <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <h1 className="mb-1 text-lg font-semibold text-gb-text">Signed in</h1>
+            <h1 className="mb-1 text-lg font-semibold text-gb-text">已登录</h1>
             <p className="mb-4 text-[13px] text-gb-muted">
-              Welcome back{auth?.username ? `, ${auth.username}` : ""}. Redirecting…
+              欢迎回来{auth?.username ? `，${auth.username}` : ""}。正在跳转…
             </p>
             <button
               onClick={handleFinish}
-              className="rounded-md bg-gb-accent px-4 py-2 text-[13px] font-medium text-white hover:opacity-85"
+              className="rounded-md bg-gb-accent px-4 py-2 text-[13px] font-medium text-gb-bg hover:opacity-85"
             >
               Continue
             </button>
@@ -103,7 +103,7 @@ export function AuthHandoff() {
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gb-red/15">
               <span className="text-xl text-gb-red">✗</span>
             </div>
-            <h1 className="mb-1 text-lg font-semibold text-gb-text">Sign-in timed out</h1>
+            <h1 className="mb-1 text-lg font-semibold text-gb-text">登录超时</h1>
             <p className="mb-4 text-[13px] text-gb-muted">
               We didn't receive confirmation within 2 minutes. Please try again.
             </p>

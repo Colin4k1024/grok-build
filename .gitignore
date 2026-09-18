@@ -10,3 +10,7 @@ src-tauri/gen/
 Cargo.toml.bak
 dist-electron/
 goal-state.json
+
+# Build artifacts
+release/
+build/icon.iconset/

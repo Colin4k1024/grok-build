@@ -117,6 +117,8 @@ interface SessionState {
    *  global flag tracks the active view). */
   setSessionStreaming: (sessionId: string, streaming: boolean) => void;
   addUserMessage: (sessionId: string, content: string) => void;
+  /** Replace a session's transcript with disk-persisted history (resume fallback). */
+  loadHistoryMessages: (sessionId: string, entries: { role: string; content: string; timestamp: number }[]) => void;
   appendAssistantText: (sessionId: string, delta: string) => void;
   /** Drop the streaming flag from every message — used after a session/load
    *  replay completes so the restored transcript renders as settled history. */
@@ -378,6 +380,21 @@ export const useSessionStore = create<SessionState>()(
         },
       };
     }),
+
+  loadHistoryMessages: (sessionId, entries) =>
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [sessionId]: entries
+          .filter((e) => e.role === "user" || e.role === "assistant")
+          .map((e) => ({
+            id: genId("msg"),
+            role: e.role as "user" | "assistant",
+            content: e.content,
+            timestamp: e.timestamp || Date.now(),
+          })),
+      },
+    })),
 
   addUserMessage: (sessionId, content) =>
     set((state) => {

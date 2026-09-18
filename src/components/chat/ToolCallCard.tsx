@@ -123,7 +123,7 @@ export function ToolCallCard({ message }: Props) {
           <span className={`shrink-0 text-[10px] ${statusColor}`}>✓</span>
         )}
         {message.toolSuccess === false && (
-          <span className={`shrink-0 text-[10px] ${statusColor}`}>failed</span>
+          <span className={`shrink-0 text-[10px] ${statusColor}`}>失败</span>
         )}
       </button>
       {expanded && (message.content || (message as ChatMessage & { toolInput?: string }).toolInput) && (
@@ -131,7 +131,7 @@ export function ToolCallCard({ message }: Props) {
           {/* Input section if the message carries a separate input payload. */}
           {(message as ChatMessage & { toolInput?: string }).toolInput && (
             <div className="border-b border-gb-border/8 px-3 py-1.5">
-              <p className="mb-1 text-[9px] font-medium uppercase text-gb-muted">Input</p>
+              <p className="mb-1 text-[9px] font-medium uppercase text-gb-muted">输入</p>
               <pre className="max-h-32 overflow-auto rounded bg-black/25 p-2 text-[11px] text-gb-text-secondary">
                 <code>{(message as ChatMessage & { toolInput?: string }).toolInput}</code>
               </pre>
@@ -139,7 +139,7 @@ export function ToolCallCard({ message }: Props) {
           )}
           {message.content && (
             <div className="p-2">
-              <p className="mb-1 px-1 text-[9px] font-medium uppercase text-gb-muted">Output</p>
+              <p className="mb-1 px-1 text-[9px] font-medium uppercase text-gb-muted">输出</p>
               {isTerminal ? (
                 <TerminalView content={message.content} />
               ) : (

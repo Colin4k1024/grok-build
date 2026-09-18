@@ -64,7 +64,7 @@ function FilesPanel({ cwd }: { cwd: string }) {
 
   if (error) return <p className="px-3 py-8 text-center text-xs text-gb-red">{error}</p>;
   if (entries.length === 0)
-    return <p className="py-8 text-center text-xs text-gb-muted">No file changes in this project.</p>;
+    return <p className="py-8 text-center text-xs text-gb-muted">此项目暂无文件变更。</p>;
 
   return (
     <div className="flex h-full flex-col">
@@ -91,10 +91,10 @@ function FilesPanel({ cwd }: { cwd: string }) {
         {selected ? (
           <div className="text-xs">
             <p className="border-b border-gb-border/8 px-2 py-1 font-mono text-[10px] text-gb-muted">{selected}</p>
-            {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-4 text-center text-[11px] text-gb-muted">No tracked diff (untracked or binary?).</p>}
+            {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-4 text-center text-[11px] text-gb-muted">没有可追踪的 diff（未跟踪或为二进制文件？）。</p>}
           </div>
         ) : (
-          <p className="py-4 text-center text-[11px] text-gb-muted">Select a file to view its diff.</p>
+          <p className="py-4 text-center text-[11px] text-gb-muted">选择一个文件查看 diff。</p>
         )}
       </div>
     </div>
@@ -156,8 +156,8 @@ function ReviewPanel({ cwd }: { cwd: string }) {
 
   const runApprove = async () => {
     try {
-      const result = await gitCommit(cwd, input.trim() || "Approved via review queue");
-      setNote(result === "nothing-to-commit" ? "Nothing to commit — already clean." : "Committed on the worktree branch.");
+      const result = await gitCommit(cwd, input.trim() || "已通过审查队列批准");
+      setNote(result === "nothing-to-commit" ? "没有可提交的内容 —— 工作区已是干净的。" : "已在 worktree 分支上提交。");
       setAction("none");
       setInput("");
       refreshAfterMutation();
@@ -172,7 +172,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       useSessionStore.getState().addUserMessage(activeSessionId, input.trim());
       useSessionStore.getState().setStreaming(true);
       await sendMessage(activeSessionId, input.trim());
-      setNote("Revision sent to the thread.");
+      setNote("修改意见已发送到会话。");
       setAction("none");
       setInput("");
     } catch (e) {
@@ -192,7 +192,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       }
       markTriageRead(cwd);
       refreshAfterMutation();
-      setNote("Worktree removed and thread archived.");
+      setNote("Worktree 已移除，会话已归档。");
       setAction("none");
     } catch (e) {
       setNote(String(e));
@@ -210,7 +210,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         <ViewToggle view={view} onChange={setView} />
         <div className="min-h-0 flex-1 overflow-auto p-1 text-xs">
           {lastTurnFiles.length === 0 ? (
-            <p className="py-6 text-center text-[11px] text-gb-muted">No turn captured yet — the view fills after the next turn completes.</p>
+            <p className="py-6 text-center text-[11px] text-gb-muted">尚未捕获本轮内容 —— 下一轮完成后将自动填充。</p>
           ) : (
             <>
               <p className="px-1 pb-1 text-[10px] text-gb-muted">{lastTurnFiles.length} file(s) changed in the last turn</p>
@@ -229,9 +229,9 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         <div className="border-b border-gb-border/8 p-1.5">
           {action === "none" ? (
             <div className="flex gap-1">
-              <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-green hover:bg-gb-green/25" title="Stage all + commit">Approve</button>
-              <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent hover:bg-gb-accent/25" title="Send changes back to the thread">Revise</button>
-              <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-red hover:bg-gb-red/25" title="Discard the worktree">Reject</button>
+              <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-green hover:bg-gb-green/25" title="暂存全部并提交">批准</button>
+              <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent hover:bg-gb-accent/25" title="将修改意见发回会话">打回修改</button>
+              <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-red hover:bg-gb-red/25" title="丢弃该 worktree">拒绝</button>
             </div>
           ) : (
             <div className="space-y-1">
@@ -240,14 +240,14 @@ function ReviewPanel({ cwd }: { cwd: string }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 rows={2}
-                placeholder={action === "approve" ? "Commit message…" : "What should change?…"}
+                placeholder={action === "approve" ? "提交信息…" : "需要修改什么？…"}
                 className="w-full rounded border border-gb-border/10 bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
               />
               <div className="flex gap-1">
-                <button onClick={action === "approve" ? runApprove : runRevise} className="flex-1 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white disabled:opacity-40" disabled={!input.trim()}>
-                  {action === "approve" ? "Commit" : "Send"}
+                <button onClick={action === "approve" ? runApprove : runRevise} className="flex-1 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg disabled:opacity-40" disabled={!input.trim()}>
+                  {action === "approve" ? "提交" : "发送"}
                 </button>
-                <button onClick={() => setAction("none")} className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-surface-hover">Cancel</button>
+                <button onClick={() => setAction("none")} className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-surface-hover">取消</button>
               </div>
             </div>
           )}
@@ -255,7 +255,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-1">
-        {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-6 text-center text-[11px] text-gb-muted">No changes vs HEAD.</p>}
+        {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-6 text-center text-[11px] text-gb-muted">与 HEAD 相比没有变更。</p>}
       </div>
     </div>
   );
@@ -264,7 +264,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
 function ViewToggle({ view, onChange }: { view: "all" | "last-turn"; onChange: (v: "all" | "last-turn") => void }) {
   return (
     <div className="flex gap-0.5 border-b border-gb-border/8 p-1">
-      {([["all", "All changes"], ["last-turn", "Last turn"]] as const).map(([id, label]) => (
+      {([["all", "全部变更"], ["last-turn", "本轮变更"]] as const).map(([id, label]) => (
         <button
           key={id}
           onClick={() => onChange(id)}
@@ -330,7 +330,7 @@ function TerminalPanel({ cwd }: { cwd: string }) {
               setCommand(i >= 0 ? history[i] : "");
             }
           }}
-          placeholder="e.g. npm test"
+          placeholder="例如 npm test"
           className="flex-1 bg-transparent font-mono text-[11px] text-gb-text outline-none placeholder:text-gb-muted"
         />
         <button onClick={run} disabled={running} className="shrink-0 rounded bg-gb-surface-hover px-2 py-0.5 text-[10px] text-gb-text disabled:opacity-40">
@@ -419,10 +419,10 @@ function SideChatPanel({ cwd }: { cwd: string }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder="Ask sideways…"
+          placeholder="顺带提问…"
           className="flex-1 rounded border border-gb-border/10 bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
         />
-        <button onClick={send} disabled={busy || !text.trim()} className="shrink-0 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white disabled:opacity-40">
+        <button onClick={send} disabled={busy || !text.trim()} className="shrink-0 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg disabled:opacity-40">
           Send
         </button>
       </div>
@@ -455,7 +455,7 @@ function McpPanel() {
     };
   }, []);
 
-  if (loading) return <p className="py-8 text-center text-xs text-gb-muted">Loading MCP servers…</p>;
+  if (loading) return <p className="py-8 text-center text-xs text-gb-muted">加载 MCP 服务器中…</p>;
   if (error) return <p className="py-8 px-3 text-center text-xs text-gb-red">{error}</p>;
   if (servers.length === 0)
     return (
@@ -515,15 +515,15 @@ export function RightPanel({ collapsed }: RightPanelProps) {
   if (collapsed) return null;
 
   const tabs: { id: MainTab; label: string }[] = [
-    { id: "files", label: "Files" },
-    { id: "review", label: "Review" },
-    { id: "terminal", label: "Terminal" },
-    { id: "sidechat", label: "Side chat" },
+    { id: "files", label: "文件" },
+    { id: "review", label: "审查" },
+    { id: "terminal", label: "终端" },
+    { id: "sidechat", label: "旁路对话" },
   ];
 
   let content: ReactNode;
   if (!cwd) {
-    content = <p className="py-8 px-3 text-center text-xs text-gb-muted">Open a thread to use the side panel.</p>;
+    content = <p className="py-8 px-3 text-center text-xs text-gb-muted">打开一个会话以使用侧边面板。</p>;
   } else {
     switch (activeTab) {
       case "files":
@@ -574,7 +574,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
         <button
           className={`px-1.5 py-2 text-[10px] transition-colors ${showExtras ? "text-gb-accent" : "text-gb-muted hover:text-gb-text"}`}
           onClick={() => setShowExtras((v) => !v)}
-          title="Plans, subagents, context, MCP"
+          title="计划、子代理、上下文、MCP"
         >
           ▾
         </button>
@@ -589,7 +589,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
               }`}
               onClick={() => setExtraTab(id)}
             >
-              {id === "context" ? "summary" : id}
+              {id === "todo" ? "待办" : id === "subagents" ? "子代理" : id === "context" ? "摘要" : "MCP"}
             </button>
           ))}
         </div>

@@ -19,12 +19,21 @@ import { app } from "electron";
 /**
  * Resolution order:
  *  1. GROK_AGENT_BIN env override (explicit path to the binary)
- *  2. <repo>/target/release/xai-grok-pager
- *  3. <repo>/target/debug/xai-grok-pager
- *  4. "xai-grok-pager" from PATH
+ *  2. Packaged app: <resources>/xai-grok-pager (bundled via extraResources)
+ *  3. <repo>/target/release/xai-grok-pager
+ *  4. <repo>/target/debug/xai-grok-pager
+ *  5. "xai-grok-pager" from PATH
  */
 export function resolveAgentBinary(): string {
   if (process.env.GROK_AGENT_BIN) return process.env.GROK_AGENT_BIN;
+  try {
+    if (app.isPackaged) {
+      const bundled = path.join(process.resourcesPath, "xai-grok-pager");
+      if (fs.existsSync(bundled)) return bundled;
+    }
+  } catch {
+    // app not ready yet — fall through
+  }
   let appPath = process.cwd();
   try {
     appPath = app.getAppPath();

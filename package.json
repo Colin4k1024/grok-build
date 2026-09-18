@@ -61,5 +61,49 @@
     "typescript": "^5.5.0",
     "vite": "^5.4.0",
     "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.grokbuild.desktop",
+    "productName": "Grok Build",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "target/release/xai-grok-pager",
+        "to": "xai-grok-pager"
+      }
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "title": "Grok Build"
+    },
+    "electronDist": "node_modules/electron/dist"
   }
 }

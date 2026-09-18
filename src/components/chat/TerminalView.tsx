@@ -119,8 +119,8 @@ export function TerminalView({ content }: Props) {
         <button
           onClick={() => handleZoom(-1)}
           className="rounded px-1 hover:bg-white/10"
-          aria-label="Zoom out terminal font"
-          title="Zoom out (⌘-)"
+          aria-label="缩小终端字体"
+          title="缩小 (⌘-)"
         >
           A−
         </button>
@@ -128,8 +128,8 @@ export function TerminalView({ content }: Props) {
         <button
           onClick={() => handleZoom(1)}
           className="rounded px-1 hover:bg-white/10"
-          aria-label="Zoom in terminal font"
-          title="Zoom in (⌘=)"
+          aria-label="放大终端字体"
+          title="放大 (⌘=)"
         >
           A+
         </button>

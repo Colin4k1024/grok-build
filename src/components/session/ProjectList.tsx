@@ -72,7 +72,7 @@ export function ProjectList({ onOpenProject, disabled }: ProjectListProps) {
           className="rounded p-0.5 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text disabled:opacity-30"
           onClick={handleAdd}
           disabled={busy}
-          title="Add project directory"
+          title="添加项目目录"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -110,7 +110,7 @@ export function ProjectList({ onOpenProject, disabled }: ProjectListProps) {
               <button
                 className="hidden shrink-0 rounded p-0.5 text-gb-muted hover:bg-gb-bg-primary hover:text-gb-text group-hover:block"
                 onClick={() => handleRemove(p.path)}
-                title="Remove from projects"
+                title="从项目中移除"
               >
                 <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                   <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

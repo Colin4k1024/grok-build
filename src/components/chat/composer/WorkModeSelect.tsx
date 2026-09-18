@@ -60,7 +60,7 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
     [cwd, onChange, onError]
   );
 
-  const label = mode === "worktree" ? `Worktree${branch ? ` · ${branch}` : ""}` : "Work locally";
+  const label = mode === "worktree" ? `Worktree${branch ? ` · ${branch}` : ""}` : "本地工作";
 
   return (
     <div ref={ref} className="relative">
@@ -69,7 +69,7 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gb-text-secondary transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Work mode"
+        title="工作模式"
       >
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" className="opacity-70">
           <path d="M3 1v6a2 2 0 002 2h5M8 6l2.5 3L8 12" stroke="currentColor" strokeWidth="1.1" />
@@ -92,7 +92,7 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
               mode === "local" ? "text-gb-accent" : "text-gb-text"
             }`}
           >
-            <span>Work locally</span>
+            <span>本地工作</span>
             {mode === "local" && <span className="text-gb-accent">✓</span>}
           </button>
 
@@ -115,7 +115,7 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
                   value={branchName}
                   onChange={(e) => setBranchName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") createWorktree(branchName); }}
-                  placeholder="branch name (e.g. fix/login-bug)"
+                  placeholder="分支名（例如 fix/login-bug）"
                   className="w-full rounded border border-gb-border bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
                 />
               </div>

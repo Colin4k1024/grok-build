@@ -16,34 +16,39 @@
        errors & deletions                -> red
        Codex brand mark                  -> magenta
      Background/foreground follow the Codex TUI dark default (#212121). */
+  /* Codex desktop palette — neutral, flat, no gradients */
   --gb-bg: 33 33 33;           /* #212121 — main background */
-  --gb-bg-secondary: 28 28 28; /* #1c1c1c — sidebar / sunken panels */
-  --gb-surface: 43 43 43;      /* #2b2b2b — elevated surface */
-  --gb-surface-hover: 52 52 52;/* #343434 — hover state */
+  --gb-bg-secondary: 24 24 24; /* #181818 — sidebar */
+  --gb-surface: 47 47 47;      /* #2f2f2f — elevated surface */
+  --gb-surface-hover: 56 56 56;/* #383838 — hover state */
   --gb-surface-solid: 38 38 38;/* #262626 — solid panel */
   --gb-border: 255 255 255;    /* used with alpha → hairline borders */
-  --gb-text: 235 235 235;       /* #ebebeb — primary text */
-  --gb-text-secondary: 168 168 168; /* #a8a8a8 */
-  --gb-muted: 124 124 124;     /* #7c7c7c — tertiary/placeholder */
-  --gb-accent: 34 211 238;     /* #22d3ee — cyan: selection, status, links */
-  --gb-brand: 217 70 239;      /* #d946ef — magenta: Codex brand mark */
-  --gb-green: 52 211 153;
-  --gb-yellow: 251 191 36;
-  --gb-red: 248 113 113;
+  --gb-text: 236 236 236;      /* #ececec — primary text */
+  --gb-text-secondary: 175 175 175; /* #afafaf */
+  --gb-muted: 150 150 150;     /* #969696 */
+  --gb-accent: 236 236 236;    /* near-white accent (Codex dark) */
+  --gb-brand: 236 236 236;
+  --gb-green: 63 185 130;
+  --gb-yellow: 250 191 36;
+  --gb-red: 248 113 113;       /* #f48771 */
 }
 
 .light {
+  /* Codex desktop light — clean, warm-neutral */
   --gb-bg: 255 255 255;
-  --gb-bg-secondary: 250 250 249;
-  --gb-surface: 244 244 243;
-  --gb-surface-hover: 238 238 237;
-  --gb-surface-solid: 250 250 249;
-  --gb-border: 0 0 0;
-  --gb-text: 28 28 28;
-  --gb-text-secondary: 90 90 90;
-  --gb-muted: 140 140 140;
-  --gb-accent: 8 145 178;   /* cyan-600 — legible on white */
-  --gb-brand: 162 28 175;   /* fuchsia-700 */
+  --gb-bg-secondary: 247 247 245; /* #f7f7f5 sidebar */
+  --gb-surface: 255 255 255;
+  --gb-surface-hover: 242 242 240; /* #f2f2f0 */
+  --gb-surface-solid: 255 255 255;
+  --gb-border: 230 230 227;    /* #e6e6e3 */
+  --gb-text: 13 13 13;         /* #0d0d0d */
+  --gb-text-secondary: 74 74 74;  /* #4a4a4a — 9.0:1 on white */
+  --gb-muted: 110 110 110;     /* #6e6e6e — 4.6:1 AA on white */
+  --gb-accent: 13 13 13;       /* near-black accent */
+  --gb-brand: 13 13 13;
+  --gb-green: 26 127 55;
+  --gb-yellow: 154 103 0;
+  --gb-red: 207 34 46;
 }
 
 html, body, #root {
@@ -53,6 +58,8 @@ html, body, #root {
   overflow: hidden;
   background: rgb(var(--gb-bg));
   color: rgb(var(--gb-text));
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 /* Scrollbar — thin, unobtrusive */
@@ -60,6 +67,8 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 100px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+.light ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.18); }
+.light ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
 
 /* No glass, no gradients, no blur — flat and clean */
 
@@ -76,6 +85,8 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
   padding: 1px 5px;
   border-radius: 4px;
 }
+.light pre { background: rgba(0, 0, 0, 0.04) !important; }
+.light :not(pre) > code { background: rgba(0, 0, 0, 0.05); }
 
 /* Window chrome: hidden titlebar — header drags, controls don't (ISS-068) */
 .app-drag { -webkit-app-region: drag; }
@@ -91,7 +102,8 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 .animate-slide-up { animation: slide-up 0.25s ease-out; }
 
 /* Selection */
-::selection { background: rgba(34, 211, 238, 0.25); }
+::selection { background: rgba(128, 128, 128, 0.3); }
+.light ::selection { background: rgba(13, 13, 13, 0.12); }
 
 /* Codex user-message bubble — white @12% over dark bg / black @4% over light
    (mirrors user_message_bg in codex-rs/tui/src/style.rs). */

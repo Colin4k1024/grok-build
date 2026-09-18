@@ -11,12 +11,12 @@ interface Props {
 }
 
 const EFFORTS: { id: Effort; label: string }[] = [
-  { id: "none", label: "None" },
-  { id: "minimal", label: "Minimal" },
-  { id: "low", label: "Low" },
-  { id: "medium", label: "Medium" },
-  { id: "high", label: "High" },
-  { id: "xhigh", label: "Extra High" },
+  { id: "none", label: "无" },
+  { id: "minimal", label: "极低" },
+  { id: "low", label: "低" },
+  { id: "medium", label: "中" },
+  { id: "high", label: "高" },
+  { id: "xhigh", label: "极高" },
 ];
 
 /** Codex-style combined model + reasoning-effort control — one button showing
@@ -45,7 +45,7 @@ export function ModelEffortSelect({ config, model, effort, onChange }: Props) {
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gb-text-secondary transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Model and reasoning effort"
+        title="模型与推理强度"
       >
         <span className="max-w-[150px] truncate">{modelName}</span>
         <span className="text-gb-muted">·</span>
@@ -75,7 +75,7 @@ export function ModelEffortSelect({ config, model, effort, onChange }: Props) {
             ))}
           </div>
           <div className="border-t border-gb-border/8 px-2 py-1.5">
-            <p className="mb-1 text-[10px] uppercase tracking-wide text-gb-muted">Effort</p>
+            <p className="mb-1 text-[10px] uppercase tracking-wide text-gb-muted">推理强度</p>
             <div className="flex flex-wrap gap-1">
               {EFFORTS.map((e) => (
                 <button

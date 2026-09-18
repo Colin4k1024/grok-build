@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 
 const SHORTCUTS = [
-  { keys: "⌘T", action: "New session tab" },
-  { keys: "⌘W", action: "Close current tab" },
-  { keys: "⌘1-9", action: "Switch to tab N" },
-  { keys: "⌘⇧P", action: "Command palette" },
-  { keys: "⌘K", action: "Command palette (alt)" },
-  { keys: "⌘⇧A", action: "Toggle window (global)" },
-  { keys: "?", action: "This cheat sheet" },
-  { keys: "Esc", action: "Close overlay / cancel" },
+  { keys: "⌘T", action: "新建会话标签页" },
+  { keys: "⌘W", action: "关闭当前标签页" },
+  { keys: "⌘1-9", action: "切换到第 N 个标签页" },
+  { keys: "⌘⇧P", action: "命令面板" },
+  { keys: "⌘K", action: "命令面板（备用）" },
+  { keys: "⌘⇧A", action: "显示/隐藏窗口（全局）" },
+  { keys: "?", action: "打开本快捷键面板" },
+  { keys: "Esc", action: "关闭浮层 / 取消" },
 ];
 
 export function ShortcutCheatSheet() {
@@ -40,7 +40,7 @@ export function ShortcutCheatSheet() {
         className="w-full max-w-sm rounded-xl border border-gb-border bg-gb-surface p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-4 text-sm font-semibold text-gb-text">Keyboard Shortcuts</h2>
+        <h2 className="mb-4 text-sm font-semibold text-gb-text">键盘快捷键</h2>
         <div className="space-y-2">
           {SHORTCUTS.map((s) => (
             <div key={s.keys} className="flex items-center justify-between">
@@ -53,9 +53,9 @@ export function ShortcutCheatSheet() {
         </div>
         <button
           onClick={() => setShow(false)}
-          className="mt-4 w-full rounded bg-gb-accent py-1.5 text-xs text-white"
+          className="mt-4 w-full rounded bg-gb-accent py-1.5 text-xs text-gb-bg"
         >
-          Close
+          关闭
         </button>
       </div>
     </div>

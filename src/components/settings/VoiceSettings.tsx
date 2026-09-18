@@ -40,11 +40,11 @@ export function VoiceSettings() {
   return (
     <div className="space-y-6 p-4">
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Voice input language</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">语音输入语言</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div className="flex gap-2">
             {([
-              { id: "auto", label: "🌐 Auto-detect" },
+              { id: "auto", label: "🌐 自动检测" },
               { id: "zh-CN", label: "🇨🇳 中文" },
               { id: "en-US", label: "🇺🇸 English" },
             ] as const).map((opt) => (
@@ -62,21 +62,20 @@ export function VoiceSettings() {
             ))}
           </div>
           <p className="mt-2 text-[11px] text-gb-muted">
-            Passed to the browser's speech-recognition engine. Auto uses the
-            system language.
+            传递给浏览器的语音识别引擎。「自动检测」使用
+            系统语言。
           </p>
         </div>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Voice wake</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">语音唤醒</h3>
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
-            <p className="text-xs font-medium text-gb-text">Wake word</p>
+            <p className="text-xs font-medium text-gb-text">唤醒词</p>
             <p className="mt-0.5 text-[11px] text-gb-muted">
-              Experimental. Start recording when you say "Hey Grok" while the
-              app is focused. (Browser speech recognition only; no always-on
-              listening.)
+              实验性功能。当应用处于前台时，说出 "Hey Grok" 即开始录音。
+              （仅使用浏览器语音识别，不会常驻监听。）
             </p>
           </div>
           <button
@@ -88,7 +87,7 @@ export function VoiceSettings() {
             }`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 wake ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
@@ -97,12 +96,12 @@ export function VoiceSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Text-to-speech</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">文字转语音</h3>
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
-            <p className="text-xs font-medium text-gb-text">Read replies aloud</p>
+            <p className="text-xs font-medium text-gb-text">朗读回复</p>
             <p className="mt-0.5 text-[11px] text-gb-muted">
-              Use the browser's speechSynthesis API to read assistant replies.
+              使用浏览器的 speechSynthesis API 朗读助手回复。
             </p>
           </div>
           <button
@@ -114,7 +113,7 @@ export function VoiceSettings() {
             }`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 tts ? "translate-x-4" : "translate-x-0.5"
               }`}
             />

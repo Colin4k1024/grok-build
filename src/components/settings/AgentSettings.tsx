@@ -42,11 +42,11 @@ export function AgentSettings() {
   return (
     <div className="space-y-6 p-4">
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Default agent mode</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">默认 Agent 模式</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <p className="mb-2 text-xs text-gb-muted">
-            Controls whether new sessions start in Chat or Agent mode. You can
-            still switch per-message from the composer on the Home page.
+            控制新会话以「对话」还是「Agent」模式启动。你仍然可以在
+            首页输入框中按消息切换。
           </p>
           <div className="flex gap-2">
             {(["chat", "agent"] as const).map((m) => (
@@ -59,25 +59,25 @@ export function AgentSettings() {
                     : "bg-gb-bg text-gb-muted hover:text-gb-text"
                 }`}
               >
-                {m === "chat" ? "💬 Chat" : "🤖 Agent"}
+                {m === "chat" ? "💬 对话" : "🤖 Agent"}
               </button>
             ))}
           </div>
           <p className="mt-2 text-[11px] text-gb-muted">
-            Agent mode runs tools autonomously; Chat mode waits for your
-            approval before each tool call.
+            Agent 模式自动执行工具；对话模式在每次工具调用前
+            等待你的批准。
           </p>
         </div>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Autonomous execution</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">自动执行</h3>
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
-            <p className="text-xs font-medium text-gb-text">Auto-approve safe tools</p>
+            <p className="text-xs font-medium text-gb-text">自动批准安全工具</p>
             <p className="mt-0.5 text-[11px] text-gb-muted">
-              Skip the approval prompt for read-only tools (list files, search,
-              read). Writes and shell commands still require approval.
+              对只读工具（列目录、搜索、读取）跳过审批提示。
+              写入和 shell 命令仍需批准。
             </p>
           </div>
           <button
@@ -89,7 +89,7 @@ export function AgentSettings() {
             }`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 autonomous ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
@@ -98,11 +98,11 @@ export function AgentSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Permissions</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">权限</h3>
         <p className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3 text-xs text-gb-muted">
-          Approval rules, trusted folders, and sandbox mode are managed under
-          the <span className="text-gb-text">Permissions</span> and{" "}
-          <span className="text-gb-text">Trusted Folders</span> tabs.
+          审批规则、受信任目录和沙箱模式在
+          <span className="text-gb-text">「权限」</span>和{" "}
+          <span className="text-gb-text">「受信任目录」</span>标签页中管理。
         </p>
       </section>
     </div>

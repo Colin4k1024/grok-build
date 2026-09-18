@@ -129,7 +129,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gb-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-gb-text">Restore Session</h2>
+          <h2 className="text-sm font-semibold text-gb-text">恢复会话</h2>
           <button className="text-gb-muted hover:text-gb-text" onClick={onClose}>✕</button>
         </div>
 
@@ -137,7 +137,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
         <div className="p-3">
           <input
             type="text"
-            placeholder="Search history..."
+            placeholder="搜索历史…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-md border border-gb-border bg-gb-bg px-3 py-2 text-xs text-gb-text outline-none focus:border-gb-accent/50"
@@ -148,7 +148,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
         {/* List */}
         <div className="flex-1 overflow-y-auto px-3 pb-3">
           {loading && (
-            <p className="py-8 text-center text-xs text-gb-muted">Loading sessions...</p>
+            <p className="py-8 text-center text-xs text-gb-muted">加载会话中…</p>
           )}
           {error && (
             <p className="py-4 text-center text-xs text-gb-red">{error}</p>
@@ -179,7 +179,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
                         className="rounded p-0.5 text-gb-muted opacity-0 transition-opacity hover:text-gb-red focus:opacity-100 group-hover:opacity-100"
                         onClick={(e) => { e.stopPropagation(); handleDelete(session); }}
                         aria-label={`Delete ${session.title}`}
-                        title="Delete thread"
+                        title="删除会话"
                       >
                         <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor">
                           <path d="M2 3h8l-.7 8.1a1 1 0 0 1-1 .9H3.7a1 1 0 0 1-1-.9L2 3zm2.5-2h3l.5 1H10v1H2V2h2l.5-1z" />
@@ -195,7 +195,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
                     )}
                     <span>{session.num_messages} messages</span>
                     {restoring === session.id && (
-                      <span className="text-gb-accent">Restoring...</span>
+                      <span className="text-gb-accent">恢复中…</span>
                     )}
                   </div>
                 </div>

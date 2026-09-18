@@ -47,7 +47,7 @@ function MessageItemImpl({ message }: Props) {
         <div
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-medium ${
             isUser
-              ? "bg-gb-accent text-white"
+              ? "bg-gb-accent text-gb-bg"
               : "bg-gb-surface-hover text-gb-text-secondary"
           }`}
         >
@@ -60,8 +60,8 @@ function MessageItemImpl({ message }: Props) {
           <div
             className={
               isUser
-                ? "gb-user-bubble px-3.5 py-2 text-[13px] leading-relaxed text-gb-text"
-                : "px-0 py-0 text-[13px] leading-relaxed text-gb-text"
+                ? "gb-user-bubble px-3.5 py-2 text-[14px] leading-relaxed text-gb-text"
+                : "px-0 py-0 text-[14px] leading-relaxed text-gb-text"
             }
             style={isUser ? userBubbleStyle : undefined}
           >

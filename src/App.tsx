@@ -32,8 +32,7 @@ import {
   setSessionModel, resumeSession, addWorktree, listWorktrees,
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
-  onTrayAction, onConfigChanged,
-} from "./lib/tauri";
+  onTrayAction, onConfigChanged, getSessionHistoryMessages } from "./lib/tauri";
 import type { Command } from "./components/layout/CommandPalette";
 
 export default function App() {
@@ -58,7 +57,10 @@ export default function App() {
   const [showAutomations, setShowAutomations] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // null = follow responsive auto rule; boolean = explicit user override
+  // (fixes: below the 1000px breakpoint the manual toggle could never
+  // re-open the sidebar because auto-collapse was OR'ed over user state)
+  const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
@@ -89,7 +91,11 @@ export default function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const responsiveSidebarCollapsed = sidebarCollapsed || windowWidth < 1000;
+  const autoSidebarCollapsed = windowWidth < 1000;
+  const responsiveSidebarCollapsed = sidebarOverride ?? autoSidebarCollapsed;
+  const toggleSidebar = useCallback(() => {
+    setSidebarOverride((prev) => !(prev ?? window.innerWidth < 1000));
+  }, []);
   const responsiveRightCollapsed = rightPanelCollapsed || windowWidth < 1200;
 
   const refreshAuth = useCallback(async () => {
@@ -170,6 +176,13 @@ export default function App() {
   // Resume a persisted thread (Home "Recent threads" / Threads picker):
   // session/load restores full agent context and replays the transcript.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
+    // Already open as a live tab? Focus it instead of spawning a duplicate.
+    const existing = useSessionStore.getState().tabs.find((t) => t.acpSessionId === session.id);
+    if (existing) {
+      setActiveSession(existing.id);
+      setShowHome(false);
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -185,10 +198,19 @@ export default function App() {
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
+      // If the agent's session/load replay produced nothing, rebuild the
+      // transcript from the on-disk history so the thread opens with content.
+      const replayed = useSessionStore.getState().messages[info.id];
+      if (!replayed || replayed.length === 0) {
+        const historyMsgs = await getSessionHistoryMessages(session.id, session.cwd);
+        if (historyMsgs.length > 0) {
+          useSessionStore.getState().loadHistoryMessages(info.id, historyMsgs);
+        }
+      }
       setShowHome(false);
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
-  }, [addTab]);
+  }, [addTab, setActiveSession]);
 
   const handleNewSession = useCallback(async () => {
     setCreating(true);
@@ -361,7 +383,7 @@ export default function App() {
     onCloseActiveThread: () => {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
-    onToggleSidebar: () => setSidebarCollapsed((v) => !v),
+    onToggleSidebar: toggleSidebar,
     onOpenSettings: () => setShowSettings(true),
     onOpenSearch: () => setShowSearch(true),
     onAddProject: () => {
@@ -639,7 +661,7 @@ export default function App() {
   if (!auth) {
     return (
       <div className="flex h-full items-center justify-center bg-gb-bg">
-        <p className="text-gb-muted">Loading...</p>
+        <p className="text-gb-muted">加载中…</p>
       </div>
     );
   }
@@ -651,7 +673,7 @@ export default function App() {
     return (
       <div className="flex h-full flex-col text-gb-text">
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">
-          <span className="text-xs font-medium text-gb-text">Detached Session</span>
+          <span className="text-xs font-medium text-gb-text">独立会话窗口</span>
         </header>
         <MessageList messages={currentMessages} />
         <PromptInput
@@ -695,18 +717,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <div className="flex h-full flex-col text-gb-text">
-      <TitleBar
-        auth={auth}
-        onLogout={handleLogout}
-        onNewSession={handleNewSession}
-        creating={creating}
-        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-        onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-
-      <div className="flex flex-1 overflow-hidden">
+    <div className="flex h-full overflow-hidden text-gb-text">
         <Sidebar
           collapsed={responsiveSidebarCollapsed}
           creating={creating}
@@ -721,6 +732,16 @@ export default function App() {
         />
 
         <main className="flex flex-1 flex-col overflow-hidden">
+          <TitleBar
+            sidebarCollapsed={responsiveSidebarCollapsed}
+            auth={auth}
+            onLogout={handleLogout}
+            onNewSession={handleNewSession}
+            creating={creating}
+            onToggleSidebar={toggleSidebar}
+            onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+            onOpenSettings={() => setShowSettings(true)}
+          />
           {error && (
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
               <span className="flex-1">{error}</span>
@@ -771,7 +792,6 @@ export default function App() {
         </main>
 
         <RightPanel collapsed={responsiveRightCollapsed} />
-      </div>
 
       {showPicker && (
         <SessionPicker onClose={() => setShowPicker(false)} />
@@ -788,7 +808,7 @@ export default function App() {
       {confirmClose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-80 rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-center shadow-2xl">
-            <p className="mb-2 text-sm font-medium text-gb-text">Close this session?</p>
+            <p className="mb-2 text-sm font-medium text-gb-text">关闭这个会话？</p>
             <p className="mb-4 text-xs text-gb-muted">
               Messages in this session will be lost. The agent process will be terminated.
             </p>
@@ -815,7 +835,7 @@ export default function App() {
         onNewSession={handleNewSession}
         onOpenSettings={() => setShowSettings(true)}
         onOpenDashboard={() => setShowDashboard(true)}
-        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+        onToggleSidebar={toggleSidebar}
         onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
         onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}

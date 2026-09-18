@@ -125,8 +125,8 @@ export function ApprovalCard({
         <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" className="text-gb-yellow">
           <path d="M7 0L0 14h14L7 0zm0 5l3.5 7h-7L7 5z" />
         </svg>
-        <span className="text-xs font-semibold text-gb-yellow">Permission Required</span>
-        <span className="ml-auto text-[10px] text-gb-muted">Auto-deny in {remaining}s</span>
+        <span className="text-xs font-semibold text-gb-yellow">需要授权</span>
+        <span className="ml-auto text-[10px] text-gb-muted">{remaining} 秒后自动拒绝</span>
       </div>
       <div className="mb-2">
         <span className="text-xs font-medium text-gb-text">{toolName}</span>
@@ -142,7 +142,7 @@ export function ApprovalCard({
           onClick={() => handleRespond("allow")}
           disabled={responding}
         >
-          ✓ Allow
+          ✓ 允许
         </button>
         {allowAlwaysOption && (
           <button
@@ -150,7 +150,7 @@ export function ApprovalCard({
             onClick={() => handleRespond("remember")}
             disabled={responding}
           >
-            ✓ Always
+            ✓ 始终允许
           </button>
         )}
         <button
@@ -158,7 +158,7 @@ export function ApprovalCard({
           onClick={() => handleRespond("deny")}
           disabled={responding}
         >
-          ✕ Deny
+          ✕ 拒绝
         </button>
       </div>
     </div>
