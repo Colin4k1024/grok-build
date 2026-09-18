@@ -494,6 +494,23 @@ export async function gitCommit(cwd: string, message: string): Promise<string> {
   return invoke<string>("git_commit", { cwd, message });
 }
 
+// ===== Review workflow (ISS-080) =====
+
+/** Dangling worktree snapshot (`git stash create`); null when clean. */
+export async function gitTurnSnapshot(cwd: string): Promise<{ sha: string | null }> {
+  return invoke<{ sha: string | null }>("git_turn_snapshot", { cwd });
+}
+
+/** Worktree diff vs a turn snapshot (null → HEAD). */
+export async function gitDiffSince(cwd: string, sha: string | null): Promise<string> {
+  return invoke<string>("git_diff_since", { cwd, sha });
+}
+
+/** Files in unresolved merge-conflict state. */
+export async function gitConflicted(cwd: string): Promise<string[]> {
+  return invoke<string[]>("git_conflicted", { cwd });
+}
+
 // ===== Autostart =====
 
 export async function isAutostartEnabled(): Promise<boolean> {

@@ -549,6 +549,19 @@ ipcMain.handle("git_diff", async (_e, args: { cwd: string; path?: string }) => {
 });
 
 // Triage Approve — stage everything and commit on the reviewed branch.
+// --- Review workflow git primitives (ISS-080) ---
+import { turnSnapshot, diffSince, conflictedFiles } from "./git-review";
+
+ipcMain.handle("git_turn_snapshot", (_e, args: { cwd: string }) =>
+  turnSnapshot(args?.cwd ?? ".").then((sha) => ok({ sha }))
+);
+ipcMain.handle("git_diff_since", (_e, args: { cwd: string; sha?: string | null }) =>
+  diffSince(args?.cwd ?? ".", args?.sha ?? null).then((d) => ok(d))
+);
+ipcMain.handle("git_conflicted", (_e, args: { cwd: string }) =>
+  conflictedFiles(args?.cwd ?? ".").then((files) => ok(files))
+);
+
 ipcMain.handle("git_commit", async (_e, args: { cwd: string; message: string }) => {
   const cwd = path.resolve(args?.cwd || ".");
   const message = String(args?.message || "").trim();
