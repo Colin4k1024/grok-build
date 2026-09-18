@@ -842,8 +842,11 @@ fn validator_command(argv: &[String], worktree: &Path) -> Result<Command, String
             .stderr(Stdio::piped());
         // SAFETY: the closure performs only the async-signal-safe seccomp
         // installation required by `pre_exec`.
+        let filter = xai_grok_sandbox::child_net::prebuilt_child_network_filter();
         unsafe {
-            command.pre_exec(|| xai_grok_sandbox::child_net::install_child_network_filter());
+            command.pre_exec(move || {
+                xai_grok_sandbox::child_net::install_child_network_filter(filter)
+            });
         }
         return Ok(command);
     }

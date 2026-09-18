@@ -278,8 +278,11 @@ fn check_network_blocked(failures: &mut Vec<String>) -> bool {
         let mut command = std::process::Command::new(&executable);
         command.arg("--network-probe");
         // SAFETY: the pre-exec closure only installs the seccomp filter.
+        let filter = xai_grok_sandbox::child_net::prebuilt_child_network_filter();
         unsafe {
-            command.pre_exec(|| xai_grok_sandbox::child_net::install_child_network_filter());
+            command.pre_exec(move || {
+                xai_grok_sandbox::child_net::install_child_network_filter(filter)
+            });
         }
         command.status()
     };
