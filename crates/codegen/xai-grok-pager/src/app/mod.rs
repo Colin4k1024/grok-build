@@ -345,6 +345,16 @@ pub(crate) enum ScreenMode {
     /// Scrollback-native (experimental, `--minimal`): finalized blocks are printed into the terminal's native scrollback via `insert_before`.
     /// This crate keeps only three hooks for it: `crate::minimal_hook`, `crate::minimal_api`, and `AppView::minimal_state`.
     /// If you don't work on minimal, treat this variant as opaque; the fullscreen/inline paths are unaffected.
+    /// Scrollback-native (`--minimal`): finalized blocks are
+    /// printed into the terminal's native scrollback via `insert_before`, with
+    /// a small pinned live region for the prompt, status, and running turn.
+    ///
+    /// All minimal-mode rendering lives in the sibling `xai-grok-pager-minimal`
+    /// crate. This crate only holds the seam: `crate::minimal_hook` (dispatch
+    /// into minimal's `draw`/transcript), `crate::minimal_api` (the read surface
+    /// minimal consumes), and `AppView::minimal_state`. If you don't work on
+    /// minimal, treat this variant as opaque — the fullscreen/inline paths are
+    /// unaffected.
     Minimal,
 }
 impl ScreenMode {
@@ -366,7 +376,7 @@ impl ScreenMode {
     pub(crate) fn is_fullscreen(self) -> bool {
         matches!(self, Self::Fullscreen)
     }
-    /// Whether this is the experimental scrollback-native minimal mode.
+    /// Whether this is the scrollback-native minimal mode.
     pub(crate) fn is_minimal(self) -> bool {
         matches!(self, Self::Minimal)
     }
@@ -899,7 +909,7 @@ pub async fn run(
         memory_override_flag: args.memory_override_flag(),
         disable_web_search: args.disable_web_search,
         todo_gate: args.todo_gate,
-        laziness_debug_log: None,
+        laziness_debug_log: args.laziness_debug_log.clone(),
         storage_mode: args.storage_mode.clone(),
         client_identifier: args.client_identifier.clone(),
         hunk_tracker_mode,

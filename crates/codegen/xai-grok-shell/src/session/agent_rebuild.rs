@@ -135,6 +135,7 @@ pub(crate) struct AgentRebuildSpec {
     pub owner_session_id: Option<String>,
     pub parent_scheduler_handle:
         Option<xai_grok_tools::implementations::grok_build::scheduler::types::SchedulerHandle>,
+    pub hunk_tracker_handle: Option<xai_hunk_tracker::HunkTrackerHandle>,
 }
 impl AgentRebuildSpec {
     /// This is the canonical construction path; see module docs for the invariant.
@@ -236,6 +237,7 @@ impl AgentRebuildSpec {
             is_non_interactive,
             owner_session_id,
             parent_scheduler_handle,
+            hunk_tracker_handle,
         } = self.as_ref();
         let _ = mcp_state;
         if (*prompt_audience == PromptAudience::Subagent || agent_message_sender.is_some())
@@ -323,6 +325,9 @@ impl AgentRebuildSpec {
         }
         if let Some(handle) = parent_scheduler_handle.clone() {
             builder = builder.with_parent_scheduler_handle(handle);
+        }
+        if let Some(handle) = hunk_tracker_handle.clone() {
+            builder = builder.with_hunk_tracker_handle(handle);
         }
         if let Some(memory_backend) = memory_backend.clone() {
             builder = builder.with_memory_backend(memory_backend);
@@ -510,6 +515,7 @@ pub(crate) fn test_rebuild_spec_default() -> Arc<AgentRebuildSpec> {
         is_non_interactive: false,
         owner_session_id: Some("test-session".to_string()),
         parent_scheduler_handle: None,
+        hunk_tracker_handle: None,
     })
 }
 #[cfg(test)]

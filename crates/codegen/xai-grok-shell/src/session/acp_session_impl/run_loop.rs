@@ -2037,6 +2037,12 @@ pub(super) async fn run_session(
                                 let _ = respond_to.send(result);
                             });
                         }
+                        SessionCommand::EvolutionModelRequest { request } => {
+                            let s = session.clone();
+                            tokio::task::spawn_local(async move {
+                                s.handle_evolution_model_request(request).await;
+                            });
+                        }
                         SessionCommand::Interject { text, id, images } => {
                             // Broadcast to every attached client so every pane viewing this session renders the interjection block
                             // The originator dedups this echo by `id` against its optimistic local block; viewers render it

@@ -1545,6 +1545,21 @@ pub fn default_settings() -> Vec<SettingMeta> {
         },
         // Only the CLI flag (`--todo-gate`) is wired. Those arms don't yet have a place to land. `restart_required: false`
         // because the config-reloader rebroadcasts UI changes.
+        // ── TodoGate (runtime turn-end backstop) ──────────────────────
+        SettingMeta {
+            key: "todo_gate",
+            category: SettingCategory::Agent,
+            owner: SettingOwner::Shell,
+            label: "Todo completion gate",
+            description: "Before an autonomous goal turn stops, require pending todos to be completed or backed by live work. Applies to new sessions.",
+            keywords: &["todo", "task", "goal", "completion", "gate", "autonomous"],
+            kind: SettingKind::Bool {
+                default: ui_default.todo_gate.unwrap_or(false),
+            },
+            restart_required: true,
+            hidden_in_minimal: false,
+        },
+        // Empty-string default = "no opinion" / use shell's resolution.
         SettingMeta {
             key: "fork_secondary_model",
             category: SettingCategory::Models,

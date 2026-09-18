@@ -2569,6 +2569,28 @@ impl MvpAgent {
         instance
     }
     /// Client disconnect: keep working sessions resident, idle-unload the rest (never destroy).
+    /// Handle `x.ai/internal/evict_sessions` — the leader server tells us a
+    /// client disconnected and these sessions lost their IPC owner.
+    ///
+    /// **This is the no-evict keystone.** A disconnect must
+    /// NOT destroy a session. The behavior is now *detach + keep-resident +
+    /// idle-unload*:
+    ///
+    /// - **Sessions with live work stay resident.** We do NOT send `Shutdown`
+    ///   and do NOT drop the `SessionHandle`, so the actor, its pending
+    ///   permission oneshots, and its `KillOnDrop` tool subprocesses all
+    ///   survive. The route/driver detach is groundwork for PR-3 (the
+    ///   driver/subscriber maps don't exist yet), so for now we only mark the
+    ///   live state.
+    /// - **Fully idle sessions are unloaded to disk** to bound memory (the
+    ///   `sessions`/`session_threads` maps are uncapped). This preserves the
+    ///   legacy unload path — `Shutdown` the actor, drop the `SessionHandle`,
+    ///   but KEEP the `SessionThread` so `drain_old_session_thread` can drain it
+    ///   on reconnect — and crucially does **not** finalize the cloud replica
+    ///   (the session remains resumable via `session/load`).
+    ///
+    /// The "live work" check uses the aggregate SessionActivity query; any
+    /// unavailable/slow source conservatively keeps the session resident.
     pub(super) async fn handle_evict_sessions(
         &self,
         params: &serde_json::value::RawValue,

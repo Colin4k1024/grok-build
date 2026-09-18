@@ -1,0 +1,1 @@
+{"type":"ConfidenceTransitioned","data":{"run_id":"run-001","experience_id":"exp-001","from":{"Candidate":{"successes":3,"failures":0}},"to":{"Active":{"confidence":0.85}}}}

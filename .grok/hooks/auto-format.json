@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|SearchReplace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".grok/hooks/run-formatter.sh",
+            "timeout_ms": 10000
+          }
+        ]
+      }
+    ]
+  }
+}

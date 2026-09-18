@@ -5,6 +5,8 @@ pub mod commands;
 pub(crate) mod compaction_config;
 pub(crate) mod doom_loop_telemetry;
 pub(crate) mod fork_status;
+pub mod guardian;
+pub(crate) mod evolution;
 pub mod handle;
 pub(crate) mod memory_state;
 pub mod merge;

@@ -344,7 +344,7 @@ fn memory_config_cli_flag_overrides_env_disable() {
             let mem = MemoryConfig::resolve(true, false, &config, None);
             assert!(
                 mem.enabled,
-                "CLI --experimental-memory should override GROK_MEMORY=0"
+                "CLI --memory should override GROK_MEMORY=0"
             );
         },
     );

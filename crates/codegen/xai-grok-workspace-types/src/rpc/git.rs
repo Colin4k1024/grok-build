@@ -799,28 +799,33 @@ pub struct GitBranchListData {
 pub struct GitCollectChangesReq {
     /// Any path inside the repo/worktree. The git root is discovered from this path.
     /// The field is named `repo_path` (not `git_root`) to match `SerializeRepoChangesRequest`.
+    /// Named `repo_path` (not `git_root`) to match `SerializeRepoChangesRequest`.
+    #[serde(alias = "repoPath")]
     pub repo_path: String,
 
     /// Include commit series (typically commits ahead of upstream).
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true", alias = "includeCommits")]
     pub include_commits: bool,
 
     /// Include uncommitted changes (staged/unstaged/untracked).
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true", alias = "includeUncommitted")]
     pub include_uncommitted: bool,
 
     /// Optional public base revision override (like `origin/main` or a commit SHA).
-    /// If omitted, the server auto-detects the latest public commit on HEAD's first-parent history.
-    #[serde(default)]
+    /// If omitted, auto-detects the latest public commit on HEAD's first-parent history.
+    #[serde(default, alias = "baseRef")]
     pub base_ref: Option<String>,
 
-    /// Max bytes to inline for one file blob in commit/uncommitted patches. `0` means no limit; larger blobs are truncated with a warning.
-    /// Untracked content uses [`UNTRACKED_CONTENT_THRESHOLD`] and is excluded, not truncated.
-    #[serde(default = "default_max_file_bytes")]
+    /// Maximum bytes to inline for a single file blob in commit/uncommitted
+    /// patches. `0` (default) means no limit; larger blobs are truncated with a
+    /// warning. Untracked file content is governed separately by the fixed
+    /// [`UNTRACKED_CONTENT_THRESHOLD`]: oversize untracked files are excluded
+    /// (not truncated) rather than capped by this value.
+    #[serde(default = "default_max_file_bytes", alias = "maxFileBytes")]
     pub max_file_bytes: u64,
 
     /// Absolute paths captured even when gitignored.
-    #[serde(default)]
+    #[serde(default, alias = "forceIncludePaths")]
     pub force_include_paths: Vec<std::path::PathBuf>,
 }
 

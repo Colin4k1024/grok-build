@@ -454,6 +454,11 @@ pub enum Action {
     /// Toggle the per-tool "Always allow …" prompt options. SHELL-owned; persisted to `[ui].remember_tool_approvals`. Applies to new sessions.
     SetRememberToolApprovals(bool),
     /// Toggle the ask_user_question timeout. SHELL-owned; persisted to `[toolset.ask_user_question].timeout_enabled`. Applies to new sessions.
+    /// Toggle the turn-end TodoGate for newly-created sessions. SHELL-owned;
+    /// persisted to `[ui].todo_gate`.
+    SetTodoGate(bool),
+    /// Toggle the ask_user_question timeout. SHELL-owned; persisted to
+    /// `[toolset.ask_user_question].timeout_enabled`. Applies to new sessions.
     SetAskUserQuestionTimeoutEnabled(bool),
     /// SHELL-owned `keep_text_selection` (`flash` | `hold`); cache and persist.
     SetKeepTextSelection(crate::appearance::TextSelection),
@@ -575,6 +580,25 @@ pub enum Action {
     /// If already open, closes it instead of stacking.
     OpenSettings,
     /// Open settings on a registry key: its chooser, or the browse row when the setting is locked.
+    /// Open the evolution modal (`/evolution`).
+    OpenEvolutionModal,
+    SetEvolutionMode {
+        target_mode: String,
+    },
+    InspectEvolutionRun {
+        run_id: String,
+    },
+    LoadEvolutionLineage {
+        experience_id: String,
+    },
+    RetryEvolutionTrial {
+        run_id: String,
+    },
+    ExportEvolutionEvidence {
+        run_id: String,
+    },
+    /// Open settings on a registry key: its chooser, or the browse row when
+    /// the setting is locked.
     OpenSettingsFocus {
         key: &'static str,
     },
@@ -1834,6 +1858,36 @@ pub enum Effect {
         agent_id: AgentId,
         session_id: acp::SessionId,
     },
+    /// Load evolution status and timeline from the session's workspace service.
+    FetchEvolutionState {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+    },
+    SetEvolutionMode {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        target_mode: String,
+    },
+    InspectEvolutionRun {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
+    LoadEvolutionLineage {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        experience_id: String,
+    },
+    RetryEvolutionTrial {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
+    ExportEvolutionEvidence {
+        agent_id: AgentId,
+        session_id: acp::SessionId,
+        run_id: String,
+    },
     /// Toggle a skill via x.ai/skills/toggle (enable/disable without restart).
     ToggleSkill {
         agent_id: AgentId,
@@ -2695,6 +2749,28 @@ pub enum TaskResult {
         agent_id: AgentId,
         path: String,
         result: Result<xai_grok_shell::extensions::memory::MemoryForgetResponse, String>,
+    },
+    /// Evolution modal data loaded from shell.
+    EvolutionStateLoaded {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionViewData, String>,
+    },
+    EvolutionModeChanged {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionModeChangeResult, String>,
+    },
+    EvolutionRunInspected {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionRunDetail, String>,
+    },
+    EvolutionLineageLoaded {
+        agent_id: AgentId,
+        result: Result<crate::views::evolution_modal::EvolutionLineageData, String>,
+    },
+    EvolutionOperationCompleted {
+        agent_id: AgentId,
+        operation: &'static str,
+        result: Result<crate::views::evolution_modal::EvolutionOperationResult, String>,
     },
     /// Hooks action completed.
     HooksActionResult {

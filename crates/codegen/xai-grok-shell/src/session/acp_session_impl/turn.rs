@@ -194,6 +194,176 @@ fn validate_structured_output(
         Err(e) => Err(format!("output does not match the required schema: {e}")),
     }
 }
+
+fn evolution_delta_from_turn(
+    session_id: &str,
+    turn_id: &str,
+    snapshot: &TurnDeltaSnapshot,
+    user_corrections: Vec<xai_grok_evolution::signal::UserCorrection>,
+) -> xai_grok_evolution::SessionSignalsDelta {
+    let tool_failures = snapshot
+        .delta
+        .tool_outcomes_this_turn
+        .iter()
+        .filter(|outcome| outcome.failures > 0)
+        .map(|outcome| xai_grok_evolution::signal::ToolFailure {
+            tool_name: outcome.tool_name.clone(),
+            error_message: format!(
+                "tool {} reported {} failed invocation(s)",
+                outcome.tool_name, outcome.failures
+            ),
+            file_path: None,
+            exit_code: None,
+        })
+        .collect();
+    let mut test_failures = Vec::new();
+    let mut timeouts = Vec::new();
+    let mut panics = Vec::new();
+    let mut compilation_errors = Vec::new();
+    for error_type in &snapshot.delta.error_types_this_turn {
+        let normalized = error_type.to_ascii_lowercase();
+        if normalized.contains("timeout") {
+            timeouts.push(xai_grok_evolution::signal::TimeoutInfo {
+                operation: error_type.clone(),
+                timeout_secs: 0,
+                tool_name: None,
+            });
+        } else if normalized.contains("panic") {
+            panics.push(xai_grok_evolution::signal::PanicInfo {
+                message: error_type.clone(),
+                file_path: None,
+                backtrace_hash: None,
+            });
+        } else if normalized.contains("compile") {
+            compilation_errors.push(xai_grok_evolution::signal::CompilationError {
+                error_message: error_type.clone(),
+                file_path: None,
+                package: None,
+            });
+        } else if normalized.contains("test") {
+            test_failures.push(xai_grok_evolution::signal::TestFailure {
+                test_name: "turn validation".to_string(),
+                error_message: error_type.clone(),
+                file_path: None,
+                package: None,
+            });
+        }
+    }
+    let negative_feedback = (0..snapshot.delta.delta_negative_ratings.max(0).min(8))
+        .map(|_| xai_grok_evolution::signal::NegativeFeedback {
+            rating: -1,
+            comment: None,
+        })
+        .collect();
+    xai_grok_evolution::SessionSignalsDelta {
+        session_id: session_id.to_string(),
+        turn_id: Some(turn_id.to_string()),
+        tool_failures,
+        test_failures,
+        timeouts,
+        panics,
+        user_corrections,
+        negative_feedback,
+        performance_regressions: Vec::new(),
+        retries_exhausted: Vec::new(),
+        compilation_errors,
+        turn_step_count: snapshot.delta.delta_tool_calls.max(0) as usize,
+        tools_used: snapshot.delta.tools_this_turn.clone(),
+        injected_experiences: Vec::new(), // filled by caller when injection is present
+    }
+}
+
+/// Compare the latest genuine user message with the assistant response that
+/// preceded it. Synthetic continuation/reminder messages are skipped so goal,
+/// scheduler and auto-recovery traffic cannot train Evolution as user feedback.
+fn latest_cross_turn_user_correction(
+    conversation: &[ConversationItem],
+) -> Option<xai_grok_evolution::signal::UserCorrection> {
+    let user_index = conversation.iter().rposition(
+        |item| matches!(
+            item,
+            ConversationItem::User(user)
+                if user.synthetic_reason == xai_grok_sampling_types::SyntheticReason::Human
+        ),
+    )?;
+    let correction = conversation[user_index].text_content();
+    let previous_action = conversation[..user_index]
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            ConversationItem::Assistant(assistant) => {
+                let text = assistant.content.trim();
+                if !text.is_empty() {
+                    Some(text.to_string())
+                } else if !assistant.tool_calls.is_empty() {
+                    Some(format!(
+                        "tool calls: {}",
+                        assistant
+                            .tool_calls
+                            .iter()
+                            .map(|call| call.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })?;
+    xai_grok_evolution::signal::correction::detect_user_correction(&previous_action, &correction)
+}
+
+fn evolution_signal_types(
+    delta: &xai_grok_evolution::SessionSignalsDelta,
+) -> Vec<xai_grok_evolution::SignalType> {
+    let mut types = Vec::new();
+    types.extend(
+        delta
+            .tool_failures
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::ToolFailure),
+    );
+    types.extend(
+        delta
+            .test_failures
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::TestFailure),
+    );
+    types.extend(
+        delta
+            .timeouts
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::Timeout),
+    );
+    types.extend(
+        delta
+            .panics
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::Panic),
+    );
+    types.extend(
+        delta
+            .user_corrections
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::UserCorrection),
+    );
+    types.extend(
+        delta
+            .negative_feedback
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::NegativeFeedback),
+    );
+    types.extend(
+        delta
+            .compilation_errors
+            .iter()
+            .map(|_| xai_grok_evolution::SignalType::CompilationError),
+    );
+    types.sort_by_key(|signal_type| format!("{signal_type:?}"));
+    types.dedup();
+    types
+}
 /// Result of the turn-end usage drain (and cancel's no-drain snapshot).
 /// Only [`Self::fail_closed`] marks the ledgers.
 /// Sticky and background live are report-level only (tokens still land on the session ledger).
@@ -2353,6 +2523,48 @@ impl SessionActor {
     /// Inspect `tool_calls` for a `StructuredOutput` call and decide the turn's next step, pushing the call's `tool_result` as a side effect.
     /// The pushed result is a correction, a retry error, or the terminal answer.
     /// Validates the args against `validator` and bumps `retries` on a non-conforming retry.
+    fn evolution_selection_context(
+        &self,
+        signal_types: Vec<xai_grok_evolution::SignalType>,
+    ) -> xai_grok_evolution::SelectionContext {
+        xai_grok_evolution::SelectionContext {
+            repo: std::path::Path::new(&self.session_info.cwd)
+                .canonicalize()
+                .ok()
+                .map(|path| path.to_string_lossy().into_owned()),
+            task_type: self.active_agent_type.lock().clone(),
+            signal_types,
+            env_fingerprint: None,
+            now: chrono::Utc::now().timestamp(),
+        }
+    }
+
+    fn first_turn_evolution_reminder(&self) -> Option<String> {
+        let service = self.evolution_service.read().clone()?;
+        if self
+            .evolution_context_injected
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return None;
+        }
+        match service.experience_injection(&self.evolution_selection_context(Vec::new())) {
+            Ok(Some(injection)) => {
+                let prompt = injection.prompt.clone();
+                *self.evolution_injection.lock() = Some(injection);
+                Some(prompt)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(%error, "experience context rejected");
+                None
+            }
+        }
+    }
+
+    /// Inspect `tool_calls` for a `StructuredOutput` call and decide the turn's
+    /// next step, pushing the call's `tool_result` (correction / retry error /
+    /// terminal) as a side effect. Validates the args against `validator` and
+    /// bumps `retries` on a non-conforming retry.
     async fn handle_structured_output_tool_call(
         &self,
         tool_calls: &mut Vec<xai_grok_sampling_types::conversation::ToolCall>,
@@ -2460,7 +2672,112 @@ impl SessionActor {
     ) {
         self.emit_turn_end_plan_cleanup().await;
         self.signals_handle().record_turn_complete();
+        let round_input_tokens = round.input_tokens.max(0) as u64;
+        let round_output_tokens = round.output_tokens.max(0) as u64;
+        let round_cache_read_tokens = round.cache_read_tokens.max(0) as u64;
         turn_sampling.fold(round);
+        let mut snapshot = self.signals_handle().take_turn_end_snapshot().await;
+        if let Some(snap) = snapshot.as_mut() {
+            self.apply_prompt_modes_to_snapshot(snap);
+            snap.turn_input_tokens = round_input_tokens;
+            snap.turn_output_tokens = round_output_tokens;
+            snap.turn_cached_input_tokens = round_cache_read_tokens;
+            // Populate turn diff summary from hunk tracker
+            {
+                let prompt_idx = snap.delta.turn_number as usize;
+                let hunks = self
+                    .tool_context
+                    .hunk_tracker_handle
+                    .get_turn_hunks(prompt_idx)
+                    .await;
+                if !hunks.is_empty() {
+                    let mut files_set = std::collections::HashSet::new();
+                    let mut lines_added = 0usize;
+                    let mut lines_removed = 0usize;
+                    for h in &hunks {
+                        files_set.insert(h.path.to_string_lossy().to_string());
+                        lines_added += h.line_info.new_count;
+                        lines_removed += h.line_info.old_count;
+                    }
+                    snap.turn_diff_summary = Some(crate::session::signals::TurnDiffSummary {
+                        files_modified: files_set.into_iter().collect(),
+                        total_lines_added: lines_added,
+                        total_lines_removed: lines_removed,
+                        hunk_count: hunks.len(),
+                    });
+                }
+            }
+            for pr in &snap.delta.prs_created_this_turn {
+                xai_grok_telemetry::session_ctx::log_event(xai_grok_telemetry::events::PrCreated {
+                    source: pr.source,
+                    had_commit_in_session: pr.had_commit_in_session,
+                });
+            }
+        }
+        if let Some(snap) = snapshot.as_ref() {
+            let _ = self
+                .notifications
+                .persistence_tx
+                .send(PersistenceMsg::Signals(snap.current.clone()));
+            if let Some(service) = self.evolution_service.read().clone() {
+                let conversation = self.chat_state_handle.get_conversation().await;
+                let user_corrections = latest_cross_turn_user_correction(&conversation)
+                    .into_iter()
+                    .collect();
+                let mut delta = evolution_delta_from_turn(
+                    self.session_info.id.0.as_ref(),
+                    req_id,
+                    snap,
+                    user_corrections,
+                );
+                let signal_types = evolution_signal_types(&delta);
+                if let Some(injection) = self.evolution_injection.lock().take() {
+                    // Record injection reference for skill observer
+                    delta.injected_experiences.push(
+                        xai_grok_evolution::signal::InjectedExperienceRef {
+                            experience_id: injection.experience_id.clone(),
+                            injection_id: injection.injection_id.clone(),
+                            skill_name: None,
+                        },
+                    );
+                    // Don't record attribution for cancelled turns
+                    if snap.delta.delta_cancellations > 0 {
+                        tracing::debug!("skipping evolution attribution for cancelled turn");
+                    } else {
+                        let has_user_corrections = !delta.user_corrections.is_empty();
+                        let has_negative_feedback = !delta.negative_feedback.is_empty();
+                        let has_any_failure = !delta.tool_failures.is_empty()
+                            || !delta.test_failures.is_empty()
+                            || !delta.timeouts.is_empty()
+                            || !delta.panics.is_empty()
+                            || !delta.performance_regressions.is_empty()
+                            || !delta.retries_exhausted.is_empty()
+                            || !delta.compilation_errors.is_empty();
+                        let has_substantive_completion = snap.delta.delta_successful_tool_uses > 0
+                            || snap.turn_output_tokens > 0;
+
+                        let outcome = xai_grok_evolution::reuse::attribution::determine_outcome(
+                            has_user_corrections,
+                            has_negative_feedback,
+                            has_any_failure,
+                            has_substantive_completion,
+                        );
+                        if let Err(error) = service.record_reuse(
+                            &injection.experience_id,
+                            &injection.injection_id,
+                            outcome,
+                            injection.context_hash,
+                        ) {
+                            tracing::warn!(
+                                %error,
+                                "failed to record experience reuse observation"
+                            );
+                        }
+                    }
+                }
+                let _ = service.on_turn_end(&delta, self.evolution_selection_context(signal_types));
+            }
+        }
         if let Some(request) = self
             .feedback_manager
             .maybe_request_feedback(Some(req_id.to_string()))
@@ -2783,6 +3100,7 @@ impl SessionActor {
                 self.inject_pending_monitor_events().await;
             }
             let memory_reminder = self.first_turn_memory_reminder().await;
+            let evolution_reminder = self.first_turn_evolution_reminder();
             if memory_reminder.is_some() {
                 self.memory
                     .injection_count
@@ -2801,6 +3119,11 @@ impl SessionActor {
             } else {
                 TurnParkState::Fresh
             };
+            // memory_reminder goes into the system message (trusted);
+            // evolution_reminder goes as a low-priority user message (untrusted).
+            let memory_context = memory_reminder;
+            let experience_context = evolution_reminder;
+            self.maybe_inject_mcp_reminder().await;
             if self.tool_context.task_output_token_budget.is_none()
                 && !turn_parked.is_parked()
                 && self.two_pass_active()
@@ -2896,8 +3219,9 @@ impl SessionActor {
                 .chat_state_handle
                 .build_request(
                     effective_tools,
-                    memory_reminder,
+                    memory_context,
                     self.memory.is_enabled(),
+                    experience_context,
                     trace_gcs_config
                         .clone()
                         .map(|cfg| -> Box<dyn crate::sampling::TraceContext> {
@@ -3391,6 +3715,38 @@ impl SessionActor {
                 self.turn_phases.discard_uncommitted_first_token();
                 self.turn_phases.discard_uncommitted_first_meaningful();
                 continue;
+            }
+            if tool_calls.len() > 1 {
+                tracing::warn!(
+                    count = tool_calls.len(),
+                    names = ?tool_calls.iter().map(|tc| tc.name.as_str()).collect::<Vec<_>>(),
+                    "Multiple tool calls in single response"
+                );
+            }
+            // Fix: when the model emits tool calls with empty arguments but
+            // puts the actual parameters in the content as XML <tool_call>,
+            // extract arguments from the XML and fill them in.
+            let assistant_content = response.assistant_text();
+            if !assistant_content.is_empty() {
+                for tc in &mut tool_calls {
+                    let args_empty = tc.arguments.is_empty()
+                        || tc.arguments.as_ref().trim() == "{}"
+                        || tc.arguments.as_ref().trim().is_empty();
+                    if args_empty {
+                        if let Some(parsed) =
+                            crate::session::helpers::xml_tool_call_recovery::extract_args_for_tool(
+                                &assistant_content,
+                                &tc.name,
+                            )
+                        {
+                            tracing::info!(
+                                tool = %tc.name,
+                                "Recovered tool arguments from XML content"
+                            );
+                            tc.arguments = std::sync::Arc::from(parsed);
+                        }
+                    }
+                }
             }
             metrics_drop_guard.record_model_response(tool_calls.len());
             if !tool_calls.is_empty() {

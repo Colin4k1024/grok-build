@@ -457,6 +457,7 @@ impl SessionContextFactory for WorkspaceSessionContextFactory {
             auth_provider: self.auth.clone(),
             attribution_callback: None,
             system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+            hunk_tracker_handle: None,
         }
     }
     fn build_terminal_backend(&self) -> crate::config::SessionTerminalBackend {
@@ -591,6 +592,7 @@ pub mod test_support {
                 auth_provider: None,
                 attribution_callback: None,
                 system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+                hunk_tracker_handle: None,
             }
         }
         fn build_terminal_backend(&self) -> crate::config::SessionTerminalBackend {

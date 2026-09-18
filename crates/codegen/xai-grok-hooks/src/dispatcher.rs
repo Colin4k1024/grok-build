@@ -2,6 +2,7 @@ use crate::config::HookSpec;
 use crate::discovery::HookRegistry;
 use crate::event::{HookEventEnvelope, HookEventName};
 use crate::result::{HookDecision, HookRunResult, PromptDecision};
+use crate::native::NativeHook;
 use crate::runner::{self, GateKind, HookRunnerResult, RunContext};
 use crate::trust::DisabledHooks;
 
@@ -1001,6 +1002,82 @@ fn record_dispatch_counts(span: &tracing::Span, results: &[HookRunResult]) {
 
 pub fn hub_hook_kind(event: HookEventName) -> Option<String> {
     event.traits().hub_forward.then(|| format!("hook.{event}"))
+}
+
+// --- Native hook dispatch ---
+
+/// Run native PreToolUse hooks. Returns `Deny` on first match, `Allow` otherwise.
+pub fn dispatch_native_pre_tool_use(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) -> Option<HookDecision> {
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != HookEventName::PreToolUse {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
+                continue;
+            }
+        }
+        if let HookRunnerResult::Deny { reason, hook_name } = hook.execute(envelope) {
+            return Some(HookDecision::Deny { hook_name, reason });
+        }
+    }
+    None
+}
+
+/// Run native observer hooks (PostToolUse, SessionStart, SessionEnd, etc.).
+/// All run unconditionally; results are ignored (observers).
+pub fn dispatch_native_observers(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) {
+    let event = envelope.hook_event_name;
+    if matches!(event, HookEventName::PreToolUse | HookEventName::Stop) {
+        return;
+    }
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != event {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
+                continue;
+            }
+        }
+        let _ = hook.execute(envelope);
+    }
+}
+
+/// Run native Stop hooks and collect their outcomes.
+/// Returns accumulated stop signals (additional_context, block_reason, etc.).
+pub fn dispatch_native_stop(
+    native_hooks: &[Box<dyn NativeHook>],
+    envelope: &HookEventEnvelope,
+) -> StopDispatchResult {
+    let mut out = StopDispatchResult::default();
+    let match_value = envelope.payload.match_value();
+    for hook in native_hooks {
+        if hook.event() != HookEventName::Stop {
+            continue;
+        }
+        if let Some(matcher) = hook.matcher() {
+            if match_value.is_none_or(|value| !value.eq_ignore_ascii_case(matcher)) {
+                continue;
+            }
+        }
+        if let HookRunnerResult::Stop(outcome) = hook.execute(envelope) {
+            out.absorb(hook.name(), StopSignals {
+                block_reason: outcome.block_reason,
+                stop_reason: outcome.force_stop.map(|fs| fs.reason.unwrap_or_default()),
+                additional_context: outcome.additional_context,
+            });
+        }
+    }
+    out
 }
 
 #[cfg(test)]

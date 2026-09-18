@@ -262,7 +262,12 @@ impl SessionActor {
         } else {
             event::HookEventName::Stop
         };
-        if !self.has_enabled_hooks_for(event) {
+        let has_file_or_client_hooks = self.has_enabled_hooks_for(event);
+        let has_native_hooks = self
+            .native_hooks
+            .iter()
+            .any(|hook| hook.event() == event.canonical());
+        if !has_file_or_client_hooks && !has_native_hooks {
             return StopGateDecision::AllowStop;
         }
         // At the cap no hook is consulted or notified for this forced stop, unlike the force-stop path below which still notifies observers
@@ -293,13 +298,23 @@ impl SessionActor {
         // Client hooks get the awaited `x.ai/hooks/run` request below, not a fire-and-forget event
         let envelope = self.make_hook_envelope(event, Some(prompt_id.to_string()), payload);
 
-        let mut result = dispatcher::StopDispatchResult::default();
+        let mut result =
+            xai_grok_hooks::dispatcher::dispatch_native_stop(&self.native_hooks, &envelope);
         // Clone out of the RefCell before the awaits so no `Ref` is held across them
         let registry = self.hook_registry.borrow().clone();
         let batch = if let Some(registry) = registry {
             let ctx = self.hook_run_ctx();
             let batch = self.announce_hook_run(&registry, &envelope, &ctx);
-            result = dispatcher::dispatch_stop(&registry, event, &envelope, &ctx).await;
+            let mut file_result =
+                dispatcher::dispatch_stop(&registry, event, &envelope, &ctx).await;
+            result.blocks.append(&mut file_result.blocks);
+            result
+                .additional_context
+                .append(&mut file_result.additional_context);
+            result.results.append(&mut file_result.results);
+            if result.prevent_continuation.is_none() {
+                result.prevent_continuation = file_result.prevent_continuation;
+            }
             batch
         } else {
             HookBatch::from_envelope(&envelope)
@@ -372,10 +387,15 @@ impl SessionActor {
         }
         if blocks.is_empty() {
             for context in additional_context {
-                self.send_hook_annotation(&format!(
-                    "\u{21a9} Stop hook feedback, continuing: {context}"
-                ))
-                .await;
+                if context.starts_with("[internal:") {
+                    self.send_hook_annotation("\u{21a9} Continuing (session analysis)")
+                        .await;
+                } else {
+                    self.send_hook_annotation(&format!(
+                        "\u{21a9} Stop hook feedback, continuing: {context}"
+                    ))
+                    .await;
+                }
             }
         }
     }

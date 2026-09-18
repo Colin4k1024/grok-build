@@ -9,6 +9,10 @@ use tokio::sync::{mpsc, oneshot};
 use xai_file_utils::queue::UploadQueue;
 use xai_grok_sampling_types::ReasoningEffort;
 use xai_hunk_tracker::HunkTrackerHandle;
+
+pub type EvolutionServiceSlot = std::sync::Arc<
+    parking_lot::RwLock<Option<std::sync::Arc<xai_grok_evolution::EvolutionService>>>,
+>;
 /// Coarse lifecycle state of a session as known to the leader/agent.
 /// A grok session is a resumable log on disk with no terminal status field of its own, so "liveness" is residency plus turn state, not a pid.
 /// The agent's join-handle supervisor tracks this per session so a panicked actor is demoted to `Dormant` instead of lingering in the roster.
@@ -70,6 +74,12 @@ pub struct SessionHandle {
     pub signals_handle: super::signals::SessionSignalsHandle,
     /// Shared gate controlling whether the session actor forwards notifications to the client via the gateway.
     /// See [`SessionActor::gateway_enabled`] for details.
+    /// Workspace-scoped self-evolution service. `None` is the true Off path:
+    /// no database is opened and no consumer thread is started.
+    pub evolution_service: EvolutionServiceSlot,
+    /// Shared gate controlling whether the session actor forwards
+    /// notifications to the client via the gateway. See
+    /// [`SessionActor::gateway_enabled`] for details.
     pub gateway_enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// When `false`, suppress local `background_tasks` snapshot emits.
     /// Shared with the notification bridge and session actor; flipped off for
@@ -339,7 +349,63 @@ impl SessionHandle {
         {
             return true;
         }
-        rx.await.unwrap_or(true)
+        if rx.await.unwrap_or(true) {
+            return true;
+        }
+
+        let session_id = self.info.id.0.as_ref();
+        if self
+            .tool_context
+            .monitor_event_buffer
+            .as_ref()
+            .is_some_and(|buffer| {
+                buffer
+                    .snapshot()
+                    .iter()
+                    .any(|event| event.owned_by_session(Some(session_id)))
+            })
+        {
+            return true;
+        }
+
+        if let Some(terminal) = &self.terminal_backend {
+            let tasks = terminal.list_tasks().await;
+            if tasks.iter().any(|task| {
+                !task.completed
+                    && task
+                        .owner_session_id
+                        .as_deref()
+                        .is_none_or(|owner| owner == session_id)
+            }) {
+                return true;
+            }
+        }
+
+        if let Some(event_tx) = &self.tool_context.subagent_event_tx {
+            let backend = xai_grok_tools::implementations::grok_build::task::backend::ChannelBackend::for_session(
+                event_tx.clone(),
+                session_id.to_string(),
+            );
+            if !backend.list_running(session_id).await.is_empty() {
+                return true;
+            }
+        }
+
+        if let Some(scheduler) = &self.scheduler_handle {
+            use xai_grok_tools::implementations::grok_build::scheduler::types::SchedulerCommand;
+            let (reply, response) = oneshot::channel();
+            if scheduler.0.send(SchedulerCommand::List { reply }).is_ok() {
+                // A dropped scheduler actor cannot own a future fire. A live
+                // actor with any task keeps the session resident.
+                if response
+                    .await
+                    .is_ok_and(|snapshot| !snapshot.tasks.is_empty())
+                {
+                    return true;
+                }
+            }
+        }
+        false
     }
     /// List all background tasks.
     /// Routes through the session actor to the ToolBridge's TerminalBackend.

@@ -1136,6 +1136,9 @@ async fn restore_session_from_remote(
     cwd: &str,
     progress_on_stdout: bool,
 ) -> anyhow::Result<ResolvedExisting> {
+    xai_grok_shell::session::restore::capability_status()
+        .ensure_available()
+        .map_err(anyhow::Error::msg)?;
     let raw_config = xai_grok_shell::config::load_effective_config()
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     if let Some((false, source)) =

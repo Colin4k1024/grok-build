@@ -13,8 +13,8 @@ use super::setters::{
     set_respect_manual_folds_inner, set_screen_mode_inner, set_scroll_lines_inner,
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
     set_show_tips_inner, set_simple_mode_inner, set_theme_inner, set_timeline_inner,
-    set_timestamps, set_timestamps_inner, set_vim_mode_inner, set_voice_capture_mode_inner,
-    set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
+    set_timestamps, set_timestamps_inner, set_todo_gate_inner, set_vim_mode_inner,
+    set_voice_capture_mode_inner, set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
 };
 use crate::app::actions::{Action, Effect};
 use crate::app::app_view::{ActiveView, AppView};
@@ -673,6 +673,7 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("remember_tool_approvals", SettingValue::Bool(b)) => {
             Some(Action::SetRememberToolApprovals(*b))
         }
+        ("todo_gate", SettingValue::Bool(b)) => Some(Action::SetTodoGate(*b)),
         ("toolset.ask_user_question.timeout_enabled", SettingValue::Bool(b)) => {
             Some(Action::SetAskUserQuestionTimeoutEnabled(*b))
         }
@@ -994,6 +995,9 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
             set_remember_tool_approvals_inner(app, *b)
         }
         // ask_user_question timeout: if the rollback equals the effective default, restore to None (keeps the mirror in sync with disk)
+        ("todo_gate", SettingValue::Bool(b)) => set_todo_gate_inner(app, *b),
+        // ask_user_question timeout: if rollback equals the effective
+        // default, restore to None (keeps mirror in sync with disk).
         ("toolset.ask_user_question.timeout_enabled", SettingValue::Bool(b)) => {
             if Some(*b) == pr13_effective_default("toolset.ask_user_question.timeout_enabled") {
                 app.ask_user_question_timeout_enabled = None;

@@ -15,6 +15,10 @@ default-run = "xai-grok-pager"
 name = "xai-grok-pager"
 path = "src/main.rs"
 
+[[bin]]
+name = "xai-grok-evolution-worker"
+path = "src/bin/evolution-worker.rs"
+
 [dependencies]
 # The pager library (all application logic + the public API main.rs drives).
 xai-grok-pager = { path = "../xai-grok-pager" }
@@ -43,6 +47,7 @@ tokio = { workspace = true, features = [
 ] }
 tokio-util = { workspace = true, features = ["compat"] }
 anyhow = { workspace = true }
+blake3 = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
@@ -52,8 +57,16 @@ xai-tty-utils = { workspace = true }
 # `collect_crashed()` for the startup crash notice.
 xai-grok-active-sessions = { workspace = true }
 xai-grok-config = { workspace = true }
+xai-grok-evolution = { path = "../xai-grok-evolution", features = ["test-support"] }
 xai-grok-sandbox = { path = "../xai-grok-sandbox", default-features = false }
 xai-grok-extra-ca = { workspace = true }
+dirs = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "logging",
+    "std",
+    "tls12",
+] }
 
 # Binary hardening: compile-time string + control-flow obfuscation.
 obfstr = { workspace = true }

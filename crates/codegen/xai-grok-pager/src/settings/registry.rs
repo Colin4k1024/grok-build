@@ -615,6 +615,10 @@ pub fn current_value_for(
         // ask_user_question timeout: reflects the effective TOML merge
         // The toggle writes the user layer, and the env and remote settings tiers feed the final gate at agent build
         // None falls back to the resolver-shared default (ON)
+        "todo_gate" => Some(SettingValue::Bool(ui.todo_gate.unwrap_or(false))),
+        // ask_user_question timeout: reflects the effective TOML merge; the
+        // toggle writes the user layer, and env/remote settings tiers feed the
+        // final gate at agent build. None → the resolver-shared default (ON).
         "toolset.ask_user_question.timeout_enabled" => Some(SettingValue::Bool(
             pager
                 .ask_user_question_timeout_enabled
@@ -941,6 +945,15 @@ mod tests {
                     );
                 }
                 // ask_user_question timeout: no UiConfig mirror (lives under `[toolset]`); the default is anchored on the resolver-shared const
+                ("todo_gate", SettingKind::Bool { default }) => {
+                    assert_eq!(
+                        *default,
+                        ui.todo_gate.unwrap_or(false),
+                        "todo_gate default drifts from UiConfig::default()"
+                    );
+                }
+                // ask_user_question timeout: no UiConfig mirror (lives under
+                // `[toolset]`); default anchored on the resolver-shared const.
                 ("toolset.ask_user_question.timeout_enabled", SettingKind::Bool { default }) => {
                     assert_eq!(
                         *default,

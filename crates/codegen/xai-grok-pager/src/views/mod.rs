@@ -11,6 +11,7 @@ pub mod dashboard;
 pub mod debug_style;
 pub mod dock;
 pub mod elicitation_view;
+pub mod evolution_modal;
 pub mod extensions_modal;
 pub mod feedback_modal;
 pub mod file_search;

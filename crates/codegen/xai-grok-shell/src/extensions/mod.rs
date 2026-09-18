@@ -10,6 +10,7 @@ pub mod code_nav;
 pub mod consent;
 pub mod content;
 pub mod debug;
+pub mod evolution;
 pub mod feedback;
 pub(crate) mod feedback_drafts;
 pub(crate) mod feedback_trace;

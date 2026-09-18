@@ -912,6 +912,8 @@ pub async fn run_single_turn(
         cli_web_search_model: None,
         cli_session_summary_model: None,
         memory_enabled_override: options.memory_enabled_override,
+        cli_experimental_memory: false,
+        cli_no_memory: false,
         disable_web_search: options.disable_web_search,
         todo_gate: false,
         laziness_debug_log: None,

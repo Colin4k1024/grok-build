@@ -326,6 +326,11 @@ pub enum ActiveModal {
         /// It keeps stale results from populating a different note's review modal.
         rewrite_nonce: u64,
     },
+    /// Evolution browser modal (`/evolution`). Shows 4-tab view:
+    /// Timeline, Lineage, Control, Evidence.
+    Evolution {
+        state: Box<super::evolution_modal::EvolutionModalState>,
+    },
 }
 /// Snapshot of the command palette state, saved when opening an arg picker and restored on Esc.
 #[derive(Debug, Clone)]
@@ -668,6 +673,8 @@ impl ActiveModal {
             | ActiveModal::Settings { .. }
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::RememberNoteReview { .. } => vec![],
+            | ActiveModal::RememberNoteReview { .. }
+            | ActiveModal::Evolution { .. } => vec![],
         }
     }
     pub fn message(&self, drain_blocked: bool) -> &str {
@@ -699,6 +706,7 @@ impl ActiveModal {
             ActiveModal::ResetSettingsConfirm { .. } => "Reset setting?",
             ActiveModal::RememberNoteReview { .. } => "Memory Note",
             ActiveModal::UsageInfo { .. } => "Usage",
+            ActiveModal::Evolution { .. } => "Evolution",
         }
     }
 }

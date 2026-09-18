@@ -51,6 +51,7 @@ pub use xai_grok_shell_terminal as terminal;
 pub(crate) mod test_support;
 pub mod tier;
 pub mod tools;
+pub mod tsp_bundle;
 pub mod upload;
 pub mod util;
 #[doc(hidden)]

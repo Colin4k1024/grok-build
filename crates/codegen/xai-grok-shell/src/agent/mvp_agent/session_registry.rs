@@ -490,6 +490,11 @@ impl SessionRegistry {
         })
         .flatten()
     }
+    /// Tracked session ids, for callers that must pick a session when exactly
+    /// one is resident (e.g. evolution ext endpoints without a sessionId arg).
+    pub(super) fn tracked_ids(&self) -> Vec<acp::SessionId> {
+        self.sessions.borrow().keys().cloned().collect()
+    }
     pub(super) fn is_resident(&self, id: &acp::SessionId) -> bool {
         self.with(id, |e| {
             e.presence

@@ -53,6 +53,7 @@
 
 pub mod binding;
 pub mod chunks;
+pub mod capability;
 pub mod error;
 pub mod events;
 pub mod identity;
@@ -68,6 +69,7 @@ pub mod types;
 pub const MCP_TOOL_NAME_DELIMITER: &str = "__";
 
 pub use crate::chunks::{ChunkKind, OpsChunk, SessionChunk, ToolChunk, ToolResponse};
+pub use crate::capability::{RuntimeCapabilityState, RuntimeCapabilityStatus};
 pub use crate::error::{IoKind, WorkspaceError};
 pub use crate::events::{EventLag, WorkspaceEvent, WorkspaceTopic, WorkspaceTopicSet};
 pub use crate::identity::{HunkId, SessionId, ToolCallId};

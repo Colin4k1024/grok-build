@@ -181,6 +181,9 @@ pub(crate) async fn resume_session_in_worktree(
         .await
         .context("fetching session record for remote restore")?;
     let turn = crate::session::restore::resolve_restore_turn(&record, None);
+    crate::session::restore::capability_status()
+        .ensure_available()
+        .map_err(anyhow::Error::msg)?;
     tracing::info!(
         session_id = %req.session_id,
         "Restoring remote session: creating worktree after registry lookup"
@@ -460,6 +463,9 @@ pub(crate) async fn rehydrate_session_in_worktree(
             warnings: vec![],
         });
     }
+    crate::session::restore::capability_status()
+        .ensure_available()
+        .map_err(anyhow::Error::msg)?;
     if !worktree_path.exists() {
         tracing::info!(session_id = %req.session_id, %worktree_path_str, "rehydrate: creating worktree");
         if let Some(parent) = worktree_path.parent() {

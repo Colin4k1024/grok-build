@@ -4,6 +4,36 @@ use super::*;
 
 /// Per-fire metadata captured at the top of `maybe_fire_laziness_check` when `--laziness-debug-log` is set.
 /// Passed through `maybe_write_laziness_debug_log` so every JSONL line references the same snapshot point.
+const LAZINESS_DIAGNOSTICS_SCHEMA_VERSION: u8 = 1;
+const LAZINESS_DIAGNOSTICS_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const LAZINESS_DIAGNOSTICS_ARCHIVE_COUNT: usize = 3;
+static LAZINESS_DIAGNOSTICS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static LAZINESS_DIAGNOSTICS_HASH_SALT: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| uuid::Uuid::now_v7().to_string());
+
+pub(crate) fn diagnostic_fingerprint(domain: &str, value: &str) -> String {
+    use sha2::Digest as _;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(b"grok-laziness-diagnostics-v1\0");
+    hasher.update(LAZINESS_DIAGNOSTICS_HASH_SALT.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(value.as_bytes());
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(23);
+    out.push_str("sha256:");
+    for byte in &digest[..8] {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Per-fire metadata captured at the top of `maybe_fire_laziness_check`
+/// when `--laziness-debug-log` is set. Threaded through the
+/// `maybe_write_laziness_debug_log` helper so every JSONL line
+/// references the same snapshot point.
 pub(crate) struct LazinessFireMeta {
     pub session_id: String,
     pub todo_snapshot: Vec<DebugTodoSnapshot>,
@@ -21,6 +51,9 @@ pub(crate) enum LazinessFireOutcome {
     },
     /// Sampler returned text but `parse_classifier_output` rejected it.
     /// Both the raw text and the parse-error detail are kept for offline analysis.
+    /// Sampler returned text but `parse_classifier_output` rejected
+    /// it. The writer persists only fingerprints and lengths for
+    /// offline correlation.
     ParseError {
         raw_text: String,
         parse_error_detail: String,
@@ -62,41 +95,65 @@ pub(crate) fn build_laziness_debug_line(
         backing_task_count,
     } = meta;
     let base = LazinessDebugLogLine {
+        schema_version: LAZINESS_DIAGNOSTICS_SCHEMA_VERSION,
         timestamp: chrono::Utc::now().to_rfc3339(),
-        session_id,
-        model_id: model_id.to_owned(),
+        session_fingerprint: diagnostic_fingerprint("session", &session_id),
+        model_fingerprint: diagnostic_fingerprint("model", model_id),
         items_sent,
         todo_snapshot,
         backing_task_count,
-        classifier_raw_output: None,
+        classifier_output_fingerprint: None,
+        classifier_output_bytes: None,
         parsed: None,
         decision: DebugDecision::Aborted,
         abort_reason: None,
-        error_detail: None,
+        error_fingerprint: None,
+        error_bytes: None,
         classifier_elapsed_ms,
     };
     match outcome {
         LazinessFireOutcome::Aborted {
             reason,
             error_detail,
-        } => LazinessDebugLogLine {
-            abort_reason: Some(reason.as_const_str()),
-            error_detail,
-            ..base
-        },
+        } => {
+            let (error_fingerprint, error_bytes) = error_detail
+                .as_deref()
+                .map(|detail| {
+                    (
+                        Some(diagnostic_fingerprint("error", detail)),
+                        Some(detail.len()),
+                    )
+                })
+                .unwrap_or((None, None));
+            LazinessDebugLogLine {
+                abort_reason: Some(reason.as_const_str()),
+                error_fingerprint,
+                error_bytes,
+                ..base
+            }
+        }
         LazinessFireOutcome::ParseError {
             raw_text,
             parse_error_detail,
         } => LazinessDebugLogLine {
-            classifier_raw_output: Some(raw_text),
+            classifier_output_fingerprint: Some(diagnostic_fingerprint(
+                "classifier_output",
+                &raw_text,
+            )),
+            classifier_output_bytes: Some(raw_text.len()),
             abort_reason: Some(LazinessAbortReason::ClassifierError.as_const_str()),
-            error_detail: Some(parse_error_detail),
+            error_fingerprint: Some(diagnostic_fingerprint("error", &parse_error_detail)),
+            error_bytes: Some(parse_error_detail.len()),
             ..base
         },
         LazinessFireOutcome::Verdict { parsed, raw_text } => {
             let decision = classify_debug_decision(&parsed, LAZINESS_DEFAULT_MIN_CONFIDENCE);
             LazinessDebugLogLine {
-                classifier_raw_output: Some(raw_text),
+                classifier_output_fingerprint: Some(diagnostic_fingerprint(
+                    "classifier_output",
+                    &raw_text,
+                )),
+                classifier_output_bytes: Some(raw_text.len()),
                 parsed: Some(DebugClassifierOutput::from(parsed)),
                 decision,
                 ..base
@@ -111,7 +168,11 @@ pub(crate) fn build_laziness_debug_line(
                 LazinessSuppressReason::NotGoalMode => DebugDecision::SuppressedNotGoalMode,
             };
             LazinessDebugLogLine {
-                classifier_raw_output: Some(raw_text),
+                classifier_output_fingerprint: Some(diagnostic_fingerprint(
+                    "classifier_output",
+                    &raw_text,
+                )),
+                classifier_output_bytes: Some(raw_text.len()),
                 parsed: Some(DebugClassifierOutput::from(parsed)),
                 decision,
                 ..base
@@ -155,7 +216,8 @@ pub(crate) enum DebugDecision {
 pub(crate) struct DebugClassifierOutput {
     pub category: String,
     pub confidence: f32,
-    pub evidence: String,
+    pub evidence_fingerprint: String,
+    pub evidence_bytes: usize,
 }
 
 impl From<ClassifierOutput> for DebugClassifierOutput {
@@ -163,60 +225,139 @@ impl From<ClassifierOutput> for DebugClassifierOutput {
         Self {
             category: p.category.as_const_str().to_string(),
             confidence: p.confidence,
-            evidence: p.evidence,
+            evidence_fingerprint: diagnostic_fingerprint("evidence", &p.evidence),
+            evidence_bytes: p.evidence.len(),
         }
     }
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub(crate) struct DebugTodoSnapshot {
-    pub id: String,
+    pub id_fingerprint: String,
     pub status: &'static str,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub(crate) struct LazinessDebugLogLine {
+    pub schema_version: u8,
     pub timestamp: String,
-    pub session_id: String,
-    pub model_id: String,
-    /// Number of conversation items sent to the classifier, excluding the prepended system prompt. Capped at `LAZINESS_CONTEXT_ITEM_LIMIT`.
+    pub session_fingerprint: String,
+    pub model_fingerprint: String,
+    /// Number of conversation items sent to the classifier (excluding
+    /// the prepended system prompt). Capped at `LAZINESS_CONTEXT_ITEM_LIMIT`.
     pub items_sent: usize,
     pub todo_snapshot: Vec<DebugTodoSnapshot>,
     pub backing_task_count: usize,
-    /// Raw classifier output text. `None` when the call aborted before producing any output.
-    pub classifier_raw_output: Option<String>,
-    /// Parsed structured output. `None` when raw output failed `parse_classifier_output` or the call aborted.
+    /// Process-salted, domain-separated fingerprint and byte length of
+    /// classifier output. The output text itself is never persisted.
+    pub classifier_output_fingerprint: Option<String>,
+    pub classifier_output_bytes: Option<usize>,
+    /// Parsed structured output. `None` when raw output failed
+    /// `parse_classifier_output` or the call aborted.
     pub parsed: Option<DebugClassifierOutput>,
     pub decision: DebugDecision,
-    /// One of the `LAZINESS_ABORT_*` consts when `decision == Aborted`; `None` when the classifier produced a verdict.
+    /// One of the `LAZINESS_ABORT_*` consts when `decision == Aborted`;
+    /// `None` when the classifier produced a verdict.
     pub abort_reason: Option<&'static str>,
-    /// Verbatim failure text when the sampler call or response parsing failed, so an operator can see what the backend complained about.
-    /// `None` for clean classifier runs and for non-error aborts (user_input, model_switch, timeout).
+    /// Fingerprint and byte length of a sampler or parse error. The error text
+    /// itself may contain prompts or backend details, so it is never persisted.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_detail: Option<String>,
+    pub error_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_bytes: Option<usize>,
     pub classifier_elapsed_ms: u64,
 }
 
 /// Append a single JSONL line to the debug-log file. Creates the file on first write; subsequent writes append.
 /// Concurrent callers rely on `O_APPEND` for atomic ordering (JSONL lines fit under `PIPE_BUF`).
+/// Append a single privacy-redacted JSONL line to the diagnostics file. The
+/// active file is capped at 4 MiB and keeps three numbered archives.
 pub(crate) async fn append_laziness_debug_log_line(
     log_handle: &std::sync::Arc<std::path::Path>,
     line: &LazinessDebugLogLine,
+) -> std::io::Result<()> {
+    append_laziness_debug_log_line_with_limits(
+        log_handle,
+        line,
+        LAZINESS_DIAGNOSTICS_MAX_FILE_BYTES,
+        LAZINESS_DIAGNOSTICS_ARCHIVE_COUNT,
+    )
+    .await
+}
+
+pub(crate) async fn append_laziness_debug_log_line_with_limits(
+    log_handle: &std::sync::Arc<std::path::Path>,
+    line: &LazinessDebugLogLine,
+    max_file_bytes: u64,
+    archive_count: usize,
 ) -> std::io::Result<()> {
     let mut json = serde_json::to_string(line).map_err(std::io::Error::other)?;
     json.push('\n');
     let path = std::sync::Arc::clone(log_handle);
     tokio::task::spawn_blocking(move || {
         use std::io::Write as _;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&*path)?;
+        let _guard = LAZINESS_DIAGNOSTICS_WRITE_LOCK
+            .lock()
+            .map_err(|_| std::io::Error::other("laziness diagnostics write lock poisoned"))?;
+        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        let existing_len = std::fs::metadata(&*path).map(|m| m.len()).unwrap_or(0);
+        if existing_len > 0 && existing_len.saturating_add(json.len() as u64) > max_file_bytes {
+            rotate_laziness_diagnostics(&path, archive_count)?;
+        }
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&*path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
         file.write_all(json.as_bytes())?;
         file.flush()
     })
     .await
     .map_err(std::io::Error::other)?
+}
+
+fn rotate_laziness_diagnostics(
+    path: &std::path::Path,
+    archive_count: usize,
+) -> std::io::Result<()> {
+    if archive_count == 0 {
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        return Ok(());
+    }
+    for index in (1..=archive_count).rev() {
+        let source = if index == 1 {
+            path.to_path_buf()
+        } else {
+            laziness_archive_path(path, index - 1)
+        };
+        if !source.exists() {
+            continue;
+        }
+        let destination = laziness_archive_path(path, index);
+        if destination.exists() {
+            std::fs::remove_file(&destination)?;
+        }
+        std::fs::rename(source, destination)?;
+    }
+    Ok(())
+}
+
+fn laziness_archive_path(path: &std::path::Path, index: usize) -> std::path::PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(format!(".{index}"));
+    value.into()
 }
 
 impl SessionActor {
@@ -275,6 +416,13 @@ impl SessionActor {
     /// A stalled verdict only queues a `<system-reminder>` via `push_system_reminder`; nothing enters `pending_inputs`, so no synthetic turn fires.
     /// Debug mode adds logging; it does not bypass the production decision logic.
     pub(crate) async fn maybe_fire_laziness_check(self: Arc<Self>) {
+        self.maybe_fire_laziness_check_for_prompt(None).await;
+    }
+
+    pub(crate) async fn maybe_fire_laziness_check_for_prompt(
+        self: Arc<Self>,
+        completed_prompt_id: Option<String>,
+    ) {
         let model_id_acp = self.models_manager.current_model_id();
         let model_id = model_id_acp.0.to_string();
         let cfg = self.models_manager.laziness_detector_for(&model_id);
@@ -302,7 +450,9 @@ impl SessionActor {
             Some(LazinessFireMeta {
                 session_id: self.session_info.id.0.to_string(),
                 todo_snapshot: self.snapshot_todos_for_debug_log().await,
-                backing_task_count: self.snapshot_backing_task_count_for_debug_log().await,
+                backing_task_count: self
+                    .snapshot_backing_task_count_for_debug_log(completed_prompt_id.as_deref())
+                    .await,
             })
         } else {
             None
@@ -382,8 +532,25 @@ impl SessionActor {
         // Harness-truth signals: they come from the harness, not the agent, so a lazy agent cannot fabricate them to mask a stall.
         // `outstanding_subagents`: live `spawn_subagent` calls that haven't returned.
         // TodoState is deliberately not injected The todo list is agent-authored and can be fabricated alongside the prose, so including it would confirm the lie rather than catch it.
-        let backing_task_count = self.snapshot_backing_task_count_for_debug_log().await;
+        let backing_task_count = self.snapshot_backing_task_count_for_debug_log(None).await;
         // Refresh the count captured on `meta` above so the debug log matches what the classifier saw
+        // Harness-truth signals — these are NOT agent-authored, so a
+        // lazy agent can't fabricate them to mask a stall:
+        //  * `outstanding_subagents`: live `spawn_subagent` calls that
+        //    haven't returned. If the agent claims "I launched X" but
+        //    this count is 0, that's a `stalled_narration` smoking gun.
+        //  * `outstanding_background_tasks`: terminal tasks (bash with
+        //    `background: true`, monitors) that haven't completed.
+        // We intentionally do NOT inject TodoState — the todo list is
+        // agent-authored and can be lazy/fabricated alongside the
+        // assistant prose; including it would confirm the lie rather
+        // than catch it.
+        let backing_task_count = self
+            .snapshot_backing_task_count_for_debug_log(completed_prompt_id.as_deref())
+            .await;
+        // Reuse the same field on `meta` if we already captured it
+        // above so debug-mode telemetry stays consistent with what
+        // the classifier saw.
         if let Some(m) = meta.as_mut() {
             m.backing_task_count = backing_task_count;
         }
@@ -676,7 +843,7 @@ impl SessionActor {
                     .0
                     .todo_items_with_ids()
                     .map(|(id, item)| DebugTodoSnapshot {
-                        id: id.clone(),
+                        id_fingerprint: diagnostic_fingerprint("todo", id),
                         status: match item.status {
                             TodoStatus::Pending => "pending",
                             TodoStatus::InProgress => "in_progress",
@@ -689,15 +856,29 @@ impl SessionActor {
             .unwrap_or_default()
     }
 
-    /// Count of outstanding background terminal tasks.
-    /// The gate's own count also includes the just-ended prompt's outstanding subagents.
-    /// Operators correlating debug log lines with gate decisions can read the session's events.jsonl for the full subagent state.
-    async fn snapshot_backing_task_count_for_debug_log(&self) -> usize {
-        self.tool_bridge_handle()
+    /// Count live subagents attributable to the completed prompt plus
+    /// outstanding background terminal/monitor tasks. A missing prompt ID is
+    /// used only by direct test callers and conservatively contributes zero
+    /// subagents.
+    pub(crate) async fn snapshot_backing_task_count_for_debug_log(
+        &self,
+        completed_prompt_id: Option<&str>,
+    ) -> usize {
+        let outstanding_subagents = match completed_prompt_id {
+            Some(prompt_id) => self
+                .outstanding_reply_for_prompt(prompt_id)
+                .await
+                .map(|reply| reply.live_ids.len() + usize::from(reply.background_live))
+                .unwrap_or(0),
+            None => 0,
+        };
+        let outstanding_terminal_tasks = self
+            .tool_bridge_handle()
             .list_background_tasks()
             .await
             .into_iter()
             .filter(xai_grok_tools::computer::types::TaskSnapshot::is_outstanding)
-            .count()
+            .count();
+        outstanding_subagents + outstanding_terminal_tasks
     }
 }

@@ -669,6 +669,7 @@ mod tests {
             turn_output_tokens: 0,
             turn_cached_input_tokens: 0,
             model_fingerprint: Some("fp_test_123".to_string()),
+            turn_diff_summary: None,
         };
 
         let delta = snapshot_to_turn_delta(

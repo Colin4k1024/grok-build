@@ -34,6 +34,8 @@ pub struct AgentBuilder {
     owner_session_id: Option<String>,
     parent_scheduler_handle:
         Option<xai_grok_tools::implementations::grok_build::scheduler::types::SchedulerHandle>,
+    /// Turn-level file-edit tracker handed to tools such as `turn_rollback`.
+    hunk_tracker_handle: Option<xai_hunk_tracker::HunkTrackerHandle>,
     definition: Option<AgentDefinition>,
     /// Pre-rendered persona IO summaries for the task tool description.
     persona_summaries: Vec<String>,
@@ -171,6 +173,7 @@ impl AgentBuilder {
             notification_handle,
             owner_session_id: None,
             parent_scheduler_handle: None,
+            hunk_tracker_handle: None,
             definition: None,
             persona_summaries: Vec::new(),
             prompt_audience: crate::prompt::context::PromptAudience::Primary,
@@ -389,6 +392,18 @@ impl AgentBuilder {
         self
     }
     /// `Enabled` injects a `WebSearchClient` resource so `web_search` can call the Responses API; `Disabled` returns a graceful error.
+
+    /// Make turn-level file edits available to tools such as `turn_rollback`.
+    pub fn with_hunk_tracker_handle(mut self, handle: xai_hunk_tracker::HunkTrackerHandle) -> Self {
+        self.hunk_tracker_handle = Some(handle);
+        self
+    }
+    /// Set the web search configuration.
+    ///
+    /// When `Enabled`, a `WebSearchClient` is created and injected into
+    /// the ToolBridge's resources so the `web_search` tool can call the
+    /// Responses API. When `Disabled` (default), the tool returns a
+    /// graceful error if invoked.
     pub fn with_web_search_config(
         mut self,
         config: xai_grok_tools::implementations::web_search::WebSearchConfig,
@@ -880,6 +895,11 @@ impl AgentBuilder {
         }
         if task_stripped {
             use xai_grok_tools::types::tool::ToolNamespace;
+            // SendMessage has no terminal-backed fallback: without Task there
+            // is no coordinator-owned recipient scope to deliver into.
+            tool_config
+                .tools
+                .retain(|tc| short_tool_name(&tc.id) != "send_message");
             let has_satisfier = |ns: ToolNamespace, id: &str, needs_bg: bool| {
                 let fq = format!("{ns}:{id}");
                 tool_config.tools.iter().any(|tc| {
@@ -964,7 +984,13 @@ impl AgentBuilder {
                 .tools
                 .iter()
                 .any(|t| AGENT_TASK_CLASSIFIER_RE.is_match(t));
-            let task_deps = ["task", "get_task_output", "kill_task", "wait_tasks"];
+            let task_deps = [
+                "task",
+                "get_task_output",
+                "kill_task",
+                "wait_tasks",
+                "send_message",
+            ];
             let registered_tool_ids = tool_bridge_builder.known_tool_ids();
             let present_kinds: std::collections::HashSet<ToolKind> =
                 tool_config.tools.iter().filter_map(|tc| tc.kind).collect();
@@ -1085,6 +1111,7 @@ impl AgentBuilder {
                 "scheduler_create",
                 "scheduler_delete",
                 "scheduler_list",
+                "send_message",
             ];
             tool_config
                 .tools
@@ -1133,6 +1160,7 @@ impl AgentBuilder {
                 auth_provider: None,
                 attribution_callback: self.attribution_callback,
                 system_reminder_tag: self.system_reminder_tag,
+                hunk_tracker_handle: self.hunk_tracker_handle,
             },
         )
         .instrument(tracing::info_span!("spawn.tool_registry"))

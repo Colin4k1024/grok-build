@@ -441,6 +441,113 @@ impl AgentView {
 
         // ResetSettingsConfirm: y/n routing
         // Handled before the generic char-match so Esc/F2/Ctrl+, route to Cancel (not modal close)
+        // Evolution modal: handle tab navigation and close.
+        if let ActiveModal::Evolution { state } = modal {
+            use crate::views::evolution_modal::EvolutionTab;
+            match key.code {
+                KeyCode::Esc => {
+                    self.active_modal = None;
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Left => {
+                    state.active_tab = state.active_tab.prev();
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Right => {
+                    state.active_tab = state.active_tab.next();
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Up => {
+                    if state.active_tab == EvolutionTab::Timeline && state.selected_index > 0 {
+                        state.selected_index -= 1;
+                    }
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Down => {
+                    if state.active_tab == EvolutionTab::Timeline
+                        && state.selected_index + 1 < state.timeline_events.len()
+                    {
+                        state.selected_index += 1;
+                    }
+                    return InputOutcome::Changed;
+                }
+                KeyCode::Enter if state.active_tab == EvolutionTab::Timeline => {
+                    let Some(run_id) = state.selected_run_id().map(ToOwned::to_owned) else {
+                        state.control_message = Some("No run selected".to_string());
+                        return InputOutcome::Changed;
+                    };
+                    state.control_message = Some(format!("Inspecting run {run_id}…"));
+                    return InputOutcome::Action(Action::InspectEvolutionRun { run_id });
+                }
+                KeyCode::Enter if state.active_tab == EvolutionTab::Lineage => {
+                    let Some(experience_id) =
+                        state.selected_experience_id().map(ToOwned::to_owned)
+                    else {
+                        state.control_message =
+                            Some("Inspect a published run before loading lineage".to_string());
+                        return InputOutcome::Changed;
+                    };
+                    state.control_message = Some(format!("Loading lineage {experience_id}…"));
+                    return InputOutcome::Action(Action::LoadEvolutionLineage { experience_id });
+                }
+                KeyCode::Char('r') | KeyCode::Char('R')
+                    if state.active_tab == EvolutionTab::Timeline =>
+                {
+                    let Some(run_id) = state.selected_run_id().map(ToOwned::to_owned) else {
+                        return InputOutcome::Changed;
+                    };
+                    state.control_message = Some(format!("Retrying run {run_id}…"));
+                    return InputOutcome::Action(Action::RetryEvolutionTrial { run_id });
+                }
+                KeyCode::Char('e') | KeyCode::Char('E')
+                    if state.active_tab == EvolutionTab::Evidence =>
+                {
+                    let Some(run_id) = state.selected_run_id().map(ToOwned::to_owned) else {
+                        return InputOutcome::Changed;
+                    };
+                    state.control_message = Some(format!("Exporting evidence for {run_id}…"));
+                    return InputOutcome::Action(Action::ExportEvolutionEvidence { run_id });
+                }
+                KeyCode::Char('o') | KeyCode::Char('O')
+                    if state.active_tab == EvolutionTab::Control =>
+                {
+                    state.mode_change_confirmation_pending = false;
+                    state.control_message = Some("Emergency Off requested…".to_string());
+                    return InputOutcome::Action(Action::SetEvolutionMode {
+                        target_mode: "off".to_string(),
+                    });
+                }
+                KeyCode::Enter if state.active_tab == EvolutionTab::Control => {
+                    if state.load_error.is_some() {
+                        state.control_message =
+                            Some("Read-only degraded: mode changes are unavailable".to_string());
+                        return InputOutcome::Changed;
+                    }
+                    let target_mode = match state.mode_label.to_ascii_lowercase().as_str() {
+                        "off" => "shadow",
+                        "shadow" => "isolated_autonomous",
+                        "isolatedautonomous" | "isolated_autonomous" => "reuse_eligible",
+                        _ => "off",
+                    };
+                    if !state.mode_change_confirmation_pending {
+                        state.mode_change_confirmation_pending = true;
+                        state.control_message = Some(format!(
+                            "Risk confirmation required: press Enter again to request {target_mode}"
+                        ));
+                        return InputOutcome::Changed;
+                    }
+                    state.mode_change_confirmation_pending = false;
+                    state.control_message = Some(format!("Running preflight for {target_mode}…"));
+                    return InputOutcome::Action(Action::SetEvolutionMode {
+                        target_mode: target_mode.to_string(),
+                    });
+                }
+                _ => return InputOutcome::Changed,
+            }
+        }
+
+        // ResetSettingsConfirm: y/n routing. Handled before generic
+        // char-match so Esc/F2/Ctrl+, route to Cancel (not modal close).
         if let Some(ActiveModal::ResetSettingsConfirm { modal, .. }) = self.active_modal.as_ref() {
             let resolved = match key.code {
                 KeyCode::Esc => Some(crate::views::modal::ResetSettingsResult::Cancel),
@@ -491,7 +598,8 @@ impl AgentView {
             | ActiveModal::Settings { .. }
             | ActiveModal::UsageInfo { .. }
             | ActiveModal::ResetSettingsConfirm { .. }
-            | ActiveModal::RememberNoteReview { .. } => unreachable!(),
+            | ActiveModal::RememberNoteReview { .. }
+            | ActiveModal::Evolution { .. } => unreachable!(),
         }
     }
 
@@ -2367,6 +2475,8 @@ impl AgentView {
                     compact,
                     None,
                 );
+            } else if let modal::ActiveModal::Evolution { state: evo_state } = active_modal {
+                crate::views::evolution_modal::draw(buf, area, evo_state);
             } else if matches!(
                 active_modal,
                 modal::ActiveModal::ResetSettingsConfirm { .. }

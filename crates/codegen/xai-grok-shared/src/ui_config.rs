@@ -110,6 +110,10 @@ pub struct UiConfig {
     /// Written by the settings modal; requirements/env/managed/remote settings also feed the gate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remember_tool_approvals: Option<bool>,
+    /// Enable the runtime turn-end TodoGate for newly-created sessions.
+    /// CLI `--todo-gate` remains a force-enable override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub todo_gate: Option<bool>,
     /// In-app drag selection highlight: `flash` | `hold` (legacy bool accepted).
     #[serde(
         default,
@@ -255,6 +259,7 @@ impl Default for UiConfig {
             permission_mode: None,
             approval_mode: None,
             default_selected_permission: None,
+            todo_gate: None,
             show_timestamps: None,
             show_timeline: None,
             page_flip_on_send: None,

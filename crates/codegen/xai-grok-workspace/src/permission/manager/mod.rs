@@ -11,6 +11,10 @@ use xai_acp_lib::AcpAgentGatewaySender as GatewaySender;
 use crate::permission::auto_mode::{
     BashSecurityAssessment, ClassifierSecurityFinding, ClassifierVerdict,
 };
+use crate::permission::command_canonicalization::canonicalize_for_cache;
+use crate::permission::network_policy::{
+    NetworkDecision, NetworkPolicy, NetworkPolicyState, extract_domain,
+};
 use crate::permission::exec_risk::{
     AmbientScanPlan, ambient_exec_risk_from_plan, ambient_scan_plan_from_segments,
 };
@@ -815,6 +819,8 @@ pub fn spawn_permission_manager_with_pin(
                         continue;
                     }
 
+                    // Session always-allow grants win before the auto classifier.
+                    // Ask floors fall through so managed Ask / shell-file Ask stay binding.
                     if !pre_classifier_forced_prompt
                         && protected_edit.is_none()
                         && let Some((decision, reason)) = session_grant_pre_decision(

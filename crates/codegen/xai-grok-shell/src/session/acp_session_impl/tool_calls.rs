@@ -1515,6 +1515,35 @@ impl SessionActor {
         let mut hook_ask: Option<HookAsk> = None;
         let mut hook_additional_context = Vec::new();
         if self.may_have_hooks_for(xai_grok_hooks::event::HookEventName::PreToolUse) {
+            let (hook_tool_input, hook_tool_input_truncated) =
+                xai_grok_hooks::event::truncate_payload(raw_input.clone());
+            let envelope = self.make_hook_envelope(
+                xai_grok_hooks::event::HookEventName::PreToolUse,
+                None,
+                xai_grok_hooks::event::HookPayload::PreToolUse {
+                    tool_name: resolved_tool_name.clone(),
+                    tool_use_id: call.id.clone(),
+                    tool_input: hook_tool_input,
+                    tool_input_truncated: hook_tool_input_truncated,
+                    subagent_type: self.subagent_type_label(),
+                },
+            );
+            if let Some(xai_grok_hooks::result::HookDecision::Deny { reason, hook_name }) =
+                xai_grok_hooks::dispatcher::dispatch_native_pre_tool_use(
+                    &self.native_hooks,
+                    &envelope,
+                )
+            {
+                return Ok(Err(self
+                    .deny_tool(
+                        &call.id,
+                        &tool_call_id,
+                        resolved_tool_name.as_str(),
+                        hook_name,
+                        reason,
+                    )
+                    .await?));
+            }
             let gate = match self
                 .apply_pre_tool_use_gate(
                     &call,
@@ -1555,6 +1584,25 @@ impl SessionActor {
                 .await?;
             return Ok(Err(ToolLoop::Continue));
         }
+        if crate::session::guardian::needs_guardian_review(&resolved_tool_name, &raw_input) {
+            let config = crate::session::guardian::GuardianConfig::default();
+            if config.enabled {
+                let guardian = crate::session::guardian::GuardianReviewer::new(config);
+                let verdict = guardian.review(&resolved_tool_name, &raw_input).await;
+                if verdict.outcome == crate::session::guardian::GuardianOutcome::Deny {
+                    return Ok(Err(self
+                        .deny_tool(
+                            &call.id,
+                            &tool_call_id,
+                            resolved_tool_name.as_str(),
+                            "guardian".to_string(),
+                            verdict.reasoning,
+                        )
+                        .await?));
+                }
+            }
+        }
+
         let tool_call_display = self
             .send_tool_call_start(&tool_call_id, &call.function.name, tool_input.clone())
             .await;

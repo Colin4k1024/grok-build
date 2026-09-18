@@ -253,6 +253,7 @@ pub enum PermissionCommand {
 /// edit, a command, an MCP call, or a fetch, so a new `ToolInput` variant cannot run unasked.
 impl From<&xai_grok_tools::types::ToolInput> for AccessKind {
     fn from(input: &xai_grok_tools::types::ToolInput) -> Self {
+        use xai_grok_tools::implementations::grok_build::computer_use::Action as ComputerAction;
         use xai_grok_tools::types::ToolInput;
         match input {
             ToolInput::ReadFile(r) => AccessKind::Read(Some(r.path.clone())),
@@ -312,6 +313,24 @@ impl From<&xai_grok_tools::types::ToolInput> for AccessKind {
             },
             ToolInput::WebFetch(wf) => AccessKind::WebFetch(wf.url.clone()),
             ToolInput::Dynamic(value) => access_kind_from_dynamic(value),
+            ToolInput::ComputerUse(action) => match action {
+                ComputerAction::CapabilityStatus => AccessKind::Read(None),
+                action => AccessKind::Bash(format!(
+                    "computer_use {}",
+                    match action {
+                        ComputerAction::Screenshot => "screenshot",
+                        ComputerAction::Click { .. } => "click",
+                        ComputerAction::DoubleClick { .. } => "double_click",
+                        ComputerAction::Type { .. } => "type",
+                        ComputerAction::KeyPress { .. } => "key_press",
+                        ComputerAction::Scroll { .. } => "scroll",
+                        ComputerAction::MoveMouse { .. } => "move_mouse",
+                        ComputerAction::Navigate { .. } => "navigate",
+                        ComputerAction::Wait { .. } => "wait",
+                        ComputerAction::CapabilityStatus => unreachable!(),
+                    }
+                )),
+            },
             #[allow(unreachable_patterns)]
             _ => AccessKind::Tool("unclassified_tool".to_owned()),
         }
@@ -367,6 +386,9 @@ pub struct PermissionConfig {
     pub prompt_policy: PromptPolicy,
     #[serde(default)]
     pub default_mode_configured: bool,
+    /// Fine-grained network access policy with per-domain allow/deny lists.
+    #[serde(default)]
+    pub network_policy: Option<super::network_policy::NetworkPolicy>,
 }
 impl PermissionConfig {
     pub fn new(rules: Vec<PermissionRule>) -> Self {
@@ -374,6 +396,7 @@ impl PermissionConfig {
             rules,
             prompt_policy: PromptPolicy::Ask,
             default_mode_configured: false,
+            network_policy: None,
         }
     }
 }
@@ -909,6 +932,29 @@ mod tests {
             }))),
             AccessKind::Bash(c) if c == "rm -rf /"
         ));
+    }
+
+    #[test]
+    fn computer_use_actions_enter_the_high_risk_permission_path() {
+        use xai_grok_tools::implementations::grok_build::computer_use::Action;
+        use xai_grok_tools::types::ToolInput;
+
+        let input = ToolInput::ComputerUse(Action::Type {
+            text: "secret text is deliberately not copied into permission data".into(),
+        });
+        let access = AccessKind::from(&input);
+        assert!(
+            matches!(access, AccessKind::Bash(ref summary) if summary == "computer_use type"),
+            "ComputerUse must not fall through to the read fast path: {access:?}"
+        );
+    }
+    #[test]
+    fn computer_use_capability_probe_remains_read_only() {
+        use xai_grok_tools::implementations::grok_build::computer_use::Action;
+        use xai_grok_tools::types::ToolInput;
+
+        let access = AccessKind::from(&ToolInput::ComputerUse(Action::CapabilityStatus));
+        assert!(matches!(access, AccessKind::Read(None)));
     }
     #[test]
     fn client_type_deserializes_grok_shell_as_generic() {

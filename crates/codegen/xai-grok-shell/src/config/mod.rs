@@ -32,6 +32,7 @@ pub fn load_memory_mode() -> std::io::Result<MemoryMode> {
         _ => load_memory_mode_with_remote(None),
     }
 }
+
 pub fn load_memory_mode_with_remote(
     remote: Option<&crate::util::config::RemoteSettings>,
 ) -> std::io::Result<MemoryMode> {

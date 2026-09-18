@@ -10,3 +10,4 @@ src-tauri/gen/
 Cargo.toml.bak
 dist-electron/
 goal-state.json
+.mimosa/

@@ -14,6 +14,12 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Report optional integration availability for this binary and machine
+    Capabilities {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Check terminal, clipboard, color, and input support without starting Grok
     Doctor(crate::doctor_cmd::DoctorArgs),
     /// Manage running leader processes
@@ -83,6 +89,8 @@ See ~/.grok/README.md for more information.
     Wrap(WrapArgs),
     /// Export a session transcript as Markdown
     Export(crate::export_cmd::ExportArgs),
+    /// Manage experience evolution system
+    Evolution(EvolutionArgs),
     /// Export or upload session trace data
     Trace(crate::trace_cmd::TraceArgs),
     /// Check for updates or install a specific version
@@ -142,6 +150,119 @@ See ~/.grok/README.md for more information.
     /// The dashboard shows every session, top-level and subagents.
     /// Disabled when `[dashboard].enabled = false` in `~/.grok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env var is set.
     Dashboard,
+}
+/// Arguments for the `evolution` subcommand.
+#[derive(Debug, clap::Args, Clone)]
+pub struct EvolutionArgs {
+    #[command(subcommand)]
+    pub command: EvolutionCommand,
+}
+/// Evolution subcommands.
+#[derive(Debug, Subcommand, Clone)]
+pub enum EvolutionCommand {
+    /// Show evolution system status
+    Status {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// List evolution runs
+    List {
+        /// Filter by state.
+        #[arg(long)]
+        state: Option<String>,
+        /// Maximum number of results.
+        #[arg(long, default_value = "20")]
+        limit: u32,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect a specific evolution run
+    Inspect {
+        /// Run ID to inspect.
+        run_id: String,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new isolated trial run
+    Run {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export evidence for a run
+    Export {
+        /// Run ID to export.
+        run_id: String,
+        /// Output format.
+        #[arg(long, default_value = "json")]
+        format: String,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Approve ReuseEligible rollout using hashed operator-reviewed reports
+    ApproveRollout {
+        /// Shadow metrics baseline report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        shadow_metrics: PathBuf,
+        /// Worker sandbox/preflight report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        sandbox_report: PathBuf,
+        /// Evidence completeness report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        evidence_report: PathBuf,
+        /// Kill-switch, circuit-breaker, and quarantine drill report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        safety_drill_report: PathBuf,
+        /// Fixed replay corpus report.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        replay_report: PathBuf,
+        /// Stable identity of the approving operator.
+        #[arg(long)]
+        approved_by: String,
+        /// Observed source worktree pollution events.
+        #[arg(long, default_value = "0")]
+        source_pollution_events: u32,
+        /// Unexplained network or out-of-bounds write events.
+        #[arg(long, default_value = "0")]
+        unexplained_network_or_writes: u32,
+        /// Correctness regressions in the fixed replay corpus.
+        #[arg(long, default_value = "0")]
+        replay_regressions: u32,
+        /// Sandbox isolation verification completed successfully.
+        #[arg(long)]
+        sandbox_complete: bool,
+        /// Evidence completeness verification passed.
+        #[arg(long)]
+        evidence_complete: bool,
+        /// Kill-switch, circuit-breaker, and quarantine safety drills passed.
+        #[arg(long)]
+        safety_drills_passed: bool,
+        /// Metrics baseline has been established from shadow observations.
+        #[arg(long)]
+        metrics_baseline_established: bool,
+        /// Confirm this production rollout approval.
+        #[arg(long)]
+        confirm: bool,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Revoke the active ReuseEligible rollout approval
+    RevokeRollout {
+        /// Auditable reason for revocation.
+        #[arg(long)]
+        reason: String,
+        /// Confirm immediate rollout revocation.
+        #[arg(long)]
+        confirm: bool,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
 #[derive(Debug, clap::Args, Clone)]
@@ -630,11 +751,11 @@ pub struct PagerArgs {
     /// Disable structured question prompts from the agent.
     #[arg(long = "no-ask-user", hide = true)]
     pub no_ask_user: bool,
-    /// Legacy compatibility flag for enabling cross-session memory.
+    /// Enable cross-session memory.
     #[arg(
-        long = "experimental-memory",
-        conflicts_with = "no_memory",
-        hide = true
+        long = "memory",
+        visible_alias = "experimental-memory",
+        conflicts_with = "no_memory"
     )]
     pub experimental_memory: bool,
     /// Legacy compatibility flag for disabling cross-session memory.
@@ -649,6 +770,16 @@ pub struct PagerArgs {
     /// Headless only: `/flush` as `-p` text is not a reliable flush trigger.
     #[arg(long = "memory-flush", hide = true)]
     pub memory_flush: bool,
+    /// Enable the experience evolution system in shadow mode.
+    #[arg(
+        long = "evolution",
+        visible_alias = "experimental-evolution",
+        conflicts_with = "no_evolution"
+    )]
+    pub experimental_evolution: bool,
+    /// Disable experience evolution for this session.
+    #[arg(long = "no-evolution", conflicts_with = "experimental_evolution")]
+    pub no_evolution: bool,
     /// Agent name or definition file path.
     #[arg(long = "agent", value_name = "NAME")]
     pub agent: Option<String>,
@@ -726,6 +857,15 @@ pub struct PagerArgs {
     /// Highest precedence: overrides remote `todo_gate_enabled` and the built-in default (which is `false`).
     #[arg(long = "todo-gate", hide = true)]
     pub todo_gate: bool,
+    /// Write privacy-redacted, observation-only laziness classifier diagnostics.
+    /// Prefer `[diagnostics.laziness]` for persistent configuration.
+    #[arg(
+        long = "laziness-debug-log",
+        value_name = "PATH",
+        value_hint = ValueHint::FilePath,
+        hide = true
+    )]
+    pub laziness_debug_log: Option<PathBuf>,
     /// Set the installer field in config.toml.
     #[arg(long = "installer", value_name = "VALUE", hide = true)]
     pub installer: Option<String>,
@@ -735,6 +875,11 @@ pub struct PagerArgs {
     /// Experimental: scrollback-native rendering.
     /// Finalized blocks are printed into the terminal's native scrollback (use the terminal's own scroll / selection).
     /// Session-scoped only, does not write config.
+    /// Scrollback-native rendering. Finalized blocks are printed
+    /// into the terminal's native scrollback (use the terminal's own scroll /
+    /// selection); a small pinned region holds the prompt + running turn.
+    /// Session-scoped only — does not write config. To default plain `grok` to
+    /// minimal, set `[ui] screen_mode = "minimal"` in ~/.grok/config.toml.
     #[arg(long = "minimal")]
     pub minimal: bool,
     /// Open in the standard fullscreen TUI for this session, overriding a config `[ui] screen_mode = "minimal"` preference.
@@ -1041,6 +1186,26 @@ mod tests {
             assert!(args.command.is_none());
         }
     }
+
+    #[test]
+    fn capabilities_accepts_json_output() {
+        let args = PagerArgs::try_parse_from(["grok", "capabilities", "--json"]).unwrap();
+        assert!(matches!(
+            args.command,
+            Some(Command::Capabilities { json: true })
+        ));
+    }
+
+    #[test]
+    fn laziness_debug_log_compatibility_flag_accepts_path() {
+        let args =
+            PagerArgs::try_parse_from(["grok", "--laziness-debug-log", "/tmp/laziness.jsonl"])
+                .unwrap();
+        assert_eq!(
+            args.laziness_debug_log,
+            Some(PathBuf::from("/tmp/laziness.jsonl"))
+        );
+    }
     #[test]
     fn ordinary_and_doctor_parsing_do_not_set_version_intent() {
         assert!(!PagerArgs::try_parse_from(["grok"]).unwrap().version);
@@ -1165,6 +1330,22 @@ mod tests {
         assert!(args.fullscreen && !args.minimal);
         let err = PagerArgs::try_parse_from(["grok", "--minimal", "--fullscreen"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn stable_memory_and_evolution_flags_keep_legacy_aliases() {
+        let stable = PagerArgs::try_parse_from(["grok", "--memory", "--evolution"]).unwrap();
+        assert!(stable.experimental_memory);
+        assert!(stable.experimental_evolution);
+
+        let legacy = PagerArgs::try_parse_from([
+            "grok",
+            "--experimental-memory",
+            "--experimental-evolution",
+        ])
+        .unwrap();
+        assert!(legacy.experimental_memory);
+        assert!(legacy.experimental_evolution);
     }
     #[test]
     fn agent_plugin_dir_repeatable_and_canonicalized() {
@@ -1479,5 +1660,54 @@ mod tests {
             panic!("expected agent subcommand");
         };
         assert_eq!(agent.reasoning_effort.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn evolution_rollout_approval_requires_report_arguments() {
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "evolution",
+            "approve-rollout",
+            "--shadow-metrics",
+            "shadow.json",
+            "--sandbox-report",
+            "sandbox.json",
+            "--evidence-report",
+            "evidence.json",
+            "--safety-drill-report",
+            "drills.json",
+            "--replay-report",
+            "replay.json",
+            "--approved-by",
+            "operator@example.com",
+            "--confirm",
+        ])
+        .expect("rollout approval arguments parse");
+        assert!(matches!(
+            args.command,
+            Some(Command::Evolution(EvolutionArgs {
+                command: EvolutionCommand::ApproveRollout { confirm: true, .. },
+            }))
+        ));
+        assert!(PagerArgs::try_parse_from(["grok", "evolution", "approve-rollout"]).is_err());
+    }
+
+    #[test]
+    fn evolution_rollout_revocation_parses() {
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "evolution",
+            "revoke-rollout",
+            "--reason",
+            "baseline changed",
+            "--confirm",
+        ])
+        .expect("rollout revocation arguments parse");
+        assert!(matches!(
+            args.command,
+            Some(Command::Evolution(EvolutionArgs {
+                command: EvolutionCommand::RevokeRollout { confirm: true, .. },
+            }))
+        ));
     }
 }

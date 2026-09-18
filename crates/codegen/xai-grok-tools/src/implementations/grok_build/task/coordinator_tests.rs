@@ -22,6 +22,7 @@ struct TestControl {
     cancellation: CancellationToken,
     admission_gate: Option<AdmissionGate>,
     admitted_messages: Option<mpsc::UnboundedSender<(ActiveAgentMessageOperation, String)>>,
+    messages: mpsc::UnboundedSender<(String, String)>,
 }
 
 impl ChildControl for TestControl {
@@ -71,6 +72,10 @@ impl ChildControl for TestControl {
     fn cancel(&self) {
         self.cancellation.cancel();
     }
+
+    fn send_message(&self, message: String, message_id: String) -> bool {
+        self.messages.send((message, message_id)).is_ok()
+    }
 }
 
 #[derive(Default)]
@@ -115,6 +120,8 @@ struct TestRunner {
     wake_runs: mpsc::UnboundedSender<WakeRun>,
     admitted_messages: Option<mpsc::UnboundedSender<(ActiveAgentMessageOperation, String)>>,
     admission_gate: Option<AdmissionGate>,
+    messages: mpsc::UnboundedSender<(String, String)>,
+    parent_messages: mpsc::UnboundedSender<(String, String, String)>,
 }
 
 impl ChildRunner for TestRunner {
@@ -146,6 +153,7 @@ impl ChildRunner for TestRunner {
         let admitted_messages = self.admitted_messages.clone();
         let admission_gate = self.admission_gate.clone();
         let failed_wake_teardown_ready = self.failed_wake_teardown_ready.clone();
+        let messages = self.messages.clone();
         Box::pin(async move {
             let ChildRunRequest {
                 request,
@@ -358,6 +366,12 @@ async fn finish_one_for(gate: &mut tokio::sync::broadcast::Receiver<String>, id:
             Err(RecvError::Closed) => std::future::pending::<()>().await,
         }
     }
+
+    fn send_to_parent(&self, parent_session_id: &str, message: String, message_id: String) -> bool {
+        self.parent_messages
+            .send((parent_session_id.to_owned(), message, message_id))
+            .is_ok()
+    }
 }
 
 fn cancelled_result(request: &SubagentRequest) -> SubagentResult {
@@ -470,6 +484,8 @@ pub(in crate::implementations::grok_build::task::coordinator) fn harness_with_op
     let (advertise_tx, advertise_targets) = mpsc::unbounded_channel();
     let (wake_run_tx, wake_runs) = mpsc::unbounded_channel();
     let (admitted_message_tx, admitted_messages) = mpsc::unbounded_channel();
+    let (message_tx, messages) = mpsc::unbounded_channel();
+    let (parent_message_tx, parent_messages) = mpsc::unbounded_channel();
     let actor = tokio::spawn(
         SubagentCoordinator::from_channel(
             command_rx,
@@ -489,6 +505,8 @@ pub(in crate::implementations::grok_build::task::coordinator) fn harness_with_op
                 wake_runs: wake_run_tx,
                 admitted_messages: Some(admitted_message_tx),
                 admission_gate: None,
+                messages: message_tx,
+                parent_messages: parent_message_tx,
             },
             config,
         )
@@ -512,6 +530,8 @@ pub(in crate::implementations::grok_build::task::coordinator) fn harness_with_op
         advertise_targets,
         wake_runs,
         admitted_messages,
+        messages,
+        parent_messages,
         actor,
     }
 }
@@ -594,6 +614,69 @@ fn harness_with_admission_gate(
         admission_entered,
         admission_release,
     }
+}
+
+#[tokio::test]
+async fn messages_are_delivered_and_scoped_to_the_root_session() {
+    use crate::implementations::grok_build::task::types::SubagentMessageOutcome;
+
+    let mut harness = harness(false, std::time::Duration::from_secs(60));
+    let spawn = tokio::spawn({
+        let backend = harness.backend.clone();
+        async move { backend.spawn(request("message-child", true)).await }
+    });
+    assert_eq!(
+        harness.started.recv().await.as_deref(),
+        Some("message-child")
+    );
+
+    let parent = ChannelBackend::for_session(harness.backend.sender(), "parent");
+    let delivered = parent
+        .send_message("message-child", "please check this".into())
+        .await;
+    let message_id = match delivered {
+        SubagentMessageOutcome::Delivered {
+            recipient,
+            message_id,
+        } => {
+            assert_eq!(recipient, "message-child");
+            message_id
+        }
+        other => panic!("unexpected outcome: {other:?}"),
+    };
+    assert_eq!(
+        harness.messages.recv().await,
+        Some(("please check this".into(), message_id))
+    );
+
+    let foreign = ChannelBackend::for_session(harness.backend.sender(), "foreign-parent");
+    assert_eq!(
+        foreign
+            .send_message("message-child", "must not cross scopes".into())
+            .await,
+        SubagentMessageOutcome::NotFound
+    );
+
+    let child = ChannelBackend::for_session(harness.backend.sender(), "message-child");
+    let delivered = child.send_message("main", "child update".into()).await;
+    let parent_message_id = match delivered {
+        SubagentMessageOutcome::Delivered {
+            recipient,
+            message_id,
+        } => {
+            assert_eq!(recipient, "main");
+            message_id
+        }
+        other => panic!("unexpected outcome: {other:?}"),
+    };
+    assert_eq!(
+        harness.parent_messages.recv().await,
+        Some(("parent".into(), "child update".into(), parent_message_id))
+    );
+
+    let _ = harness.finish.send(());
+    assert!(spawn.await.unwrap().unwrap().success);
+    harness.actor.abort();
 }
 
 /// Session-bound backend for ParentSession cancel / admission on the default

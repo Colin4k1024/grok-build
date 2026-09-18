@@ -18,12 +18,15 @@ pub(crate) use version_mismatch::{is_version_mismatch_banner, version_mismatch_b
 pub(crate) fn is_session_update_ext_method(method: &str) -> bool {
     matches!(method, "x.ai/session_notification" | "x.ai/session/update")
 }
+mod xml_tool_call;
+
+use anyhow::Result;
+use tokio_util::sync::CancellationToken;
+
 use crate::client_identity::{HEADLESS_CLIENT_TYPE, PAGER_CLIENT_TYPE, PAGER_CLIENT_VERSION};
 use agent_client_protocol as acp;
-use anyhow::Result;
 pub use model_state::ModelState;
 use std::io::Write;
-use tokio_util::sync::CancellationToken;
 use xai_acp_lib::{AcpAgentTx, AcpClientRx, acp_send};
 use xai_grok_shell::agent::auth_method::AuthMethodKind;
 use xai_grok_shell::agent::config::Config as AgentConfig;
@@ -195,6 +198,8 @@ pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<
                 cli_web_search_model: None,
                 cli_session_summary_model: None,
                 memory_enabled_override: flags.memory_enabled_override,
+                cli_experimental_memory: false,
+                cli_no_memory: false,
                 disable_web_search: flags.disable_web_search,
                 todo_gate: flags.todo_gate,
                 laziness_debug_log: flags.laziness_debug_log.as_deref(),
@@ -946,6 +951,9 @@ mod tests {
         let detected = unsupported_leader_flags(&flags);
         assert_eq!(detected.len(), 4);
         assert!(detected.contains(&"--experimental-memory"));
+        assert_eq!(detected.len(), 5);
+        assert!(detected.contains(&"--memory"));
+        assert!(detected.contains(&"--no-memory"));
         assert!(detected.contains(&"--disable-web-search"));
         assert!(detected.contains(&"--storage-mode"));
         assert!(detected.contains(&"--subagents"));

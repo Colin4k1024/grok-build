@@ -66,6 +66,10 @@ pub(crate) struct ConfigReloader {
     remote_settings: Option<crate::util::config::RemoteSettings>,
     config_update_tx: mpsc::UnboundedSender<ConfigUpdate>,
     memory_enabled_override: Option<bool>,
+    /// Whether --memory was passed at startup. Persists across config reloads.
+    experimental_memory: bool,
+    /// Whether --no-memory was passed at startup. Persists across config reloads.
+    no_memory: bool,
 }
 
 impl ConfigReloader {
@@ -90,6 +94,8 @@ impl ConfigReloader {
             remote_settings,
             config_update_tx,
             memory_enabled_override,
+            experimental_memory: false,
+            no_memory: false,
         }
     }
 

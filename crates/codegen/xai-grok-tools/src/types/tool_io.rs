@@ -16,16 +16,22 @@ use crate::implementations::codex::grep_files::tool::CodexGrepFilesInput;
 use crate::implementations::codex::list_dir::tool::CodexListDirInput;
 use crate::implementations::codex::read_file::tool::CodexReadFileInput;
 use crate::implementations::grok_build::ask_user_question::AskUserQuestionInput;
+use crate::implementations::grok_build::codegraph_explore::CodeGraphExploreInput;
 use crate::implementations::grok_build::enter_plan_mode::EnterPlanModeInput;
 use crate::implementations::grok_build::exit_plan_mode::ExitPlanModeInput;
 use crate::implementations::grok_build::grep::GrepSearchInput;
 use crate::implementations::grok_build::image_edit::ImageEditInput;
 use crate::implementations::grok_build::image_gen::ImageGenInput;
 use crate::implementations::grok_build::list_dir::ListDirInput;
+use crate::implementations::grok_build::notebook_edit::NotebookEditInput;
 use crate::implementations::grok_build::read_file::ReadFileInput;
+use crate::implementations::grok_build::report_findings::ReportFindingsInput;
 use crate::implementations::grok_build::search_replace::SearchReplaceInput;
 use crate::implementations::grok_build::send_feedback::SendFeedbackInput;
 use crate::implementations::grok_build::send_subagent_message::SendSubagentMessageInput;
+use crate::implementations::grok_build::sleep::SleepInput;
+use crate::implementations::grok_build::test_sync::types::TestSyncInput;
+use crate::implementations::grok_build::turn_rollback::TurnRollbackInput;
 use crate::implementations::grok_build::todo::TodoWriteInput;
 use crate::implementations::grok_build::update_goal::UpdateGoalInput;
 use crate::implementations::grok_build::video_gen::{ImageToVideoInput, ReferenceToVideoInput};
@@ -66,6 +72,7 @@ pub enum ToolInput {
     WaitTasks(WaitTasksToolInput),
     KillTask(KillTaskToolInput),
     Task(TaskToolInput),
+    SendMessage(crate::implementations::grok_build::send_message::SendMessageInput),
     WebSearch(WebSearchInput),
     ImageGen(ImageGenInput),
     ImageEdit(ImageEditInput),
@@ -88,13 +95,21 @@ pub enum ToolInput {
     #[serde(alias = "SendAgentMessage")]
     SendSubagentMessage(SendSubagentMessageInput),
     SendFeedback(SendFeedbackInput),
+    ReportFindings(ReportFindingsInput),
+    NotebookEdit(NotebookEditInput),
+    CodeGraphExplore(CodeGraphExploreInput),
+    ComputerUse(xai_grok_computer_use::Action),
     Lsp(LspToolInput),
     Monitor(crate::implementations::grok_build::monitor::types::MonitorInput),
     SchedulerCreate(crate::implementations::grok_build::scheduler::create::SchedulerCreateInput),
     SchedulerDelete(crate::implementations::grok_build::scheduler::delete::SchedulerDeleteInput),
     SchedulerList(crate::implementations::grok_build::scheduler::list::SchedulerListInput),
+    ScheduleWakeup(crate::implementations::grok_build::schedule_wakeup::ScheduleWakeupInput),
     UpdateGoal(UpdateGoalInput),
     Workflow(crate::implementations::grok_build::workflow::WorkflowToolInput),
+    Sleep(SleepInput),
+    TurnRollback(TurnRollbackInput),
+    TestSync(TestSyncInput),
     /// Dynamic input for runtime-registered tools (MCP, etc.)
     Dynamic(serde_json::Value),
 }

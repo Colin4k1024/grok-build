@@ -725,9 +725,21 @@ pub struct MvpAgent {
     /// Memory system configuration for future session spawns.
     /// Replaced after runtime config is re-resolved; running sessions retain their cloned snapshot.
     memory_config: RefCell<Option<crate::config::MemoryConfig>>,
-    /// Optional channel to the leader's `ConfigFileWatcher` for dynamic per-cwd registration as new sessions open.
-    /// Each successful session insert in `spawn_and_register_session` sends the session's cwd to the watcher task spawned in `agent/app.rs`.
-    /// That task calls [`crate::config::watcher::ConfigFileWatcher::watch_path`] (a **non-recursive** watch on `<cwd>/` and `<cwd>/.grok/`). `None` outside leader mode and in tests; the registration is a no-op in that case. That is fine: the existing per-extra-path loop already covers the leader's startup cwd. Plain `Option` (not `RefCell`). It is only read thereafter, so no interior mutability is required.
+    /// Optional channel to the leader's `ConfigFileWatcher` for dynamic
+    /// per-cwd registration as new sessions open. Each
+    /// successful session insert in `spawn_and_register_session` sends
+    /// the session's cwd to the watcher task spawned in
+    /// `agent/app.rs`, which calls
+    /// [`crate::config::watcher::ConfigFileWatcher::watch_path`] (a
+    /// **non-recursive** watch on `<cwd>/` and `<cwd>/.grok/`).
+    ///
+    /// `None` outside leader mode and in tests — the registration is a
+    /// no-op in that case, which is fine: the existing per-extra-path
+    /// loop already covers the leader's startup cwd.
+    /// Plain `Option` (not `RefCell`) — this is written
+    /// exactly once, by `set_config_watcher_path_tx(&mut self)` during
+    /// leader construction while the agent is still uniquely owned, and
+    /// only read thereafter. No interior mutability is required.
     pub(crate) config_watcher_path_tx: Option<
         tokio::sync::mpsc::UnboundedSender<std::path::PathBuf>,
     >,

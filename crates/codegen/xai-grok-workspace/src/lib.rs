@@ -20,6 +20,7 @@ pub mod folder_trust;
 pub mod fs_notify;
 pub(crate) mod git_content_filters;
 pub(crate) mod git_odb;
+mod git_collect;
 pub mod handle;
 pub mod host_kind;
 pub mod hub;

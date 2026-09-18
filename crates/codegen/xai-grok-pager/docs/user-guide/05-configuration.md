@@ -315,6 +315,7 @@ Persist knowledge across sessions. New users should opt into memory v2 with
 `[memory_v2] enabled = true`. Existing `GROK_MEMORY=1`, `[memory] enabled =
 true`, and managed `memory_enabled` settings continue to enable legacy memory
 unless the v2 gate is enabled.
+Persist knowledge across sessions (requires `--memory` or `GROK_MEMORY=1`).
 
 ```toml
 [memory_v2]

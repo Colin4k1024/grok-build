@@ -17,6 +17,7 @@ use super::types::{
     SpawnedSubagentRef, SubagentActiveMessageRequest, SubagentCancelOutcome, SubagentCancelRequest,
     SubagentCancelTarget, SubagentDescribeOutcome, SubagentDescribeRequest, SubagentEvent,
     SubagentEventSender, SubagentInspectRequest, SubagentInspection, SubagentListRunningRequest,
+    SubagentMessageOutcome, SubagentMessageRequest,
     SubagentQueryRequest, SubagentRegistryCounts, SubagentRegistryCountsRequest, SubagentRequest,
     SubagentResult, SubagentSnapshot, SubagentSpawnRequest, SubagentSpawnedRefsRequest,
     SubagentValidateTypeOutcome, SubagentValidateTypeRequest,
@@ -59,6 +60,9 @@ pub trait SubagentBackend: Send + Sync + 'static {
 
     /// Request cancellation of a subagent by ID.
     async fn cancel(&self, id: &str) -> SubagentCancelOutcome;
+
+    /// Deliver a message within this backend's parent-session scope.
+    async fn send_message(&self, target: &str, message: String) -> SubagentMessageOutcome;
 
     /// Validate a subagent type synchronously before spawning.
     /// Returns `CoordinatorGone` on channel close and `ValidationUnavailable`
@@ -599,6 +603,28 @@ impl SubagentBackend for ChannelBackend {
             return SubagentCancelOutcome::NotFound;
         }
         response_rx.await.unwrap_or(SubagentCancelOutcome::NotFound)
+    }
+
+    async fn send_message(&self, target: &str, message: String) -> SubagentMessageOutcome {
+        let Some(caller_session_id) = self.parent_session_id() else {
+            return SubagentMessageOutcome::Unavailable;
+        };
+        let (respond_to, response_rx) = oneshot::channel();
+        if self
+            .tx
+            .send(SubagentEvent::SendMessage(SubagentMessageRequest {
+                caller_session_id: Some(caller_session_id),
+                target: target.to_owned(),
+                message,
+                respond_to,
+            }))
+            .is_err()
+        {
+            return SubagentMessageOutcome::Unavailable;
+        }
+        response_rx
+            .await
+            .unwrap_or(SubagentMessageOutcome::Unavailable)
     }
 
     async fn validate_type(

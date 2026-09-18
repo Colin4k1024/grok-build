@@ -45,6 +45,7 @@ mod env_expand;
 pub mod error;
 pub mod event;
 pub mod matcher;
+pub mod native;
 pub mod result;
 pub mod runner;
 #[cfg(test)]

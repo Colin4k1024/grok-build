@@ -448,6 +448,8 @@ pub(crate) fn state_is_busy(state: &State) -> bool {
     state.running_task.is_some()
         || state.finalization_gate.is_active()
         || !state.pending_inputs.is_empty()
+        || !state.pending_inputs.is_empty()
+        || !state.pending_notifications.is_empty()
 }
 use xai_grok_login::AuthManager;
 #[derive(Clone)]
@@ -728,6 +730,14 @@ pub(crate) struct SessionActor {
     pub(crate) transient_episode_start: std::cell::Cell<Option<tokio::time::Instant>>,
     /// Normal sessions hold a clone of `MvpAgent::auth_method_id`.
     /// Subagents instead get a fresh, isolated handle seeded once at spawn (frozen for their lifetime).
+    pub(crate) evolution_service: crate::session::handle::EvolutionServiceSlot,
+    pub(crate) evolution_context_injected: std::sync::atomic::AtomicBool,
+    pub(crate) evolution_injection:
+        parking_lot::Mutex<Option<xai_grok_evolution::ExperienceInjection>>,
+    /// Shared live handle to the current ACP auth method. Normal sessions hold a
+    /// clone of `MvpAgent::auth_method_id`, so a mid-session `/login` is picked
+    /// up by the per-turn auth gate without re-spawning; subagents instead get a
+    /// fresh, isolated handle seeded once at spawn (frozen for their lifetime).
     /// `None` until the agent has selected a method.
     pub(crate) auth_method_id: crate::agent::auth_method::SharedAuthMethodId,
     /// Memoized per-model auth state, read through [`SessionActor::model_auth_facts`] and [`SessionActor::model_auth_provider`].
@@ -1040,6 +1050,12 @@ pub(crate) struct SessionActor {
         std::cell::RefCell<Option<tokio::sync::mpsc::UnboundedSender<turn_end_hooks::QueueItem>>>,
     /// Client hooks from `session/new` `_meta["x.ai/hooks"]`; gated in [`crate::session::acp_session::hooks`].
     /// `RefCell` so `load_session` reconnect can replace the set on the live actor (see `SessionCommand::SetClientHooks`).
+    /// Session-scoped in-process hooks. The contained counter state must not be
+    /// shared across sessions.
+    pub(crate) native_hooks: Vec<Box<dyn xai_grok_hooks::native::NativeHook>>,
+    /// Client hooks from `session/new` `_meta["x.ai/hooks"]`; gated in
+    /// [`crate::session::acp_session::hooks`]. `RefCell` so `load_session` reconnect can
+    /// replace the set on the live actor (see `SessionCommand::SetClientHooks`).
     pub(crate) client_hooks: std::cell::RefCell<crate::extensions::hooks::ClientHooks>,
     /// Resolved workspace root for hooks: git worktree root if in a git repo, otherwise session cwd.
     /// Used for hook child process cwd, envelope fields, and GROK_WORKSPACE_ROOT env var.
@@ -1144,6 +1160,13 @@ pub(crate) struct SessionActor {
     /// Observation-only: no nudges are ever injected when this is `Some`.
     /// `Arc<Path>` because the path is immutable after session spawn.
     /// Concurrent appends rely on `O_APPEND`'s atomic guarantee for writes under `PIPE_BUF` (JSONL lines fit).
+    /// Session-scoped `--laziness-debug-log <path>`. When `Some`, the
+    /// Layer-3 classifier fires after every turn end (bypassing the
+    /// idle wait, the per-model enable gate, and the nudge cap), and
+    /// a privacy-redacted outcome is appended as a JSONL line to this file.
+    /// Observation-only — no nudges are ever injected when this is
+    /// `Some`. `Arc<Path>` because the path is immutable after
+    /// session spawn; writes and size-bounded rotation are serialized in-process.
     pub(crate) laziness_debug_log: Option<std::sync::Arc<std::path::Path>>,
     /// Last live-orphan disk scan.
     /// SessionActor is `!Send`, so a `Cell` is enough to throttle mid-turn ticks without a lock.

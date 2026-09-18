@@ -30,7 +30,9 @@ members = [
     "crates/codegen/xai-grok-config-types",
     "crates/codegen/xai-grok-dashboard-store",
     "crates/codegen/xai-grok-diag-server",
+    "crates/codegen/xai-grok-computer-use",
     "crates/codegen/xai-grok-env",
+    "crates/codegen/xai-grok-evolution",
     "crates/codegen/xai-grok-extra-ca",
     "crates/codegen/xai-grok-feedback",
     "crates/codegen/xai-grok-foreign-sessions",
@@ -213,6 +215,8 @@ num_cpus = "1"
 oauth2 = "5"
 obfstr = "0.4"
 once_cell = "1"
+oris-evolution = "=0.4.1"
+oris-kernel = "=0.2.13"
 opentelemetry = "0.32"
 opentelemetry-http = { version = "0.32", features = ["reqwest-blocking"] }
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "reqwest-blocking-client", "tls-roots"] }
@@ -335,6 +339,7 @@ xai-grok-config-types = { path = "crates/codegen/xai-grok-config-types" }
 xai-grok-dashboard-store = { path = "crates/codegen/xai-grok-dashboard-store" }
 xai-grok-diag-server = { path = "crates/codegen/xai-grok-diag-server" }
 xai-grok-env = { path = "crates/codegen/xai-grok-env" }
+xai-grok-evolution = { path = "crates/codegen/xai-grok-evolution" }
 xai-grok-extra-ca = { path = "crates/codegen/xai-grok-extra-ca" }
 xai-grok-feedback = { path = "crates/codegen/xai-grok-feedback" }
 xai-grok-foreign-sessions = { path = "crates/codegen/xai-grok-foreign-sessions" }

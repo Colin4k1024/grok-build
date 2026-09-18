@@ -163,6 +163,10 @@ impl SessionActor {
     pub(super) fn may_have_hooks_for(&self, event: HookEventName) -> bool {
         self.hook_registry.borrow().is_some()
             || self.client_hooks.borrow().contains_key(&event.canonical())
+            || self
+                .native_hooks
+                .iter()
+                .any(|hook| hook.event() == event.canonical())
     }
 
     pub(super) fn has_enabled_hooks_for(&self, event: HookEventName) -> bool {
@@ -183,6 +187,7 @@ impl SessionActor {
     ) -> HookEventEnvelope {
         let envelope = self.make_hook_envelope(hook_event_name, prompt_id, payload);
         self.notify_client_hooks(&envelope);
+        xai_grok_hooks::dispatcher::dispatch_native_observers(&self.native_hooks, &envelope);
         envelope
     }
 

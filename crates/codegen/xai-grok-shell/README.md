@@ -500,6 +500,7 @@ Type `/` in the input to access commands:
 | `/always-approve [on\|off]`        | `/yolo`   | Toggle auto-approve mode                                 |
 | `/multiline`                       | `/ml`     | Toggle multiline input mode                              |
 | `/memory [workspace\|global] <text>` |         | Append text to a memory file (requires memory enabled) |
+| `/memory [workspace\|global] <text>` |         | Append text to a memory file (requires `--memory`)               |
 | `/flush`                           |           | Save current session knowledge to memory now             |
 | `/skills [name]`                   |           | List skills or inject a skill into context               |
 | `/plugins [list\|reload\|trust]`   | `/plugin` | Manage plugins (list, reload, trust)                     |
@@ -2091,6 +2092,7 @@ See the [MCP Server Registry](https://github.com/modelcontextprotocol/servers) f
 ## Memory
 
 > **Experimental:** enable with `GROK_MEMORY=1`, `[memory] enabled = true`, or managed remote settings.
+> Memory is opt-in. Enable it with `--memory` (or `GROK_MEMORY=1` / `[memory] enabled = true` in config).
 
 Cross-session memory lets Grok remember facts, decisions, code patterns, and debugging workflows across separate sessions in the same project.
 
@@ -2360,6 +2362,7 @@ Grok includes these tools by default:
 | `kill_task`      | Terminate a running background task or subagent                |
 | `get_task_output` | Get output and status from a background task or subagent      |
 | `memory_search`  | Search cross-session memory (requires memory enabled) |
+| `memory_search`  | Search cross-session memory (requires `--memory`)              |
 | `memory_get`     | Read a memory file by path                                     |
 | `search_tool`    | Discover available integration tools (MCP)                     |
 | `use_tool`       | Call an integration tool discovered via `search_tool`           |

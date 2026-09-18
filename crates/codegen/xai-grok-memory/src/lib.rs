@@ -25,6 +25,9 @@
 //! When disabled, this crate is not initialized by the host.
 
 #![deny(clippy::indexing_slicing)]
+//! Memory is gated behind the `--memory` CLI flag or
+//! `GROK_MEMORY=1` environment variable. When disabled, this crate
+//! is not initialized by the host.
 
 pub mod archive;
 pub mod backend;

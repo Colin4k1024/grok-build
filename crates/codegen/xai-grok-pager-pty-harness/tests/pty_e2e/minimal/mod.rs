@@ -1,4 +1,4 @@
-//! PTY e2e tests for the experimental `--minimal` (scrollback-native) mode.
+//! PTY e2e tests for the `--minimal` (scrollback-native) mode.
 //!
 //! Grouped under one `mod minimal;` so the parent `pty_e2e` module isn't interleaved with a dozen `minimal_*` entries.
 //! A full-pager contributor can skip this whole subtree.

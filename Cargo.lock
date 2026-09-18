@@ -8358,6 +8358,39 @@ name = "ordered_hashmap"
 version = "0.0.3"
 
 [[package]]
+name = "oris-evolution"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ea184a5f7e4721decaa5e30b23540daef2839aec129209c1aeb2437f3a2f773"
+dependencies = [
+ "chrono",
+ "hex",
+ "oris-kernel",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "oris-kernel"
+version = "0.2.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af19018a5e2c2c6a3fb3d42a5b0386c5c97915f316589f707a4bcb3904087b15"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hex",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "os_info"
 version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15765,6 +15798,7 @@ dependencies = [
  "xai-grok-hooks",
  "xai-grok-sampling-types",
  "xai-grok-tools",
+ "xai-hunk-tracker",
  "xai-token-estimation",
  "xai-tool-types",
  "xai-tty-utils",
@@ -15822,6 +15856,24 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "xai-grok-computer-use"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "futures-util",
+ "reqwest 0.12.24",
+ "schemars 1.0.4",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
  "tracing",
 ]
 
@@ -15903,6 +15955,31 @@ version = "0.1.0"
 dependencies = [
  "tracing",
  "url",
+]
+
+[[package]]
+name = "xai-grok-evolution"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "libc",
+ "oris-evolution",
+ "oris-kernel",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "uuid",
+ "xai-circuit-breaker",
+ "xai-grok-sandbox",
+ "xai-sqlite-journal",
 ]
 
 [[package]]
@@ -16334,6 +16411,7 @@ dependencies = [
  "xai-grok-version",
  "xai-grok-voice",
  "xai-grok-workspace",
+ "xai-grok-workspace-types",
  "xai-hooks-plugins-types",
  "xai-prompt-queue",
  "xai-ratatui-inline",
@@ -16348,11 +16426,14 @@ name = "xai-grok-pager-bin"
 version = "1.0.32"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "cryptify",
+ "dirs 5.0.1",
  "dunce",
  "libc",
  "obfstr",
+ "rustls",
  "semver",
  "serde_json",
  "serial_test",
@@ -16367,6 +16448,7 @@ dependencies = [
  "xai-crash-handler",
  "xai-grok-active-sessions",
  "xai-grok-config",
+ "xai-grok-evolution",
  "xai-grok-extra-ca",
  "xai-grok-login",
  "xai-grok-pager",
@@ -16776,6 +16858,7 @@ dependencies = [
  "xai-grok-config",
  "xai-grok-config-types",
  "xai-grok-env",
+ "xai-grok-evolution",
  "xai-grok-extra-ca",
  "xai-grok-feedback",
  "xai-grok-foreign-sessions",
@@ -16804,6 +16887,7 @@ dependencies = [
  "xai-grok-tools",
  "xai-grok-version",
  "xai-grok-workspace",
+ "xai-grok-workspace-types",
  "xai-hooks-plugins-types",
  "xai-hunk-tracker",
  "xai-interjection-core",
@@ -17078,11 +17162,13 @@ dependencies = [
  "wildmatch",
  "windows 0.61.3",
  "wiremock",
+ "xai-codebase-graph",
  "xai-computer-hub-core",
  "xai-computer-hub-sdk",
  "xai-dirs",
  "xai-file-utils",
  "xai-grok-auth",
+ "xai-grok-computer-use",
  "xai-grok-config",
  "xai-grok-env",
  "xai-grok-extra-ca",
@@ -17094,6 +17180,7 @@ dependencies = [
  "xai-grok-tools-api",
  "xai-grok-version",
  "xai-grok-workspace-types",
+ "xai-hunk-tracker",
  "xai-interjection-core",
  "xai-message-delivery-core",
  "xai-test-utils",
@@ -17179,6 +17266,7 @@ dependencies = [
  "url",
  "xai-dirs",
  "xai-grok-extra-ca",
+ "xai-grok-workspace-types",
  "xai-tty-utils",
 ]
 

@@ -88,7 +88,7 @@ use super::settings::setters::{
     set_page_flip_on_send, set_prompt_suggestions, set_remember_tool_approvals, set_render_mermaid,
     set_respect_manual_folds, set_screen_mode, set_scroll_lines, set_scroll_mode, set_scroll_speed,
     set_show_thinking_blocks, set_show_tips, set_simple_mode, set_theme, set_timeline,
-    set_timestamps, set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled,
+    set_timestamps, set_todo_gate, set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled,
     set_voice_stt_language,
 };
 use super::settings::ui::{
@@ -1098,6 +1098,7 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::ToggleVimMode => dispatch_toggle_vim_mode(app),
         Action::SetVimMode(v) => set_vim_mode(app, v),
         Action::SetRememberToolApprovals(v) => set_remember_tool_approvals(app, v),
+        Action::SetTodoGate(v) => set_todo_gate(app, v),
         Action::SetAskUserQuestionTimeoutEnabled(v) => {
             set_ask_user_question_timeout_enabled(app, v)
         }
@@ -1153,6 +1154,40 @@ pub(crate) fn dispatch(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::PreviewAutoDarkTheme(v) => preview_auto_dark_theme(app, v),
         Action::PreviewAutoLightTheme(v) => preview_auto_light_theme(app, v),
         Action::OpenSettings => dispatch_open_settings(app, None),
+        Action::OpenEvolutionModal => dispatch_open_evolution(app),
+        Action::SetEvolutionMode { target_mode } => dispatch_set_evolution_mode(app, target_mode),
+        Action::InspectEvolutionRun { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| Effect::InspectEvolutionRun {
+                agent_id,
+                session_id,
+                run_id,
+            })
+        }
+        Action::LoadEvolutionLineage { experience_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| {
+                Effect::LoadEvolutionLineage {
+                    agent_id,
+                    session_id,
+                    experience_id,
+                }
+            })
+        }
+        Action::RetryEvolutionTrial { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| Effect::RetryEvolutionTrial {
+                agent_id,
+                session_id,
+                run_id,
+            })
+        }
+        Action::ExportEvolutionEvidence { run_id } => {
+            dispatch_evolution_run_action(app, |agent_id, session_id| {
+                Effect::ExportEvolutionEvidence {
+                    agent_id,
+                    session_id,
+                    run_id,
+                }
+            })
+        }
         Action::OpenSettingsFocus { key } => dispatch_open_settings(app, Some(key)),
         Action::PrivacyBannerOptIn => dispatch_privacy_banner_opt_in(app),
         Action::PrivacyBannerOptOut => dispatch_privacy_banner_opt_out(app),
@@ -1705,4 +1740,69 @@ pub(super) fn dispatch_action_result(
             }
         },
     }
+}
+
+fn dispatch_open_evolution(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::evolution_modal::EvolutionModalState;
+    use crate::views::modal::ActiveModal;
+
+    let ActiveView::Agent(id) = app.active_view else {
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return vec![];
+    };
+
+    if matches!(&agent.active_modal, Some(ActiveModal::Evolution { .. })) {
+        agent.active_modal = None;
+        return vec![];
+    }
+
+    let session_id = agent.session.session_id.clone();
+    let state = EvolutionModalState::new("Loading…".to_string());
+    agent.active_modal = Some(ActiveModal::Evolution {
+        state: Box::new(state),
+    });
+    session_id
+        .map(|session_id| Effect::FetchEvolutionState {
+            agent_id: id,
+            session_id,
+        })
+        .into_iter()
+        .collect()
+}
+
+fn dispatch_set_evolution_mode(app: &mut AppView, target_mode: String) -> Vec<Effect> {
+    let ActiveView::Agent(agent_id) = app.active_view else {
+        return vec![];
+    };
+    let Some(session_id) = app
+        .agents
+        .get(&agent_id)
+        .and_then(|agent| agent.session.session_id.clone())
+    else {
+        return vec![];
+    };
+    vec![Effect::SetEvolutionMode {
+        agent_id,
+        session_id,
+        target_mode,
+    }]
+}
+
+fn dispatch_evolution_run_action(
+    app: &AppView,
+    build: impl FnOnce(crate::app::agent::AgentId, agent_client_protocol::SessionId) -> Effect,
+) -> Vec<Effect> {
+    let ActiveView::Agent(agent_id) = app.active_view else {
+        return vec![];
+    };
+    let Some(session_id) = app
+        .agents
+        .get(&agent_id)
+        .and_then(|agent| agent.session.session_id.clone())
+    else {
+        return vec![];
+    };
+    vec![build(agent_id, session_id)]
 }

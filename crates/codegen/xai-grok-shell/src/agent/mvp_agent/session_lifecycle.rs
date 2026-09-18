@@ -152,6 +152,9 @@ impl MvpAgent {
     pub(crate) fn resident_handle(&self, id: &acp::SessionId) -> Option<SessionHandle> {
         self.session_registry.resident_handle(id)
     }
+    pub(crate) fn tracked_session_ids(&self) -> Vec<acp::SessionId> {
+        self.session_registry.tracked_ids()
+    }
     pub(crate) fn is_resident(&self, id: &acp::SessionId) -> bool {
         self.session_registry.is_resident(id)
     }
@@ -577,6 +580,12 @@ impl MvpAgent {
         tokio::time::timeout(IDLE_QUERY_TIMEOUT, handle.is_busy())
             .await
             .unwrap_or(true)
+    }
+
+    /// Aggregate "any work pending" check for idle-unload.
+    /// Returns `true` while the session has foreground or autonomous work.
+    pub(super) async fn session_has_live_work(&self, id: &acp::SessionId) -> bool {
+        self.session_is_busy(id).await
     }
     /// Counts for `x.ai/debug/agent`, including maps outside the registry.
     pub(crate) async fn registry_snapshot(&self) -> RegistrySnapshot {

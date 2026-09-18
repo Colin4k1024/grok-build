@@ -1632,7 +1632,7 @@ async fn build_request_includes_all_messages() {
 
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "conv-1".into(), "req-1".into())
+        .build_request(vec![], None, false, None, None, "conv-1".into(), "req-1".into())
         .await
         .unwrap();
     assert_eq!(request.items.len(), 2);
@@ -1676,7 +1676,7 @@ async fn build_request_with_empty_conversation() {
     let h = TestHarness::new();
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert!(request.items.is_empty());
@@ -1690,7 +1690,7 @@ async fn build_request_preserves_system_message() {
     ]);
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert_eq!(request.items.len(), 2);
@@ -1713,6 +1713,7 @@ async fn build_request_injects_memory_reminder() {
             vec![],
             Some("Remember: user prefers Rust".to_string()),
             false,
+            None,
             None,
             "c".into(),
             "r".into(),
@@ -1737,6 +1738,7 @@ async fn build_request_injects_memory_when_no_system() {
             vec![],
             Some("Remember this".to_string()),
             false,
+            None,
             None,
             "c".into(),
             "r".into(),
@@ -1770,7 +1772,7 @@ async fn build_request_repairs_dangling_tool_calls() {
 
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -1799,7 +1801,7 @@ async fn build_request_with_tool_definitions() {
 
     let request = h
         .handle
-        .build_request(tools, None, false, None, "c".into(), "r".into())
+        .build_request(tools, None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -1825,7 +1827,7 @@ async fn build_request_uses_sampling_config() {
 
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -1849,6 +1851,7 @@ async fn build_request_does_not_mutate_actor_state() {
             vec![],
             Some("injected memory".to_string()),
             false,
+            None,
             None,
             "c".into(),
             "r".into(),
@@ -1877,6 +1880,7 @@ async fn build_request_can_persist_memory_into_actor_state() {
             vec![],
             Some("<memory-context>\nRemember this\n</memory-context>".to_string()),
             true,
+            None,
             None,
             "c".into(),
             "r".into(),
@@ -1931,7 +1935,7 @@ async fn build_request_with_multiple_tool_calls_and_results() {
 
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -2145,7 +2149,7 @@ async fn parallel_tool_calls_with_rejection_has_no_dangling_calls() {
     // Build request — should NOT add any synthetic ToolResults
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -2344,7 +2348,7 @@ async fn dangling_tool_calls_after_crash_are_repaired_on_load() {
     // build_request should also see 6 items (no double-repair)
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert_eq!(
@@ -2392,7 +2396,7 @@ async fn dangling_tool_calls_repair_is_consistent_between_state_and_request() {
     // build_request should match (no extra synthetic results)
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert_eq!(
@@ -2469,7 +2473,7 @@ async fn all_tool_calls_dangling_after_crash() {
     // build_request should also see 6 items — no double-repair
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert_eq!(request.items.len(), 6);
@@ -2578,7 +2582,7 @@ async fn live_cancel_before_any_tool_execution_repairs_on_next_user_message() {
     // build_request should work cleanly — no dangling calls, no double-repair
     let request = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
     assert_eq!(request.items.len(), 9);
@@ -3131,6 +3135,7 @@ async fn turn_capture_survives_persisted_memory_reminder_prepend() {
             vec![],
             Some("Remember this".to_string()),
             true,
+            None,
             None,
             "c".into(),
             "r".into(),
@@ -4788,7 +4793,7 @@ async fn prefix_stable_across_user_assistant_turns() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -4799,7 +4804,7 @@ async fn prefix_stable_across_user_assistant_turns() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -4811,7 +4816,7 @@ async fn prefix_stable_across_user_assistant_turns() {
 
     let req3 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r3".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r3".into())
         .await
         .unwrap();
 
@@ -4835,6 +4840,7 @@ async fn prefix_stable_with_consistent_memory_injection() {
             Some("Remember: user likes Rust".to_string()),
             false,
             None,
+            None,
             "c".into(),
             "r1".into(),
         )
@@ -4852,6 +4858,7 @@ async fn prefix_stable_with_consistent_memory_injection() {
             vec![],
             Some("Remember: user likes Rust".to_string()),
             false,
+            None,
             None,
             "c".into(),
             "r2".into(),
@@ -4873,7 +4880,7 @@ async fn prefix_stable_with_reasoning_siblings_through_build_request() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -4887,7 +4894,7 @@ async fn prefix_stable_with_reasoning_siblings_through_build_request() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -4902,7 +4909,7 @@ async fn prefix_stable_with_reasoning_siblings_through_build_request() {
 
     let req3 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r3".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r3".into())
         .await
         .unwrap();
 
@@ -4932,7 +4939,7 @@ async fn prefix_stable_after_tool_schema_change() {
 
     let req1 = h
         .handle
-        .build_request(tools_v1, None, false, None, "c".into(), "r1".into())
+        .build_request(tools_v1, None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -4956,7 +4963,7 @@ async fn prefix_stable_after_tool_schema_change() {
 
     let req2 = h
         .handle
-        .build_request(tools_v2, None, false, None, "c".into(), "r2".into())
+        .build_request(tools_v2, None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -4974,7 +4981,7 @@ async fn prefix_stable_after_model_switch() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -4991,7 +4998,7 @@ async fn prefix_stable_after_model_switch() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5010,7 +5017,7 @@ async fn prefix_stable_with_synthetic_user_messages() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -5026,7 +5033,7 @@ async fn prefix_stable_with_synthetic_user_messages() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5065,7 +5072,7 @@ async fn prefix_stable_after_image_pruning() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -5087,7 +5094,7 @@ async fn prefix_stable_after_image_pruning() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5160,7 +5167,7 @@ async fn build_request_preserves_small_old_images() {
 
     let req = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r".into())
         .await
         .unwrap();
 
@@ -5261,7 +5268,7 @@ async fn prefix_stable_after_tool_result_pruning() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -5274,7 +5281,7 @@ async fn prefix_stable_after_tool_result_pruning() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5334,7 +5341,7 @@ async fn prefix_stable_with_backend_tool_calls() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -5356,7 +5363,7 @@ async fn prefix_stable_with_backend_tool_calls() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5368,7 +5375,7 @@ async fn prefix_stable_with_backend_tool_calls() {
 
     let req3 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r3".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r3".into())
         .await
         .unwrap();
 
@@ -5387,7 +5394,7 @@ async fn prefix_stable_after_session_resume() {
 
     let req1 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r1".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r1".into())
         .await
         .unwrap();
 
@@ -5397,7 +5404,7 @@ async fn prefix_stable_after_session_resume() {
 
     let req2 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r2".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r2".into())
         .await
         .unwrap();
 
@@ -5410,7 +5417,7 @@ async fn prefix_stable_after_session_resume() {
 
     let req3 = h
         .handle
-        .build_request(vec![], None, false, None, "c".into(), "r3".into())
+        .build_request(vec![], None, false, None, None, "c".into(), "r3".into())
         .await
         .unwrap();
 

@@ -260,6 +260,10 @@ pub struct SessionContext {
     /// Defaults to [`crate::reminders::DEFAULT_REMINDER_TAG`] (hyphen).
     /// Hosts that expect a different tag name may override this.
     pub system_reminder_tag: &'static str,
+    /// Optional hunk tracker handle for turn-level diff tracking and rollback.
+    /// When `Some`, inserted into `Resources` so `TurnRollbackTool` can act
+    /// on per-turn hunks. When `None`, the tool returns a graceful error.
+    pub hunk_tracker_handle: Option<xai_hunk_tracker::HunkTrackerHandle>,
 }
 /// Default metadata for dynamically registered tools (e.g., MCP tools)
 /// that don't implement `ToolMetadata`.
@@ -617,6 +621,15 @@ impl ToolRegistryBuilder {
         b.register::<grok_build::KillTaskTool>();
         b.register::<grok_build::KillTerminalCommandTool>();
         b.register::<grok_build::TodoWriteTool>();
+        b.register::<grok_build::ReportFindingsTool>();
+        b.register::<grok_build::NotebookEditTool>();
+        b.register::<grok_build::CodeGraphExploreTool>();
+        // Known to the registry for explicit tool configurations only. No
+        // built-in preset selects it, and its params default to disabled.
+        b.register_with_params::<
+            grok_build::ComputerUseTool,
+            grok_build::computer_use::ComputerUseParams,
+        >();
         b.register::<grok_build::UpdateGoalTool>();
         b.register::<grok_build::WorkflowTool>();
         b.register::<grok_build::TaskOutputTool>();
@@ -625,6 +638,7 @@ impl ToolRegistryBuilder {
         b.register::<grok_build::TaskTool>();
         b.register::<grok_build::SendSubagentMessageTool>();
         b.register::<grok_build::SendFeedbackTool>();
+        b.register::<grok_build::SendMessageTool>();
         b.register::<grok_build::WebSearchTool>();
         b.register_with_params::<grok_build::WebFetchTool, grok_build::web_fetch::WebFetchParams>();
         b.register::<grok_build::LspTool>();
@@ -639,9 +653,13 @@ impl ToolRegistryBuilder {
                 grok_build::ask_user_question::AskUserQuestionParams,
             >();
         b.register::<grok_build::MonitorTool>();
+        b.register::<grok_build::SleepTool>();
+        b.register::<grok_build::TurnRollbackTool>();
+        b.register::<grok_build::TestSyncTool>();
         b.register::<grok_build::SchedulerCreateTool>();
         b.register::<grok_build::SchedulerDeleteTool>();
         b.register::<grok_build::SchedulerListTool>();
+        b.register::<grok_build::ScheduleWakeupTool>();
         b.register::<codex::apply_patch::ApplyPatchTool>();
         b.register::<codex::list_dir::CodexListDirTool>();
         b.register::<codex::grep_files::CodexGrepFilesTool>();
@@ -686,6 +704,7 @@ impl ToolRegistryBuilder {
                 grok_build_hashline::config::HashlineSchemeParams,
             >();
         b.register_reminder(crate::reminders::LspDiagnosticsReminder);
+        b.register_reminder(crate::reminders::ReadFileReminder);
         b.register_reminder(crate::reminders::TaskCompletionReminder);
         b.register_reminder(SkillDiscoveryReminder);
         for pack in tool_packs().lock().iter() {
@@ -963,6 +982,9 @@ impl ToolRegistryBuilder {
         }
         if let Some(memory_backend) = ctx.memory_backend {
             resources.insert(memory_backend);
+        }
+        if let Some(hunk_tracker) = ctx.hunk_tracker_handle {
+            resources.insert(hunk_tracker);
         }
         if let Some(auth_provider) = ctx.auth_provider.clone() {
             resources.insert(auth_provider);
@@ -2107,6 +2129,7 @@ mod tests {
             auth_provider: None,
             attribution_callback: None,
             system_reminder_tag: crate::reminders::DEFAULT_REMINDER_TAG,
+            hunk_tracker_handle: None,
         }
     }
     /// Regression test: `kind_params` must merge input params from ALL tools that share a `ToolKind`, not just the first one. Before the fix, the

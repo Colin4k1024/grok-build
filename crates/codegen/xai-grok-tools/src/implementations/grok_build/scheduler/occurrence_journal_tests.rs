@@ -22,6 +22,7 @@ fn task(id: &str, recurring: bool, durable: bool) -> ScheduledTask {
         last_subagent_id: None,
         iterations_since_fresh: 0,
         chain_reset_pending: false,
+        foreground: false,
     }
 }
 

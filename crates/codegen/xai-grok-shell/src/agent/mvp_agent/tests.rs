@@ -1150,6 +1150,7 @@ async fn file_toolset_override_e2e_to_finalized_toolset() {
         auth_provider: None,
         attribution_callback: None,
         system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+        hunk_tracker_handle: None,
     };
     let toolset = builder
         .finalize(def.tool_config, ctx)
@@ -1216,6 +1217,7 @@ fn make_test_handle(
         hunk_tracker_handle,
         chat_state_handle: xai_chat_state::ChatStateHandle::noop(),
         signals_handle: crate::session::signals::SessionSignalsHandle::new(),
+        evolution_service: std::sync::Arc::new(parking_lot::RwLock::new(None)),
         gateway_enabled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
         emit_local_background_tasks: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
         client_caps: crate::session::notifications::SessionClientCaps::new(false, true),

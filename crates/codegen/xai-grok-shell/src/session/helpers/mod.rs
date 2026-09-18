@@ -11,5 +11,6 @@ pub mod session_recap;
 pub mod session_summary;
 pub mod tool_input_parsing;
 pub mod turn_summary;
+pub mod xml_tool_call_recovery;
 
 pub use compaction_context::CompactionStateContext;

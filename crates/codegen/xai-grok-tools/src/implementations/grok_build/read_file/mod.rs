@@ -5,7 +5,8 @@
 //! State:
 //! - Notifications emitted via `NotificationHandle` from Resources.
 //!
-//! Reminders are NOT implemented here (Phase 5).
+//! Empty-file and offset-window reminders are provided by
+//! `crate::reminders::ReadFileReminder` in the registry pipeline.
 use crate::implementations::read_file::{
     handle_pdf, is_pdf_file, raw_text_to_file_content, run_document_extraction,
 };

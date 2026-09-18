@@ -1,0 +1,1 @@
+{"type":"SignalsDetected","data":{"run_id":"run-001","signals":[{"signal_id":"sig-001","schema_version":1,"signal_type":"test_failure","severity":"high","source":{"session_id":"sess-abc123","turn_id":null,"tool_name":"terminal","file_path":null},"description":"test_parse_config failed","context_hash":"aaa","created_at":1753800001}]}}

@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 const RG_VER: &str = "15.0.0";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Rebuild when the TSP bundle changes.
+    println!("cargo:rerun-if-changed=tsp-bundle.tar.gz");
+
     // Only bundle in release builds to avoid slowing down cargo check.
     println!("cargo:rerun-if-env-changed=GROK_SHELL_BUNDLE_RG_PATH");
     println!("cargo:rerun-if-env-changed=GROK_SHELL_RG_DOWNLOAD_BASE");

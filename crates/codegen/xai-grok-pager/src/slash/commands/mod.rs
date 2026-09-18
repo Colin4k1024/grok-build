@@ -17,6 +17,7 @@ pub mod doctor;
 pub mod edit_prompt;
 pub mod effort;
 pub mod effort_levels;
+pub mod evolution;
 pub mod exit;
 pub mod expand;
 pub mod export;
@@ -82,6 +83,12 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(plugin::PluginsCommand),
         Arc::new(btw::BtwCommand),
         Arc::new(voice::VoiceCommand),
+        Arc::new(exit::ExitCommand),
+        Arc::new(evolution::EvolutionCommand),
+        Arc::new(help::HelpCommand),
+        Arc::new(docs::DocsCommand),
+        Arc::new(home::HomeCommand),
+        Arc::new(delete::DeleteCommand),
         Arc::new(new::NewCommand),
         // Per turn.
         Arc::new(effort::EffortCommand),

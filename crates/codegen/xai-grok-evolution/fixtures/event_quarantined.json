@@ -1,0 +1,1 @@
+{"type":"Quarantined","data":{"run_id":"run-001","experience_id":"exp-001","reason":{"reason_type":"consecutive_failures","description":"2 consecutive trial failures","triggering_run_id":"run-001","quarantined_at":1753800100}}}

@@ -1,0 +1,1 @@
+{"type":"RunStarted","data":{"run_id":"run-001","trigger":{"trigger_type":"test_failure","source_event_id":null,"description":"cargo test failed"},"config_snapshot":{"mode":"shadow","budget_max_duration_secs":1200,"budget_max_variant_rounds":3}}}

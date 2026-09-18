@@ -171,6 +171,7 @@ async fn test_agent_from_config(
         auth_provider: None,
         attribution_callback: None,
         system_reminder_tag: xai_grok_tools::reminders::DEFAULT_REMINDER_TAG,
+        hunk_tracker_handle: None,
     };
     let tool_bridge = crate::tools::bridge::ToolBridge::finalize_builder(builder, config, ctx)
         .await
@@ -342,6 +343,9 @@ async fn create_test_actor_inner(
             id: acp::SessionId::new("test-actor"),
             cwd: cwd.as_str().to_string(),
         },
+        evolution_service: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+        evolution_context_injected: std::sync::atomic::AtomicBool::new(false),
+        evolution_injection: parking_lot::Mutex::new(None),
         auth_method_id: test_auth_method_id("test-auth"),
         model_auth_memo: std::cell::RefCell::new(None),
         attribution_callback: None,
@@ -513,6 +517,7 @@ async fn create_test_actor_inner(
         turn_report: Default::default(),
         turn_abort: Default::default(),
         turn_end_tx: Default::default(),
+        native_hooks: Vec::new(),
         client_hooks: Default::default(),
         hook_resolved_workspace_root: String::new(),
         vcs_kind: xai_grok_workspace::session::git::VcsKind::Git,

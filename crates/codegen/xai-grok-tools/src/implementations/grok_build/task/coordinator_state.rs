@@ -72,6 +72,11 @@ pub trait ChildControl: 'static {
     }
 
     fn cancel(&self);
+
+    /// Queue a text interjection into the live child session.
+    fn send_message(&self, _message: String, _message_id: String) -> bool {
+        false
+    }
 }
 
 /// Data reported when runtime initialization has produced a live child.
@@ -193,6 +198,16 @@ pub trait ChildRunner: 'static {
 
     fn resolve_root_session(&self, _session_id: &str) -> Option<Self::RootControl> {
         None
+    }
+
+    /// Queue a child-originated message into its root parent session.
+    fn send_to_parent(
+        &self,
+        _parent_session_id: &str,
+        _message: String,
+        _message_id: String,
+    ) -> bool {
+        false
     }
 
     fn running_count_changed(&self, _running: usize) {}

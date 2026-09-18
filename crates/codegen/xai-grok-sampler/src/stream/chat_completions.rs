@@ -76,9 +76,10 @@ pub fn stream_chat_completions<'a>(
         // This second timer catches the model emitting keepalive or empty-delta SSE events: they satisfy the outer timer but make no real progress
         // Some inference engines do exactly that
         let mut last_content_chunk_at = Instant::now();
+        let mut eos_leak_count: u32 = 0;
 
         let mut stream = raw_stream;
-        loop {
+        'stream: loop {
             let next = match tokio::time::timeout(idle_timeout, stream.next()).await {
                 Ok(Some(next)) => next,
                 Ok(None) => break, // stream ended normally
@@ -140,6 +141,22 @@ pub fn stream_chat_completions<'a>(
                 if let Some(text) = delta.content
                     && !text.is_empty()
                 {
+                    // Stop-sequence guard: detect degenerate </s> token loops
+                    // from model backends that leak EOS tokens as text.
+                    let trimmed = text.trim();
+                    if trimmed == "</s>" || trimmed == "<|endoftext|>" || trimmed == "<|end|>" {
+                        eos_leak_count += 1;
+                        if eos_leak_count >= 3 {
+                            tracing::warn!(
+                                count = eos_leak_count,
+                                "stopping: model is emitting repeated EOS tokens as text"
+                            );
+                            break 'stream;
+                        }
+                        continue;
+                    }
+                    eos_leak_count = 0;
+
                     if !first_token_emitted {
                         first_token_emitted = true;
                         yield SamplingEvent::FirstToken {
@@ -209,13 +226,21 @@ pub fn stream_chat_completions<'a>(
                         }
                     }
 
-                    yield SamplingEvent::ToolCallDelta {
-                        request_id: request_id.clone(),
-                        tool_index: tc_delta.index,
-                        id: id_for_event,
-                        name: name_for_event,
-                        arguments_delta: args_for_event,
-                    };
+                    // Skip empty deltas (no id, no name, no args) — some models
+                    // emit spurious empty tool_call entries that would create
+                    // ghost tool calls downstream.
+                    if id_for_event.is_some()
+                        || name_for_event.is_some()
+                        || args_for_event.is_some()
+                    {
+                        yield SamplingEvent::ToolCallDelta {
+                            request_id: request_id.clone(),
+                            tool_index: tc_delta.index,
+                            id: id_for_event,
+                            name: name_for_event,
+                            arguments_delta: args_for_event,
+                        };
+                    }
                 }
             }
 
@@ -236,12 +261,14 @@ pub fn stream_chat_completions<'a>(
         // ── Build the final response ─────────────────────────────────
         let tool_calls: Vec<ToolCall> = tool_call_acc
             .into_values()
+            .filter(|(_, name, _)| !name.is_empty())
             .map(|(id, name, arguments)| ToolCall {
                 id: std::sync::Arc::<str>::from(id),
                 name,
                 arguments: std::sync::Arc::<str>::from(arguments),
             })
             .collect();
+        let tool_calls = dedup_tool_calls(tool_calls);
 
         // Tool calls override the stop reason, even an explicit `length`.
         // NOTE: the Messages backend has the opposite precedence: Length wins there
@@ -317,6 +344,43 @@ pub fn stream_chat_completions<'a>(
     }
 }
 
+/// Deduplicate retransmissions of the same provider call ID.
+///
+/// Tool name is deliberately not used as an identity: parallel tool calls are
+/// allowed to invoke the same function more than once with different inputs.
+/// Calls without an ID are preserved because there is no safe way to prove
+/// that they are duplicates.
+fn dedup_tool_calls(calls: Vec<ToolCall>) -> Vec<ToolCall> {
+    if calls.len() <= 1 {
+        return calls;
+    }
+    let mut keep = vec![true; calls.len()];
+    for i in 1..calls.len() {
+        if !keep[i] {
+            continue;
+        }
+        for j in 0..i {
+            if !keep[j] {
+                continue;
+            }
+            if !calls[i].id.is_empty() && calls[i].id == calls[j].id {
+                if calls[i].arguments.len() > calls[j].arguments.len() {
+                    keep[j] = false;
+                } else {
+                    keep[i] = false;
+                }
+                break;
+            }
+        }
+    }
+    let deduped: Vec<ToolCall> = calls
+        .into_iter()
+        .zip(keep.iter())
+        .filter_map(|(call, &k)| k.then_some(call))
+        .collect();
+    deduped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +400,47 @@ mod tests {
 
     fn rid() -> RequestId {
         RequestId::from("test-req")
+    }
+
+    fn tool_call(id: &str, name: &str, arguments: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.to_owned(),
+            arguments: arguments.into(),
+        }
+    }
+
+    #[test]
+    fn same_name_parallel_tool_calls_are_preserved() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("call_1", "read_file", r#"{"path":"a"}"#),
+            tool_call("call_2", "read_file", r#"{"path":"b"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id.as_ref(), "call_1");
+        assert_eq!(calls[1].id.as_ref(), "call_2");
+    }
+
+    #[test]
+    fn retransmitted_call_id_keeps_most_complete_arguments() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("call_1", "read_file", "{}"),
+            tool_call("call_1", "read_file", r#"{"path":"a"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].arguments.as_ref(), r#"{"path":"a"}"#);
+    }
+
+    #[test]
+    fn calls_without_ids_are_not_merged() {
+        let calls = dedup_tool_calls(vec![
+            tool_call("", "read_file", r#"{"path":"a"}"#),
+            tool_call("", "read_file", r#"{"path":"b"}"#),
+        ]);
+
+        assert_eq!(calls.len(), 2);
     }
 
     fn make_chunk(deltas: Vec<ChatChunkDelta>) -> ChatCompletionChunk {
