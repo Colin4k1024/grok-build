@@ -9,6 +9,8 @@ interface SidebarProps {
   onNewSessionInDir: (cwd: string) => void;
   onResumeThread: (session: HistorySession) => void;
   onForkSession: (id: string) => void;
+  /** Persist a rename for a history thread (ISS-079). */
+  onRenameHistory: (session: HistorySession, title: string) => void;
   onCloseSession: (id: string) => void;
   onOpenSearch: () => void;
   /** Open settings, optionally on a specific tab (e.g. "plugins"). */
@@ -36,7 +38,7 @@ function NavItem({ icon, label, onClick, title, disabled }: {
 // thread tree, with settings pinned to the bottom.
 export function Sidebar({
   collapsed, creating, onNewSession, onNewSessionInDir, onResumeThread,
-  onForkSession, onCloseSession, onOpenSearch, onOpenSettings, onOpenAutomations,
+  onForkSession, onRenameHistory, onCloseSession, onOpenSearch, onOpenSettings, onOpenAutomations,
 }: SidebarProps) {
   if (collapsed) return null;
 
@@ -84,6 +86,7 @@ export function Sidebar({
         onNewSessionInDir={onNewSessionInDir}
         onResumeThread={onResumeThread}
         onForkSession={onForkSession}
+        onRenameHistory={onRenameHistory}
         onCloseSession={onCloseSession}
       />
 

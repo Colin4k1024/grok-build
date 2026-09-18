@@ -33,9 +33,11 @@ import {
   setSessionModel, resumeSession, addWorktree, listWorktrees,
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
-  onTrayAction, onConfigChanged, getSessionHistoryMessages, gitDiff } from "./lib/tauri";
+  onTrayAction, onConfigChanged, getSessionHistoryMessages, gitDiff,
+  renameHistorySession } from "./lib/tauri";
 import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
+import { forkSnapshot } from "./lib/threadOps";
 import type { Command } from "./components/layout/CommandPalette";
 
 // Boot re-resume must run exactly once per app lifetime: StrictMode double-
@@ -209,6 +211,11 @@ export default function App() {
     if (existing) {
       setActiveSession(existing.id);
       setShowHome(false);
+      // Active-writer conflict (ISS-079, codex #43253 semantics): another
+      // surface holds the pen — follow the transcript read-only, retry after.
+      if (useSessionStore.getState().streaming[existing.id]) {
+        setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送");
+      }
       return;
     }
     setCreating(true);
@@ -389,6 +396,9 @@ export default function App() {
   const handleForkSession = useCallback(async (id: string) => {
     const sourceTab = tabs.find((t) => t.id === id);
     if (!sourceTab) return;
+    // Fork point = snapshot taken BEFORE creating anything — deterministic
+    // even while the source keeps streaming (ISS-079 snapshot semantics).
+    const snapshot = forkSnapshot(useSessionStore.getState().messages[id] ?? []);
     setCreating(true);
     try {
       const info = await createSession(sourceTab.cwd);
@@ -402,9 +412,24 @@ export default function App() {
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       });
+      // Seed the new transcript with the forked copy — new backend id, so the
+      // fork and the source are write-isolated from each other.
+      useSessionStore.getState().loadHistoryMessages(info.id, snapshot);
+      setSlashNotice(`已派生新线程（复制 ${snapshot.length} 条记录）— agent 上下文从派生点重新开始`);
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
   }, [tabs, addTab]);
+
+  // Persist a rename for a history thread (summary.json) and sync any live
+  // tab bound to the same acp session (ISS-079).
+  const handleRenameHistory = useCallback(async (session: HistorySession, title: string) => {
+    try {
+      const r = await renameHistorySession(session.id, session.cwd, title);
+      const tab = useSessionStore.getState().tabs.find((t) => t.acpSessionId === session.id);
+      if (tab) renameTab(tab.id, r.title);
+      window.dispatchEvent(new CustomEvent("gb-threads-changed"));
+    } catch (e) { setError(String(e)); }
+  }, [renameTab]);
 
   useKeyboardShortcuts({
     onNewSession: handleNewSession,
@@ -796,6 +821,7 @@ export default function App() {
           onNewSessionInDir={handleNewSessionInDir}
           onResumeThread={handleResumeThread}
           onForkSession={handleForkSession}
+          onRenameHistory={handleRenameHistory}
           onCloseSession={handleCloseSession}
           onOpenSearch={() => setShowSearch(true)}
           onOpenSettings={(tab) => { setSettingsTab(tab); setShowSettings(true); }}

@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   listHistorySessions,
   getSessionHistory,
+  renameHistorySession,
 } from "../session-history";
 
 let tmp = "";
@@ -205,5 +206,67 @@ describe("getSessionHistory", () => {
   it("throws a clean error for an unknown session", () => {
     fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
     expect(() => getSessionHistory("ghost", "/w/alpha")).toThrow(/No history found/);
+  });
+});
+
+describe("renameHistorySession (ISS-079)", () => {
+  it("persists a sanitized title and returns it", () => {
+    writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
+
+    const out = renameHistorySession("sid-1", "/w/alpha", "  my  new  title  ");
+
+    expect(out).toBe("my new title");
+    const onDisk = JSON.parse(
+      fs.readFileSync(
+        path.join(tmp, "sessions", encodeURIComponent("/w/alpha"), "sid-1", "summary.json"),
+        "utf-8"
+      )
+    );
+    expect(onDisk.generated_title).toBe("my new title");
+  });
+
+  it("keeps every other summary field and never touches the transcript", () => {
+    const dir = writeSession(encodeURIComponent("/w/alpha"), "sid-1", {
+      "summary.json": summaryJson(),
+      "chat_history.jsonl": JSON.stringify({ type: "user", content: "keep" }),
+    });
+    renameHistorySession("sid-1", "/w/alpha", "renamed");
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf-8"));
+    expect(onDisk.info.id).toBe("sid-1");
+    expect(onDisk.num_messages).toBe(7);
+    expect(fs.readFileSync(path.join(dir, "chat_history.jsonl"), "utf-8")).toContain("keep");
+  });
+
+  it("caps length at 200 characters", () => {
+    writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
+    const long = "x".repeat(300);
+    const out = renameHistorySession("sid-1", "/w/alpha", long);
+    expect(out.length).toBe(200);
+  });
+
+  it("empty/whitespace-only titles are rejected", () => {
+    writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
+    expect(() => renameHistorySession("sid-1", "/w/alpha", "   ")).toThrow(/non-empty/);
+    expect(() => renameHistorySession("sid-1", "/w/alpha", "")).toThrow(/non-empty/);
+  });
+
+  it("unknown sessions throw a structured error", () => {
+    fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
+    expect(() => renameHistorySession("ghost", "/w/alpha", "x")).toThrow(/No history found/);
+  });
+
+  it("atomic write: no tmp residue after rename", () => {
+    const dir = writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
+    renameHistorySession("sid-1", "/w/alpha", "clean");
+    const residue = fs.readdirSync(dir).filter((f) => f.includes(".tmp"));
+    expect(residue).toEqual([]);
+  });
+
+  it("concurrent renames: last write wins and the file stays valid JSON", () => {
+    const dir = writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
+    renameHistorySession("sid-1", "/w/alpha", "first");
+    renameHistorySession("sid-1", "/w/alpha", "second");
+    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf-8"));
+    expect(onDisk.generated_title).toBe("second");
   });
 });

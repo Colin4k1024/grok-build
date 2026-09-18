@@ -93,6 +93,7 @@ function setup() {
     onNewSessionInDir: vi.fn(),
     onResumeThread: vi.fn(),
     onForkSession: vi.fn(),
+    onRenameHistory: vi.fn(),
     onCloseSession: vi.fn(),
   };
   const view = render(<ThreadTree {...props} />);

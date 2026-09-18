@@ -262,6 +262,15 @@ export async function deleteHistorySession(sessionId: string, cwd: string): Prom
   return invoke("session_delete_history", { sessionId, cwd });
 }
 
+/** Persist a thread rename into its summary.json (ISS-079). */
+export async function renameHistorySession(
+  sessionId: string,
+  cwd: string,
+  title: string
+): Promise<{ title: string }> {
+  return invoke<{ title: string }>("session_rename_history", { sessionId, cwd, title });
+}
+
 export async function setSessionModel(sessionId: string, modelId: string): Promise<void> {
   return invoke("session_set_model", { sessionId, modelId });
 }

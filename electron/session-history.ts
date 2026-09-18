@@ -169,20 +169,7 @@ function historyFromChatHistory(file: string): ChatHistoryEntry[] {
 }
 
 export function getSessionHistory(sessionId: string, cwd: string): ChatHistoryEntry[] {
-  // The sessions tree groups by URL-encoded cwd; fall back to scanning groups
-  // when the caller-supplied cwd doesn't encode to an existing directory.
-  const encoded = encodeURIComponent(cwd);
-  const inCwd = (name: string) => path.join(sessionsRoot(), encoded, sessionId, name);
-  let dirHit: string | null = fs.existsSync(inCwd("summary.json"))
-    ? path.join(sessionsRoot(), encoded, sessionId)
-    : null;
-  if (!dirHit) {
-    dirHit = fs
-      .readdirSync(sessionsRoot(), { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => path.join(sessionsRoot(), d.name, sessionId))
-      .find((p) => fs.existsSync(path.join(p, "summary.json"))) ?? null;
-  }
+  const dirHit = findSessionDir(sessionId, cwd);
   if (!dirHit) throw new Error(`No history found for session ${sessionId}`);
 
   // Prefer the authoritative update stream; fall back to the raw model
@@ -191,4 +178,56 @@ export function getSessionHistory(sessionId: string, cwd: string): ChatHistoryEn
     historyFromUpdates(path.join(dirHit, "updates.jsonl")) ??
     historyFromChatHistory(path.join(dirHit, "chat_history.jsonl"))
   );
+}
+
+/** Locate a persisted session dir: encoded cwd first, then a group scan. */
+function findSessionDir(sessionId: string, cwd: string): string | null {
+  const encoded = encodeURIComponent(cwd);
+  const inCwd = (name: string) => path.join(sessionsRoot(), encoded, sessionId, name);
+  if (fs.existsSync(inCwd("summary.json"))) {
+    return path.join(sessionsRoot(), encoded, sessionId);
+  }
+  return (
+    fs
+      .readdirSync(sessionsRoot(), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => path.join(sessionsRoot(), d.name, sessionId))
+      .find((p) => fs.existsSync(path.join(p, "summary.json"))) ?? null
+  );
+}
+
+const MAX_TITLE_LEN = 200;
+
+/** Sanitize a user-supplied thread title (shared rename rules). */
+export function sanitizeTitle(title: string): string {
+  const cleaned = (title ?? "")
+    // strip control chars
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_TITLE_LEN);
+  return cleaned;
+}
+
+/**
+ * Persist a thread rename into its summary.json (ISS-079). Atomic
+ * tmp+rename; the transcript on disk is never touched. Last write wins —
+ * concurrent renames converge on whichever write lands last, and readers
+ * re-read the file, so UI and disk agree after refresh.
+ */
+export function renameHistorySession(sessionId: string, cwd: string, title: string): string {
+  const dirHit = findSessionDir(sessionId, cwd);
+  if (!dirHit) throw new Error(`No history found for session ${sessionId}`);
+  const clean = sanitizeTitle(title);
+  if (!clean) throw new Error("rename requires a non-empty title");
+
+  const summaryPath = path.join(dirHit, "summary.json");
+  const raw = readJson(summaryPath);
+  if (!raw) throw new Error(`summary.json unreadable for session ${sessionId}`);
+
+  const next = { ...(raw as Record<string, unknown>), generated_title: clean };
+  const tmp = path.join(dirHit, ".summary.json.tmp");
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
+  fs.renameSync(tmp, summaryPath);
+  return clean;
 }
