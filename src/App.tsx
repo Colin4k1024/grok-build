@@ -33,7 +33,9 @@ import {
   setSessionModel, resumeSession, addWorktree, listWorktrees,
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
-  onTrayAction, onConfigChanged, getSessionHistoryMessages } from "./lib/tauri";
+  onTrayAction, onConfigChanged, getSessionHistoryMessages, gitDiff } from "./lib/tauri";
+import { writeText } from "./lib/desktop";
+import { executeSlashCommand } from "./lib/slashExec";
 import type { Command } from "./components/layout/CommandPalette";
 
 // Boot re-resume must run exactly once per app lifetime: StrictMode double-
@@ -52,6 +54,16 @@ export default function App() {
     setStreaming, addUserMessage,
     pendingPermissions, removePendingPermission, pendingQuestions, removePendingQuestion,
   } = useSessionStore();
+  const clearMessages = useSessionStore((s) => s.clearMessages);
+  const setTabCwd = useSessionStore((s) => s.setTabCwd);
+  const setTabWorkMode = useSessionStore((s) => s.setTabWorkMode);
+  // Slash-command feedback toast (ISS-078): notices like "/pwd", "/usage".
+  const [slashNotice, setSlashNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!slashNotice) return;
+    const t = window.setTimeout(() => setSlashNotice(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [slashNotice]);
 
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
@@ -458,6 +470,38 @@ export default function App() {
         return;
       }
     }
+    // Slash commands: local ones execute client-side, unknown ones error
+    // loudly, agent-side ones pass through as prompts (ISS-078).
+    if (message.startsWith("/")) {
+      const outcome = await executeSlashCommand(message, {
+        streaming: isStreaming,
+        sessionId: sid,
+        cwd: tabs.find((t) => t.id === sid)?.cwd,
+        usage: sid ? useSessionStore.getState().tokenUsage[sid] ?? null : null,
+        lastAssistantText: (() => {
+          const msgs = sid ? useSessionStore.getState().messages[sid] : undefined;
+          const last = msgs ? [...msgs].reverse().find((m) => m.role === "assistant") : undefined;
+          return last?.content ?? "";
+        })(),
+        actions: {
+          clearMessages,
+          renameThread: renameTab,
+          setCwd: setTabCwd,
+          setWorkMode: setTabWorkMode,
+          copyText: (t) => writeText(t),
+          showDiff: (cwd, p) => gitDiff(cwd, p),
+          newThread: () => { setActiveSession(null); setShowHome(true); },
+          notify: (m) => setSlashNotice(m),
+        },
+      });
+      if (outcome.type === "error") { setError(outcome.notice); return; }
+      if (outcome.type === "handled") {
+        if (outcome.notice) setSlashNotice(outcome.notice);
+        return;
+      }
+      // passthrough falls through to the agent prompt below
+    }
+
     addUserMessage(sid, message);
     const tab = tabs.find((t) => t.id === sid);
     if (tab && tab.title.startsWith("Session")) {
@@ -466,7 +510,7 @@ export default function App() {
     setStreaming(true);
     try { await sendMessage(sid, message, images); }
     catch (e) { setError(String(e)); setStreaming(false); }
-  }, [activeSessionId, addTab, addUserMessage, setStreaming, tabs, renameTab]);
+  }, [activeSessionId, addTab, addUserMessage, setStreaming, tabs, renameTab, clearMessages, setTabCwd, setTabWorkMode, isStreaming]);
 
 
   const handleCancel = useCallback(async () => {
@@ -773,6 +817,14 @@ export default function App() {
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
               <span className="flex-1">{error}</span>
               <button className="text-gb-red/60 hover:text-gb-red" onClick={() => setError(null)}>✕</button>
+            </div>
+          )}
+          {slashNotice && (
+            <div
+              className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-gb-border/40 bg-gb-surface-solid px-4 py-2 text-xs text-gb-text shadow-xl"
+              onClick={() => setSlashNotice(null)}
+            >
+              {slashNotice}
             </div>
           )}
 
