@@ -228,8 +228,7 @@ pub(super) fn set_voice_stt_language_inner(app: &mut AppView, canonical: &str) {
     app.current_ui.voice_stt_language = Some(canonical.to_string());
     // Store the preference, not the resolved wire code, so `auto` re-resolves from the locale on each STT connect
     app.voice_config.language = canonical.to_string();
-    // A running pipeline holds the VoiceConfig it was spawned with Shut it down so the next capture starts one with the new language (the event loop respawns lazily whenever `voice_cmd_tx` is None)
-    // Shut it down so the next capture starts one with the new language (the event loop respawns lazily whenever `voice_cmd_tx` is None)
+    // A running pipeline holds the VoiceConfig it was spawned with. Shut it down so the next capture starts one with the new language (the event loop respawns lazily whenever `voice_cmd_tx` is None)
     // Tear down any in-flight session first so the mic indicator clears immediately and the pipeline's channel-close is not misreported as "pipeline ended"
     if language_changed && let Some(tx) = app.voice_cmd_tx.take() {
         app.voice_reset();

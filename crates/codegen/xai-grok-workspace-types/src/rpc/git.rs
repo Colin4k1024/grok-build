@@ -799,7 +799,6 @@ pub struct GitBranchListData {
 pub struct GitCollectChangesReq {
     /// Any path inside the repo/worktree. The git root is discovered from this path.
     /// The field is named `repo_path` (not `git_root`) to match `SerializeRepoChangesRequest`.
-    /// Named `repo_path` (not `git_root`) to match `SerializeRepoChangesRequest`.
     #[serde(alias = "repoPath")]
     pub repo_path: String,
 

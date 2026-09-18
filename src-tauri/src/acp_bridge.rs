@@ -199,8 +199,6 @@ async fn run_agent_loop(
             cli_web_search_model: None,
             cli_session_summary_model: None,
             memory_enabled_override: None,
-            cli_experimental_memory: false,
-            cli_no_memory: false,
             disable_web_search: false,
             todo_gate: false,
             laziness_debug_log: None,

@@ -102,6 +102,10 @@ paths, model output, or free-form errors.
 # ~/.grok/config.toml
 [memory_v2]
 enabled = true
+```
+
+### Per-Session Flag
+
 ```bash
 grok --memory
 ```
@@ -159,11 +163,6 @@ You can also toggle from inside the `/memory` modal by pressing `t`.
 All managed v2 behavior comes from the dedicated
 `grok_build_memory_v2_settings` object. Memory v2 does not consume fields from
 the legacy `grok_build_settings` object.
-1. `--no-memory` CLI flag (always disables)
-2. `--memory` CLI flag (enables; `--experimental-memory` remains a compatibility alias)
-3. `GROK_MEMORY` env var: `1`/`true` enables, `0`/`false` disables
-4. `[memory]` section in config.toml
-5. Default: disabled
 
 ---
 
