@@ -11,5 +11,11 @@ for f in dist-electron/*.js; do
   [ -e "$f" ] || continue
   mv "$f" "${f%.js}.cjs"
 done
-sed -i '' -E 's|require\("\./([a-zA-Z0-9_-]+)"\)|require("./\1.cjs")|g' dist-electron/*.cjs
+# BSD sed (macOS) needs an explicit empty backup arg after -i; GNU sed (Linux
+# CI) treats that arg as the script — detect and use the right form.
+if sed --version >/dev/null 2>&1; then
+  sed -i -E 's|require\("\./([a-zA-Z0-9_-]+)"\)|require("./\1.cjs")|g' dist-electron/*.cjs
+else
+  sed -i '' -E 's|require\("\./([a-zA-Z0-9_-]+)"\)|require("./\1.cjs")|g' dist-electron/*.cjs
+fi
 echo "✓ Electron main+preload built to dist-electron/"
