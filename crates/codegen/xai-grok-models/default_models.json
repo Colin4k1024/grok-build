@@ -32,14 +32,20 @@
       "hidden": false
     },
     {
+      "id": "bailian/qwen-max",
       "model": "qwen-max",
       "name": "Qwen Max (百炼)",
-      "description": "Alibaba's most capable reasoning model",
+      "description": "Alibaba's most capable reasoning model via DashScope",
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "env_key": [
-        "DASHSCOPE_API_KEY"
-      ],
+      "env_key": ["DASHSCOPE_API_KEY", "ALIBABA_CLOUD_API_KEY"],
       "context_window": 262144,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "api_backend": "chat_completions",
+      "supported_in_api": true,
+      "hidden": false
+    },
+    {
       "id": "grok-4.5",
       "model": "grok-4.5",
       "name": "Grok 4.5",
