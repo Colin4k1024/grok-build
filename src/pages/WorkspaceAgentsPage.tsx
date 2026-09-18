@@ -34,7 +34,7 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 px-4">
-        <h2 className="text-[13px] font-medium">Workspace agents</h2>
+        <h2 className="text-[13px] font-medium">工作区 Agent</h2>
         <button
           className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
           onClick={onClose}
@@ -122,7 +122,7 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
                   Summary
                 </p>
                 <pre className="whitespace-pre-wrap text-[12px] text-gb-text-secondary">
-                  {selected.agent.summary || "No summary yet."}
+                  {selected.agent.summary || "暂无摘要。"}
                 </pre>
               </div>
 
@@ -133,11 +133,11 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
                 <dl className="grid grid-cols-2 gap-2 text-[12px]">
                   <dt className="text-gb-muted">ID</dt>
                   <dd className="truncate font-mono text-gb-text">{selected.agent.id}</dd>
-                  <dt className="text-gb-muted">Tool call</dt>
+                  <dt className="text-gb-muted">工具调用</dt>
                   <dd className="truncate font-mono text-gb-text">
                     {selected.agent.toolCallId}
                   </dd>
-                  <dt className="text-gb-muted">Created</dt>
+                  <dt className="text-gb-muted">创建于</dt>
                   <dd className="text-gb-text">
                     {new Date(selected.agent.createdAt).toLocaleString()}
                   </dd>

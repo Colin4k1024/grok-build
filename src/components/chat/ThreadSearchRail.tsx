@@ -70,7 +70,7 @@ export function ThreadSearchRail() {
       {/* Toggle button — fixed to the right edge of the thread viewport. */}
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label="Search in this conversation"
+        aria-label="搜索当前会话"
         className="absolute right-2 top-14 z-20 flex h-7 w-7 items-center justify-center rounded-full border border-gb-border/20 bg-gb-surface-solid text-gb-muted shadow hover:text-gb-text"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -86,7 +86,7 @@ export function ThreadSearchRail() {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search in conversation…"
+              placeholder="搜索会话内容…"
               className="w-full rounded border border-gb-border/20 bg-gb-bg px-2 py-1 text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
             />
             {query && (
@@ -97,7 +97,7 @@ export function ThreadSearchRail() {
           </div>
           <div className="max-h-72 overflow-y-auto">
             {matches.length === 0 && query ? (
-              <p className="px-3 py-4 text-center text-[11px] text-gb-muted">No matches</p>
+              <p className="px-3 py-4 text-center text-[11px] text-gb-muted">无匹配结果</p>
             ) : (
               matches.map((m) => (
                 <button

@@ -19,12 +19,21 @@ import { app } from "electron";
 /**
  * Resolution order:
  *  1. GROK_AGENT_BIN env override (explicit path to the binary)
- *  2. <repo>/target/release/xai-grok-pager
- *  3. <repo>/target/debug/xai-grok-pager
- *  4. "xai-grok-pager" from PATH
+ *  2. Packaged app: <resources>/xai-grok-pager (bundled via extraResources)
+ *  3. <repo>/target/release/xai-grok-pager
+ *  4. <repo>/target/debug/xai-grok-pager
+ *  5. "xai-grok-pager" from PATH
  */
 export function resolveAgentBinary(): string {
   if (process.env.GROK_AGENT_BIN) return process.env.GROK_AGENT_BIN;
+  try {
+    if (app.isPackaged) {
+      const bundled = path.join(process.resourcesPath, "xai-grok-pager");
+      if (fs.existsSync(bundled)) return bundled;
+    }
+  } catch {
+    // app not ready yet — fall through
+  }
   let appPath = process.cwd();
   try {
     appPath = app.getAppPath();
@@ -167,6 +176,7 @@ export class AcpSession {
   private buffer = "";
   private emit: Emit;
   private permissionResponders = new Map<string, (optionId: string | null) => void>();
+  private userQuestionResponders = new Map<string, (response: Record<string, unknown>) => void>();
   private disposed = false;
 
   private constructor(id: string, cwd: string, proc: ChildProcessWithoutNullStreams, emit: Emit) {
@@ -317,6 +327,15 @@ export class AcpSession {
     this.notify("session/cancel", { sessionId: this.acpSessionId });
   }
 
+  /** Answer or dismiss an `x.ai/ask_user_question` ext request. */
+  respondUserQuestion(requestId: string, response: Record<string, unknown>): void {
+    const responder = this.userQuestionResponders.get(requestId);
+    if (responder) {
+      this.userQuestionResponders.delete(requestId);
+      responder(response);
+    }
+  }
+
   respondPermission(requestId: string, optionId: string | null): void {
     const responder = this.permissionResponders.get(requestId);
     if (responder) {
@@ -445,6 +464,21 @@ export class AcpSession {
           tool_name: toolCall.title ?? "Unknown",
           command,
           options,
+        });
+        break;
+      }
+      case "_x.ai/ask_user_question":
+      case "x.ai/ask_user_question": {
+        const requestId = randomUUID();
+        this.userQuestionResponders.set(requestId, (response) => {
+          this.respond(id, response);
+        });
+        this.emit({
+          session_id: this.id,
+          type: "UserQuestionRequest",
+          request_id: requestId,
+          questions: (params?.questions ?? []) as unknown[],
+          mode: (params?.mode as string) ?? "default",
         });
         break;
       }

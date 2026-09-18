@@ -6,6 +6,8 @@ import { SandboxToggle } from "./SandboxToggle";
 
 interface TitleBarProps {
   auth: AuthStatus;
+  /** True when the sidebar is hidden — traffic lights then overlay this bar. */
+  sidebarCollapsed: boolean;
   onLogout: () => void;
   onNewSession: () => void;
   creating: boolean;
@@ -18,7 +20,7 @@ interface TitleBarProps {
 // a slim draggable toolbar. Window-level controls only — session controls
 // (project / model / effort / approval) live in the composer (ISS-059).
 export function TitleBar({
-  auth, onLogout, onNewSession, creating,
+  auth, onLogout, onNewSession, creating, sidebarCollapsed,
   onToggleSidebar, onToggleRightPanel, onOpenSettings,
 }: TitleBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -44,11 +46,11 @@ export function TitleBar({
   };
 
   return (
-    <header className="app-drag flex h-10 shrink-0 items-center justify-between border-b border-gb-border/8 bg-gb-surface-solid pl-20 pr-3">
+    <header className={`app-drag flex h-11 shrink-0 items-center justify-between bg-transparent pr-3 ${sidebarCollapsed ? "pl-24" : "pl-3"}`}>
       {/* Left — sidebar toggle + thread title (double-click to rename) */}
       <div className="flex min-w-0 items-center gap-2">
         <button className="rounded p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-          onClick={onToggleSidebar} aria-label="Toggle sidebar" title="Toggle sidebar (⌘B)">
+          onClick={onToggleSidebar} aria-label="切换侧边栏" title="切换侧边栏 (⌘B)">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h12v1H2V4zm0 3.5h12v1H2v-1zm0 3.5h12v1H2v-1z" /></svg>
         </button>
         {renaming ? (
@@ -84,15 +86,15 @@ export function TitleBar({
         <SandboxToggle />
         <AgentMenu />
         <button className="flex items-center gap-1 rounded px-2 py-1 text-[12px] font-medium text-gb-text hover:bg-gb-surface-hover disabled:opacity-30"
-          onClick={onNewSession} disabled={creating} title="New chat (⌘N)">
+          onClick={onNewSession} disabled={creating} title="新建会话 (⌘N)">
           {creating ? "…" : "New"}
         </button>
         <button className="rounded p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-          onClick={onToggleRightPanel} aria-label="Toggle right panel">
+          onClick={onToggleRightPanel} aria-label="切换右侧面板">
           <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M9 2h5v12H9V2zM7 2H2v12h5V2z" /></svg>
         </button>
         <button className="rounded p-1 text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-          onClick={onOpenSettings} aria-label="Settings" title="Settings (⌘,)">
+          onClick={onOpenSettings} aria-label="设置" title="设置 (⌘,)">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z M13.4 6.8l-1.2-.7-.2-1.2 1-.7-.5-1.3-1.3.3-1-.9.1-1.3L8.1 0 6.8 1l-1 .9-1.3-.1-.6 1.2.8 1-.4 1.3-1.2.4.1 1.4 1 .8-.1 1.3-1.3.6.5 1.3 1.3-.1.8 1 1.2-.3z" />
           </svg>
@@ -109,7 +111,7 @@ export function TitleBar({
                 <p className="text-[12px] font-medium text-gb-text">{auth.username || "User"}</p>
               </div>
               <button className="w-full px-2.5 py-1.5 text-left text-[12px] text-gb-red hover:bg-gb-surface-hover"
-                onClick={() => { setMenuOpen(false); onLogout(); }}>Sign out</button>
+                onClick={() => { setMenuOpen(false); onLogout(); }}>退出登录</button>
             </div>
           )}
         </div>

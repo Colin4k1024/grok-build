@@ -180,6 +180,12 @@ ipcMain.handle("session_set_model", async (_e, args: Record<string, unknown>) =>
   mainWindow?.webContents.send("config_changed", { sessionId, modelId });
   return ok(null);
 });
+ipcMain.handle("user_question_respond", (_e, args: { sessionId: string; requestId: string; response: Record<string, unknown> }) => {
+  const rec = sessions.get(args.sessionId);
+  rec?.agent?.respondUserQuestion(args.requestId, args.response);
+  return ok(null);
+});
+
 ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; requestId: string; optionId: string }) => {
   const rec = sessions.get(args.sessionId);
   rec?.agent?.respondPermission(args.requestId, args.optionId);
@@ -468,19 +474,43 @@ ipcMain.handle("run_command", async (_e, args: { cwd: string; command: string })
 // Skill inventory for the composer's "$" trigger — lists ~/.grok/skills/*/
 // directory names (the agent resolves $name to the skill itself).
 ipcMain.handle("skills_list", () => {
-  const root = path.resolve(process.env.GROK_HOME || path.join(os.homedir(), ".grok"), "skills");
+  // Scan every well-known agent skill root (the runtime agent itself loads
+  // from ~/.agents/skills); first occurrence of a name wins.
+  const home = os.homedir();
+  const roots = [
+    path.resolve(process.env.GROK_HOME || path.join(home, ".grok"), "skills"),
+    path.join(home, ".agents", "skills"),
+    path.join(home, ".codex", "skills"),
+    path.join(home, ".claude", "skills"),
+  ];
+  const seen = new Set<string>();
   const out: { name: string; description: string }[] = [];
-  try {
-    if (!fs.existsSync(root)) return ok(out);
-    for (const entry of fs.readdirSync(root, { withFileTypes: true }).slice(0, 500)) {
-      if (!entry.isDirectory()) continue;
-      const dir = path.resolve(root, entry.name);
-      if (!dir.startsWith(root + path.sep)) continue;
-      out.push({ name: entry.name, description: "" });
+  const readDescription = (dir: string): string => {
+    try {
+      const skillMd = path.join(dir, "SKILL.md");
+      if (!fs.existsSync(skillMd)) return "";
+      const head = fs.readFileSync(skillMd, "utf-8").slice(0, 4000);
+      const m = head.match(/^description:\s*(.+)$/m);
+      return m ? m[1].trim().replace(/^["']|["']$/g, "").slice(0, 120) : "";
+    } catch {
+      return "";
     }
-  } catch (e) {
-    console.error("[skills] list failed:", e);
+  };
+  for (const root of roots) {
+    try {
+      if (!fs.existsSync(root)) continue;
+      for (const entry of fs.readdirSync(root, { withFileTypes: true }).slice(0, 500)) {
+        if (!entry.isDirectory() || seen.has(entry.name)) continue;
+        const dir = path.resolve(root, entry.name);
+        if (!dir.startsWith(root + path.sep)) continue;
+        seen.add(entry.name);
+        out.push({ name: entry.name, description: readDescription(dir) });
+      }
+    } catch (e) {
+      console.error("[skills] list failed for", root, e);
+    }
   }
+  out.sort((a, b) => a.name.localeCompare(b.name));
   return ok(out);
 });
 
@@ -645,7 +675,7 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(devServerUrl);
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }

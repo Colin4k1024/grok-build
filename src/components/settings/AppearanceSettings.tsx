@@ -5,10 +5,10 @@ const FONT_SIZE_KEY = "gb-font-size";
 const ZOOM_KEY = "gb-zoom";
 
 const FONT_SIZES = [
-  { id: "small", label: "Small", px: 12 },
-  { id: "medium", label: "Medium", px: 13 },
-  { id: "large", label: "Large", px: 15 },
-  { id: "xlarge", label: "Extra Large", px: 17 },
+  { id: "small", label: "小", px: 12 },
+  { id: "medium", label: "中", px: 13 },
+  { id: "large", label: "大", px: 15 },
+  { id: "xlarge", label: "特大", px: 17 },
 ] as const;
 type FontSizeId = (typeof FONT_SIZES)[number]["id"];
 
@@ -71,7 +71,7 @@ export function AppearanceSettings() {
   return (
     <div className="space-y-6 p-4">
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Theme</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">主题</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div className="flex gap-2">
             {(["dark", "light", "auto"] as const).map((t) => (
@@ -84,7 +84,7 @@ export function AppearanceSettings() {
                     : "bg-gb-bg text-gb-muted hover:text-gb-text"
                 }`}
               >
-                {t === "dark" ? "🌙 Dark" : t === "light" ? "☀️ Light" : "🖥️ Auto"}
+                {t === "dark" ? "🌙 深色" : t === "light" ? "☀️ 浅色" : "🖥️ 跟随系统"}
               </button>
             ))}
           </div>
@@ -95,7 +95,7 @@ export function AppearanceSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Font size</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">字体大小</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div className="flex gap-2">
             {FONT_SIZES.map((s) => (
@@ -120,7 +120,7 @@ export function AppearanceSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Window zoom</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">窗口缩放</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div className="flex flex-wrap gap-2">
             {ZOOM_LEVELS.map((z) => (

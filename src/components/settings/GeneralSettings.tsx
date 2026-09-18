@@ -37,7 +37,7 @@ export function GeneralSettings() {
   return (
     <div className="space-y-6 p-4">
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Updates</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">更新</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           {updater.updateAvailable ? (
             <div>
@@ -57,7 +57,7 @@ export function GeneralSettings() {
                   </p>
                 </details>
               )}
-              <p className="mt-0.5 text-[11px] text-gb-muted">Click to download and install. The app will restart.</p>
+              <p className="mt-0.5 text-[11px] text-gb-muted">点击下载并安装，应用将自动重启。</p>
               {updater.downloading && updater.progress !== null && (
                 <div className="mt-2">
                   <div className="h-1.5 overflow-hidden rounded-full bg-gb-bg">
@@ -74,18 +74,18 @@ export function GeneralSettings() {
               <button
                 onClick={() => updater.downloadAndInstall()}
                 disabled={updater.downloading}
-                className="mt-2 rounded bg-gb-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
+                className="mt-2 rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
               >
-                {updater.downloading ? "Downloading..." : "Download & Install"}
+                {updater.downloading ? "下载中…" : "下载并安装"}
               </button>
             </div>
           ) : updater.installed ? (
-            <p className="text-xs text-gb-green">Update installed. Restarting...</p>
+            <p className="text-xs text-gb-green">更新已安装，正在重启…</p>
           ) : (
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-gb-text">
-                  {updater.checking ? "Checking for updates..." : "Up to date"}
+                  {updater.checking ? "检查更新中…" : "已是最新"}
                 </p>
                 <p className="mt-0.5 text-[11px] text-gb-muted">Version 0.1.0</p>
               </div>
@@ -99,15 +99,15 @@ export function GeneralSettings() {
             </div>
           )}
           {updater.error && (
-            <p className="mt-1 text-[10px] text-gb-muted">Update check requires a configured endpoint</p>
+            <p className="mt-1 text-[10px] text-gb-muted">检查更新需要先配置更新服务器</p>
           )}
         </div>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Appearance</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">外观</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
-          <p className="mb-2 text-xs font-medium text-gb-text">Theme</p>
+          <p className="mb-2 text-xs font-medium text-gb-text">主题</p>
           <div className="flex gap-2">
             {(["dark", "light", "auto"] as const).map((t) => (
               <button
@@ -120,20 +120,20 @@ export function GeneralSettings() {
                   themeMode === t ? "bg-gb-accent/15 text-gb-text" : "bg-gb-bg text-gb-muted"
                 }`}
               >
-                {t === "dark" ? "🌙 Dark" : t === "light" ? "☀️ Light" : "🖥️ Auto"}
+                {t === "dark" ? "🌙 深色" : t === "light" ? "☀️ 浅色" : "🖥️ 跟随系统"}
               </button>
             ))}
           </div>
-          <p className="mt-2 text-[11px] text-gb-muted">Auto follows your system theme preference</p>
+          <p className="mt-2 text-[11px] text-gb-muted">「跟随系统」会按系统外观自动切换</p>
         </div>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Startup</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">启动</h3>
         <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
-            <p className="text-xs font-medium text-gb-text">Launch at startup</p>
-            <p className="mt-0.5 text-[11px] text-gb-muted">Automatically start Grok Build when you log in</p>
+            <p className="text-xs font-medium text-gb-text">开机启动</p>
+            <p className="mt-0.5 text-[11px] text-gb-muted">登录系统时自动启动 Grok Build</p>
           </div>
           <button
             onClick={toggleAutostart}
@@ -143,7 +143,7 @@ export function GeneralSettings() {
             } disabled:opacity-50`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 autostart ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
@@ -152,11 +152,11 @@ export function GeneralSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Notifications</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">通知</h3>
         <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
-            <p className="text-xs font-medium text-gb-text">Desktop notifications</p>
-            <p className="mt-0.5 text-[11px] text-gb-muted">Notify when agent replies or needs approval (when window is in background)</p>
+            <p className="text-xs font-medium text-gb-text">桌面通知</p>
+            <p className="mt-0.5 text-[11px] text-gb-muted">当 Agent 回复或需要审批时通知我（窗口在后台时）</p>
           </div>
           <button
             onClick={() => {
@@ -169,7 +169,7 @@ export function GeneralSettings() {
             }`}
           >
             <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 notifEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
@@ -178,18 +178,18 @@ export function GeneralSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Shortcuts</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">快捷键</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-gb-text">Toggle window</p>
+            <p className="text-xs font-medium text-gb-text">切换窗口</p>
             <kbd className="rounded border border-gb-border px-1.5 py-0.5 text-[10px] text-gb-muted">⌘⇧A</kbd>
           </div>
-          <p className="mt-0.5 text-[11px] text-gb-muted">Show or hide the app window from anywhere</p>
+          <p className="mt-0.5 text-[11px] text-gb-muted">在任意位置显示或隐藏应用窗口</p>
         </div>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">Tray</h3>
+        <h3 className="mb-3 text-sm font-semibold text-gb-text">托盘</h3>
         <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <p className="text-xs text-gb-muted">
             Closing the window minimizes Grok Build to the system tray.

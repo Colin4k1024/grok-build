@@ -76,14 +76,14 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
         {/* Project title — codex scopes the new chat to a project */}
         <div className="mb-4 flex items-center justify-center gap-2">
           <span className="max-w-[300px] truncate text-[13px] font-medium text-gb-text-secondary">
-            {projectCwd === "." ? "No project selected" : projectCwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop()}
+            {projectCwd === "." ? "未选择项目" : projectCwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop()}
           </span>
           <button
             onClick={chooseFolder}
             className="rounded px-1.5 py-0.5 text-[11px] text-gb-muted transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
-            title="Choose project folder"
+            title="选择项目目录"
           >
-            {projectCwd === "." ? "Choose folder…" : "Change"}
+            {projectCwd === "." ? "选择目录…" : "更改"}
           </button>
         </div>
 
@@ -168,7 +168,7 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
                     </svg>
                     <span className="truncate">{thread.cwd || "."}</span>
                     <span className="shrink-0 opacity-60">·</span>
-                    <span className="shrink-0">{thread.num_messages} msgs</span>
+                    <span className="shrink-0">{thread.num_messages} 条消息</span>
                   </div>
                 </button>
               ))}

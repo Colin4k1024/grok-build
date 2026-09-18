@@ -151,6 +151,15 @@ export function useAcpEventListener() {
             }
           }
           break;
+        case "UserQuestionRequest":
+          if (event.request_id) {
+            useSessionStore.getState().addPendingQuestion(sid, {
+              requestId: event.request_id,
+              questions: event.questions ?? [],
+              mode: event.mode ?? "default",
+            });
+          }
+          break;
         case "PermissionRequest":
           if (event.request_id) {
             // Composer approval mode gates the card (codex behavior):

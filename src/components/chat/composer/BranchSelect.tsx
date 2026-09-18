@@ -53,7 +53,7 @@ export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gb-text-secondary transition-colors hover:bg-gb-surface-hover hover:text-gb-text"
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Branch"
+        title="分支"
       >
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" className="opacity-70">
           <path d="M4 2v5a2 2 0 002 2h3" stroke="currentColor" strokeWidth="1.1" />
@@ -70,7 +70,7 @@ export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
           className="absolute bottom-full left-0 z-50 mb-1.5 w-52 max-h-56 overflow-y-auto rounded-md border border-gb-border/10 bg-gb-surface-solid py-0.5 shadow-lg"
         >
           {branches.length === 0 && (
-            <p className="px-2.5 py-2 text-[11px] text-gb-muted">No git branches found here.</p>
+            <p className="px-2.5 py-2 text-[11px] text-gb-muted">此处未找到 git 分支。</p>
           )}
           {branches.map((b) => (
             <button

@@ -79,7 +79,7 @@ export function ApiKeyManager() {
     }
   }, []);
 
-  if (loading) return <div className="p-4 text-xs text-gb-muted">Loading...</div>;
+  if (loading) return <div className="p-4 text-xs text-gb-muted">加载中…</div>;
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -91,7 +91,7 @@ export function ApiKeyManager() {
 
       <div className="rounded-xl overflow-hidden">
         <div className="border-b border-gb-border px-3 py-2">
-          <h3 className="text-xs font-semibold text-gb-text">API Keys (System Keychain)</h3>
+          <h3 className="text-xs font-semibold text-gb-text">API 密钥（系统钥匙串）</h3>
           <p className="mt-0.5 text-[10px] text-gb-muted">
             Keys are stored in your OS keychain (macOS Keychain / Windows Credential Manager).
           </p>
@@ -115,7 +115,7 @@ export function ApiKeyManager() {
                   <div>
                     <span className="font-mono text-xs text-gb-text">{key}</span>
                     <p className="text-[10px] text-gb-muted">
-                      {isSet ? "Configured" : "Not set"}
+                      {isSet ? "已配置" : "未配置"}
                     </p>
                   </div>
                 </div>
@@ -124,7 +124,7 @@ export function ApiKeyManager() {
                     className="rounded px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
                     onClick={() => handleEdit(key)}
                   >
-                    {isSet ? "Update" : "Set"}
+                    {isSet ? "更新" : "设置"}
                   </button>
                   {isSet && (
                     <button
@@ -156,7 +156,7 @@ export function ApiKeyManager() {
                 type={showValue ? "text" : "password"}
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
-                placeholder="Enter API key..."
+                placeholder="输入 API 密钥…"
                 className="flex-1 rounded-md border border-gb-border bg-gb-bg px-3 py-2 text-sm text-gb-text outline-none focus:border-gb-accent/50"
                 autoFocus
               />
@@ -164,7 +164,7 @@ export function ApiKeyManager() {
                 className="rounded-md border border-gb-border px-3 py-2 text-xs text-gb-muted hover:bg-gb-bg hover:text-gb-text"
                 onClick={() => setShowValue((v) => !v)}
               >
-                {showValue ? "Hide" : "Show"}
+                {showValue ? "隐藏" : "显示"}
               </button>
             </div>
             <div className="mt-4 flex justify-end gap-2">

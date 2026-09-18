@@ -45,12 +45,12 @@ export function McpManager() {
   return (
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gb-text">MCP Servers</h3>
+        <h3 className="text-sm font-semibold text-gb-text">MCP 服务器</h3>
         <button
           onClick={() => setShowForm(!showForm)}
           className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface hover:text-gb-text"
         >
-          {showForm ? "Cancel" : "+ Add Server"}
+          {showForm ? "取消" : "+ 添加服务器"}
         </button>
       </div>
 
@@ -76,9 +76,9 @@ export function McpManager() {
       )}
 
       {loading ? (
-        <p className="text-xs text-gb-muted">Loading...</p>
+        <p className="text-xs text-gb-muted">加载中…</p>
       ) : servers.length === 0 ? (
-        <p className="py-4 text-center text-xs text-gb-muted">No MCP servers configured</p>
+        <p className="py-4 text-center text-xs text-gb-muted">尚未配置 MCP 服务器</p>
       ) : (
         <div className="space-y-2">
           {servers.map((server) => (
@@ -107,7 +107,7 @@ export function McpManager() {
                       server.enabled ? "bg-gb-accent" : "bg-gb-border"
                     }`}
                   >
-                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-gb-bg transition-transform ${
                       server.enabled ? "translate-x-3" : "translate-x-0.5"
                     }`} />
                   </button>
@@ -120,9 +120,9 @@ export function McpManager() {
                 </div>
               </div>
               <div className="mt-2 space-y-0.5 text-[10px] text-gb-muted">
-                {server.command && <div>Command: <code className="text-gb-text">{server.command}</code></div>}
-                {server.args.length > 0 && <div>Args: <code className="text-gb-text">{server.args.join(" ")}</code></div>}
-                {server.url && <div>URL: <code className="text-gb-text">{server.url}</code></div>}
+                {server.command && <div>命令：<code className="text-gb-text">{server.command}</code></div>}
+                {server.args.length > 0 && <div>参数：<code className="text-gb-text">{server.args.join(" ")}</code></div>}
+                {server.url && <div>URL：<code className="text-gb-text">{server.url}</code></div>}
                 {server.env.length > 0 && (
                   <div>Env: {server.env.map(([k, v]) => `${k}=${v}`).join(", ")}</div>
                 )}
@@ -166,7 +166,7 @@ function McpServerForm({ onSave, onCancel }: {
   return (
     <div className="rounded-lg border border-gb-border bg-gb-surface p-4 space-y-3">
       <div>
-        <label className="mb-1 block text-[10px] font-medium text-gb-muted">Server Name</label>
+        <label className="mb-1 block text-[10px] font-medium text-gb-muted">服务器名称</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -176,7 +176,7 @@ function McpServerForm({ onSave, onCancel }: {
       </div>
 
       <div>
-        <label className="mb-1 block text-[10px] font-medium text-gb-muted">Transport</label>
+        <label className="mb-1 block text-[10px] font-medium text-gb-muted">传输方式</label>
         <div className="flex gap-2">
           <button
             onClick={() => setType("stdio")}
@@ -196,7 +196,7 @@ function McpServerForm({ onSave, onCancel }: {
       {type === "stdio" ? (
         <>
           <div>
-            <label className="mb-1 block text-[10px] font-medium text-gb-muted">Command</label>
+            <label className="mb-1 block text-[10px] font-medium text-gb-muted">命令</label>
             <input
               value={command}
               onChange={(e) => setCommand(e.target.value)}
@@ -205,7 +205,7 @@ function McpServerForm({ onSave, onCancel }: {
             />
           </div>
           <div>
-            <label className="mb-1 block text-[10px] font-medium text-gb-muted">Arguments (space-separated)</label>
+            <label className="mb-1 block text-[10px] font-medium text-gb-muted">参数（空格分隔）</label>
             <input
               value={args}
               onChange={(e) => setArgs(e.target.value)}
@@ -227,7 +227,7 @@ function McpServerForm({ onSave, onCancel }: {
       )}
 
       <div>
-        <label className="mb-1 block text-[10px] font-medium text-gb-muted">Environment Variables (KEY=value per line)</label>
+        <label className="mb-1 block text-[10px] font-medium text-gb-muted">环境变量（每行一个 KEY=value）</label>
         <textarea
           value={envText}
           onChange={(e) => setEnvText(e.target.value)}
@@ -248,7 +248,7 @@ function McpServerForm({ onSave, onCancel }: {
             enabled: true,
           })}
           disabled={!name || (type === "stdio" && !command) || (type === "http" && !url)}
-          className="rounded bg-gb-accent px-3 py-1.5 text-xs text-white disabled:opacity-50"
+          className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
         >
           Save Server
         </button>

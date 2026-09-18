@@ -165,7 +165,7 @@ export function ModelManager() {
   }, [config]);
 
   if (!config) {
-    return <div className="p-4 text-xs text-gb-muted">Loading...</div>;
+    return <div className="p-4 text-xs text-gb-muted">加载中…</div>;
   }
 
   return (
@@ -178,15 +178,15 @@ export function ModelManager() {
 
       {/* Default models */}
       <div className="rounded-lg border border-gb-border bg-gb-surface p-3">
-        <h3 className="mb-3 text-xs font-semibold text-gb-text">Default Models</h3>
+        <h3 className="mb-3 text-xs font-semibold text-gb-text">默认模型</h3>
         <div className="grid grid-cols-2 gap-3">
-          <DefaultSelect label="Default" models={config.models} value={defaults.default}
+          <DefaultSelect label="默认" models={config.models} value={defaults.default}
             onChange={(v) => setDefaults({ ...defaults, default: v })} />
-          <DefaultSelect label="Web Search" models={config.models} value={defaults.web_search}
+          <DefaultSelect label="网页搜索" models={config.models} value={defaults.web_search}
             onChange={(v) => setDefaults({ ...defaults, web_search: v })} />
-          <DefaultSelect label="Image Description" models={config.models} value={defaults.image_description}
+          <DefaultSelect label="图像描述" models={config.models} value={defaults.image_description}
             onChange={(v) => setDefaults({ ...defaults, image_description: v })} />
-          <DefaultSelect label="Session Summary" models={config.models} value={defaults.session_summary}
+          <DefaultSelect label="会话摘要" models={config.models} value={defaults.session_summary}
             onChange={(v) => setDefaults({ ...defaults, session_summary: v })} />
         </div>
       </div>
@@ -199,7 +199,7 @@ export function ModelManager() {
             <button
               className="rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:text-gb-text"
               onClick={handleExport}
-              title="Export models to JSON"
+              title="导出模型为 JSON"
             >
               Export
             </button>
@@ -213,7 +213,7 @@ export function ModelManager() {
               />
             </label>
             <button
-              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-white hover:opacity-80"
+              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg hover:opacity-80"
               onClick={() => setIsAdding(true)}
             >
               + Add Model
@@ -258,10 +258,10 @@ export function ModelManager() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-gb-text">{model.name}</span>
                             {model.hidden && (
-                              <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-yellow">hidden</span>
+                              <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-yellow">已隐藏</span>
                             )}
                             {test === "testing" && (
-                              <span className="text-[10px] text-gb-muted">testing…</span>
+                              <span className="text-[10px] text-gb-muted">测试中…</span>
                             )}
                             {test && test !== "testing" && (
                               <span
@@ -306,18 +306,18 @@ export function ModelManager() {
             );
           })}
           {config.models.length === 0 && (
-            <div className="py-4 text-center text-xs text-gb-muted">No models configured</div>
+            <div className="py-4 text-center text-xs text-gb-muted">尚未配置模型</div>
           )}
         </div>
       </div>
 
       {/* Save button */}
       <button
-        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-white hover:opacity-80 disabled:opacity-40"
+        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
         onClick={handleSave}
         disabled={saving}
       >
-        {saving ? "Saving..." : "Save Configuration"}
+        {saving ? "保存中…" : "保存配置"}
       </button>
 
       {/* Model editor */}
@@ -346,7 +346,7 @@ function DefaultSelect({ label, models, value, onChange }: {
         onChange={(e) => onChange(e.target.value)}
         className="rounded-md border border-gb-border bg-gb-bg px-2 py-1.5 text-xs text-gb-text outline-none focus:border-gb-accent/50"
       >
-        <option value="">— None —</option>
+        <option value="">— 无 —</option>
         {models.map((m) => (
           <option key={m.id} value={m.id}>{m.name}</option>
         ))}
@@ -375,17 +375,17 @@ function ModelEditor({ model, onSave, onCancel }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
       <div className="w-[500px] rounded-xl border border-gb-border bg-gb-surface p-6" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-4 text-sm font-semibold text-gb-text">
-          {model ? "Edit Model" : "Add Model"}
+          {model ? "编辑模型" : "添加模型"}
         </h3>
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Model ID" value={form.id} onChange={(v) => field("id", v)} placeholder="deepseek-v4-pro" />
-          <FormField label="Display Name" value={form.name} onChange={(v) => field("name", v)} placeholder="DeepSeek V4 Pro" />
+          <FormField label="模型 ID" value={form.id} onChange={(v) => field("id", v)} placeholder="deepseek-v4-pro" />
+          <FormField label="显示名称" value={form.name} onChange={(v) => field("name", v)} placeholder="DeepSeek V4 Pro" />
           <FormField label="Base URL" value={form.base_url} onChange={(v) => field("base_url", v)} placeholder="https://..." full />
-          <FormField label="API Backend" value={form.api_backend} onChange={(v) => field("api_backend", v)} placeholder="chat_completions" />
-          <FormField label="Context Window" value={String(form.context_window)} onChange={(v) => field("context_window", parseInt(v) || 0)} type="number" />
-          <FormField label="Max Completion Tokens" value={form.max_completion_tokens ? String(form.max_completion_tokens) : ""} onChange={(v) => field("max_completion_tokens", parseInt(v) || undefined)} type="number" />
-          <FormField label="Env Keys (comma-separated)" value={form.env_key.join(", ")} onChange={(v) => field("env_key", v.split(",").map((s) => s.trim()).filter(Boolean))} full />
-          <FormField label="Description" value={form.description || ""} onChange={(v) => field("description", v || undefined)} full />
+          <FormField label="API 后端" value={form.api_backend} onChange={(v) => field("api_backend", v)} placeholder="chat_completions" />
+          <FormField label="上下文窗口" value={String(form.context_window)} onChange={(v) => field("context_window", parseInt(v) || 0)} type="number" />
+          <FormField label="最大输出 Tokens" value={form.max_completion_tokens ? String(form.max_completion_tokens) : ""} onChange={(v) => field("max_completion_tokens", parseInt(v) || undefined)} type="number" />
+          <FormField label="环境变量名（逗号分隔）" value={form.env_key.join(", ")} onChange={(v) => field("env_key", v.split(",").map((s) => s.trim()).filter(Boolean))} full />
+          <FormField label="描述" value={form.description || ""} onChange={(v) => field("description", v || undefined)} full />
           <label className="flex items-center gap-2 text-xs text-gb-muted">
             <input type="checkbox" checked={form.hidden} onChange={(e) => field("hidden", e.target.checked)} />
             Hidden
@@ -396,7 +396,7 @@ function ModelEditor({ model, onSave, onCancel }: {
             Cancel
           </button>
           <button
-            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-80 disabled:opacity-40"
+            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
             onClick={() => form.id && form.name && onSave(form)}
             disabled={!form.id || !form.name}
           >

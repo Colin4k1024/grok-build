@@ -45,17 +45,17 @@ export function SandboxToggle() {
             : "bg-gb-yellow/10 text-gb-yellow hover:bg-gb-yellow/15"
         }`}
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        aria-label={`Sandbox mode: ${mode}. Click to toggle.`}
+        aria-label={`沙箱模式: ${mode}. Click to toggle.`}
       >
         <span>{isSandbox ? "🔒" : "⚡"}</span>
-        <span>{isSandbox ? "Sandbox" : "Full access"}</span>
+        <span>{isSandbox ? "Sandbox" : "完全访问"}</span>
       </button>
 
       {showTooltip && (
         <div className="absolute left-1/2 top-full z-50 mt-1 w-64 -translate-x-1/2 rounded-md border border-gb-border/10 bg-gb-surface-solid p-2.5 text-[11px] shadow-lg">
           {isSandbox ? (
             <>
-              <p className="mb-1 font-medium text-gb-green">Sandbox mode</p>
+              <p className="mb-1 font-medium text-gb-green">沙箱模式</p>
               <p className="text-gb-text-secondary">
                 Commands run in an isolated environment. Writes outside the
                 working directory require approval. Network access is limited
@@ -64,14 +64,14 @@ export function SandboxToggle() {
             </>
           ) : (
             <>
-              <p className="mb-1 font-medium text-gb-yellow">Full access</p>
+              <p className="mb-1 font-medium text-gb-yellow">完全访问</p>
               <p className="text-gb-text-secondary">
                 Commands run directly on your machine with no sandboxing.
                 Trusted folders and permission rules still apply.
               </p>
             </>
           )}
-          <p className="mt-1.5 text-gb-muted">Click to switch.</p>
+          <p className="mt-1.5 text-gb-muted">点击切换。</p>
         </div>
       )}
     </div>

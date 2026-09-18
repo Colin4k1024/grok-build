@@ -86,9 +86,9 @@ export function CodeBlock({ code, language, onApply }: CodeBlockProps) {
           <button
             onClick={handleCopy}
             className="rounded px-1.5 py-0.5 text-[10px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-            aria-label="Copy code"
+            aria-label="复制代码"
           >
-            {copied ? "✓ Copied" : "Copy"}
+            {copied ? "✓ 已复制" : "复制"}
           </button>
         </div>
       </div>

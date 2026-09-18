@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
+  // Relative asset paths so the packaged Electron app can load from file://
+  base: "./",
   plugins: [react()],
   clearScreen: false,
   server: {

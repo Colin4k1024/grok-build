@@ -81,7 +81,7 @@ export function MessageList({ messages }: Props) {
       )}
       <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto px-4 py-4">
         {totalItems === 0 ? (
-          <div className="flex h-full items-center justify-center"><p className="text-[13px] text-gb-muted">Start a conversation</p></div>
+          <div className="flex h-full items-center justify-center"><p className="text-[13px] text-gb-muted">开始对话</p></div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
             {renderStart > 0 && <div className="py-2 text-center text-[10px] text-gb-muted">↑ {renderStart} earlier messages</div>}

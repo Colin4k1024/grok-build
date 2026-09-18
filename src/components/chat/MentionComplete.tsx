@@ -19,10 +19,10 @@ interface MentionCompleteProps {
 }
 
 const BUILTIN_SKILLS: MentionItem[] = [
-  { kind: "skill", id: "explore", label: "explore", detail: "Search the codebase" },
-  { kind: "skill", id: "plan", label: "plan", detail: "Design an implementation plan" },
-  { kind: "skill", id: "review", label: "review", detail: "Review a recent change" },
-  { kind: "skill", id: "test", label: "test", detail: "Run project tests" },
+  { kind: "skill", id: "explore", label: "explore", detail: "搜索代码库" },
+  { kind: "skill", id: "plan", label: "plan", detail: "设计实现方案" },
+  { kind: "skill", id: "review", label: "review", detail: "审查最近的改动" },
+  { kind: "skill", id: "test", label: "test", detail: "运行项目测试" },
 ];
 
 export function MentionComplete({ query, onSelect, onClose, anchorBottom = 140, cwd }: MentionCompleteProps) {
@@ -115,7 +115,7 @@ export function MentionComplete({ query, onSelect, onClose, anchorBottom = 140, 
     <div
       ref={listRef}
       role="listbox"
-      aria-label="Mention suggestions"
+      aria-label="提及建议"
       className="absolute left-4 right-4 z-40 max-h-64 overflow-y-auto rounded-lg border border-gb-border/10 bg-gb-surface-solid shadow-xl"
       style={{ bottom: anchorBottom }}
     >

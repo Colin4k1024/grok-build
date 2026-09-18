@@ -125,15 +125,15 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
           className="absolute left-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-md border border-gb-border/10 bg-gb-surface-solid shadow-lg"
         >
           <div className="border-b border-gb-border/8 px-2.5 py-2">
-            <p className="text-[10px] font-medium uppercase text-gb-muted">Project / Worktree</p>
+            <p className="text-[10px] font-medium uppercase text-gb-muted">项目 / Worktree</p>
             <p className="mt-0.5 truncate text-[11px] text-gb-text-secondary">{cwd}</p>
           </div>
           <div className="max-h-60 overflow-y-auto py-1">
-            {loading && <p className="px-2.5 py-2 text-[11px] text-gb-muted">Loading…</p>}
+            {loading && <p className="px-2.5 py-2 text-[11px] text-gb-muted">加载中…</p>}
             {error && <p className="px-2.5 py-2 text-[11px] text-gb-red">{error}</p>}
             {!loading && !error && worktrees.length === 0 && (
               <p className="px-2.5 py-2 text-[11px] text-gb-muted">
-                No worktrees found. Open a folder inside a git repo to see worktrees here.
+                未找到 worktree。在 git 仓库中打开目录后，这里会显示其 worktree。
               </p>
             )}
             {worktrees.map((wt) => (
@@ -151,7 +151,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                   {wt.branch && (
                     <span className="truncate text-[10px] text-gb-muted">
                       ⎇ {wt.branch}
-                      {wt.is_main ? " (main)" : ""}
+                      {wt.is_main ? "（主分支）" : ""}
                     </span>
                   )}
                 </div>
@@ -166,22 +166,22 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                   autoFocus
                   value={newBranch}
                   onChange={(e) => setNewBranch(e.target.value)}
-                  placeholder="new branch name"
+                  placeholder="新分支名"
                   className="w-full rounded border border-gb-border bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
                 />
                 <input
                   value={newPath}
                   onChange={(e) => setNewPath(e.target.value)}
-                  placeholder="path (e.g. ../my-feature)"
+                  placeholder="路径（例如 ../my-feature）"
                   className="w-full rounded border border-gb-border bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
                 />
                 <div className="flex gap-1">
                   <button
                     onClick={handleCreate}
                     disabled={creating || !newBranch.trim() || !newPath.trim()}
-                    className="flex-1 rounded bg-gb-accent px-2 py-1 text-[11px] font-medium text-white disabled:opacity-40"
+                    className="flex-1 rounded bg-gb-accent px-2 py-1 text-[11px] font-medium text-gb-bg disabled:opacity-40"
                   >
-                    {creating ? "Creating…" : "Create"}
+                    {creating ? "创建中…" : "创建"}
                   </button>
                   <button
                     onClick={() => {
@@ -191,7 +191,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                     }}
                     className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[11px] text-gb-muted hover:bg-gb-surface-hover"
                   >
-                    Cancel
+                    取消
                   </button>
                 </div>
               </div>
@@ -200,14 +200,14 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                 onClick={() => setShowCreate(true)}
                 className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-accent hover:bg-gb-surface-hover"
               >
-                + New worktree…
+                + 新建 worktree…
               </button>
             )}
             <button
               onClick={handleClear}
               className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
             >
-              Clear project
+              清除项目
             </button>
           </div>
         </div>

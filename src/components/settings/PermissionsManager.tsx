@@ -53,7 +53,7 @@ export function PermissionsManager() {
       <button
         onClick={() => removeRule(rules.indexOf(rule))}
         className="shrink-0 rounded p-1 text-gb-muted hover:bg-gb-red/10 hover:text-gb-red"
-        aria-label="Remove rule"
+        aria-label="删除规则"
       >
         ✕
       </button>
@@ -64,13 +64,13 @@ export function PermissionsManager() {
     <div className="space-y-4 p-4">
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gb-text">Permission boundary</h3>
+          <h3 className="text-sm font-semibold text-gb-text">权限边界</h3>
           {rules.length > 0 && (
             <button
               onClick={() => setConfirmClearAll(true)}
               className="rounded border border-gb-red/30 px-2 py-1 text-[11px] text-gb-red hover:bg-gb-red/10"
             >
-              Clear all
+              全部清除
             </button>
           )}
         </div>
@@ -82,7 +82,7 @@ export function PermissionsManager() {
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter by tool or command…"
+          placeholder="按工具或命令过滤…"
           className="mb-3 w-full rounded border border-gb-border bg-gb-surface px-3 py-1.5 text-xs text-gb-text"
         />
       </section>
@@ -90,7 +90,7 @@ export function PermissionsManager() {
       {rules.length === 0 ? (
         <p className="py-6 text-center text-xs text-gb-muted">
           No remembered permissions yet. The first time a tool asks to run a
-          command, choose "Always" to remember your decision here.
+          命令时选择「始终允许」，即可在此处记住你的决定。
         </p>
       ) : (
         <>
@@ -122,7 +122,7 @@ export function PermissionsManager() {
             className="w-96 rounded-lg border border-gb-border bg-gb-surface-solid p-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-2 text-sm font-semibold text-gb-text">Clear all permissions?</h3>
+            <h3 className="mb-2 text-sm font-semibold text-gb-text">清除所有权限？</h3>
             <p className="mb-4 text-xs text-gb-muted">
               Every remembered allow/deny rule will be removed. Future tool
               calls will prompt for approval again.

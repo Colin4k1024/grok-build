@@ -21,7 +21,7 @@ function applyTheme(mode: ThemeMode) {
 
 export function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(() => {
-    return (localStorage.getItem(THEME_KEY) as ThemeMode) || "dark";
+    return (localStorage.getItem(THEME_KEY) as ThemeMode) || "light";
   });
 
   useEffect(() => {
@@ -46,7 +46,7 @@ export function useTheme() {
 }
 
 export function getThemeMode(): ThemeMode {
-  return (localStorage.getItem(THEME_KEY) as ThemeMode) || "dark";
+  return (localStorage.getItem(THEME_KEY) as ThemeMode) || "light";
 }
 
 export function setThemeMode(mode: ThemeMode) {

@@ -36,13 +36,13 @@ export function CommandPalette({
 
   // Build default command list
   const defaultCommands: Command[] = [
-    { id: "new-session", title: "New Session", category: "Session", shortcut: "⌘T", action: onNewSession },
-    { id: "close-session", title: "Close Current Session", category: "Session", shortcut: "⌘W", action: onCloseSession },
-    { id: "compact", title: "Compact Context", category: "Session", action: onCompact },
-    { id: "settings", title: "Open Settings", category: "Navigation", action: onOpenSettings },
-    { id: "dashboard", title: "Open Dashboard", category: "Navigation", action: onOpenDashboard },
-    { id: "toggle-sidebar", title: "Toggle Sidebar", category: "View", action: onToggleSidebar },
-    { id: "toggle-right-panel", title: "Toggle Right Panel", category: "View", action: onToggleRightPanel },
+    { id: "new-session", title: "新建会话", category: "会话", shortcut: "⌘T", action: onNewSession },
+    { id: "close-session", title: "关闭当前会话", category: "会话", shortcut: "⌘W", action: onCloseSession },
+    { id: "compact", title: "压缩上下文", category: "会话", action: onCompact },
+    { id: "settings", title: "打开设置", category: "导航", action: onOpenSettings },
+    { id: "dashboard", title: "打开仪表盘", category: "导航", action: onOpenDashboard },
+    { id: "toggle-sidebar", title: "切换侧边栏", category: "视图", action: onToggleSidebar },
+    { id: "toggle-right-panel", title: "切换右侧面板", category: "视图", action: onToggleRightPanel },
     ...commands,
   ];
 
@@ -123,7 +123,7 @@ export function CommandPalette({
               setSelectedIdx(0);
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command..."
+            placeholder="输入命令…"
             className="w-full bg-transparent text-sm text-gb-text outline-none placeholder:text-gb-muted"
           />
         </div>
@@ -131,7 +131,7 @@ export function CommandPalette({
         {/* Results */}
         <div className="max-h-80 overflow-y-auto py-2">
           {filtered.length === 0 ? (
-            <p className="px-4 py-4 text-center text-xs text-gb-muted">No commands found</p>
+            <p className="px-4 py-4 text-center text-xs text-gb-muted">未找到命令</p>
           ) : (
             categories.map((cat) => (
               <div key={cat}>
@@ -169,9 +169,9 @@ export function CommandPalette({
 
         {/* Footer */}
         <div className="border-t border-gb-border px-4 py-2 text-[10px] text-gb-muted">
-          <span className="mr-3">↑↓ Navigate</span>
-          <span className="mr-3">↵ Execute</span>
-          <span>Esc Close</span>
+          <span className="mr-3">↑↓ 移动</span>
+          <span className="mr-3">↵ 执行</span>
+          <span>Esc 关闭</span>
         </div>
       </div>
     </div>

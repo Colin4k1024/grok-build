@@ -11,3 +11,7 @@ Cargo.toml.bak
 dist-electron/
 goal-state.json
 .mimosa/
+
+# Build artifacts
+release/
+build/icon.iconset/

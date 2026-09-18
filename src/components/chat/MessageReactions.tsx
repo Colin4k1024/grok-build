@@ -36,7 +36,7 @@ export function MessageReactions({ message: _message }: MessageReactionsProps) {
     return (
       <button
         onClick={() => setShowPicker(true)}
-        aria-label="Add reaction"
+        aria-label="添加表情回应"
         className="mt-1 hidden rounded px-1.5 py-0.5 text-[11px] text-gb-muted opacity-0 transition-opacity hover:bg-gb-surface-hover hover:text-gb-text group-hover:opacity-100 group-hover:block"
       >
         + React
@@ -59,7 +59,7 @@ export function MessageReactions({ message: _message }: MessageReactionsProps) {
       <div className="relative">
         <button
           onClick={() => setShowPicker((v) => !v)}
-          aria-label="Add reaction"
+          aria-label="添加表情回应"
           className="rounded px-1.5 py-0.5 text-[11px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
         >
           +

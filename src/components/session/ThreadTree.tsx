@@ -112,7 +112,12 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   const entries: ThreadEntry[] = useMemo(() => {
     const list: ThreadEntry[] = [];
     const coveredHistory = new Set<string>();
+    const seenAcpIds = new Set<string>();
     for (const t of tabs as SessionTab[]) {
+      // Guard against duplicate tabs pointing at the same ACP session (e.g.
+      // from resume before the dedupe fix) — first tab wins.
+      if (t.acpSessionId && seenAcpIds.has(t.acpSessionId)) continue;
+      if (t.acpSessionId) seenAcpIds.add(t.acpSessionId);
       list.push({
         key: `tab-${t.id}`,
         sessionId: t.acpSessionId || t.id,
@@ -142,8 +147,6 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
 
   const { pinnedEntries, projectGroups, chatEntries } = useMemo(() => {
     const pinnedList: ThreadEntry[] = [];
-    const groups = new Map<string, ThreadEntry[]>();
-    const chats: ThreadEntry[] = [];
     const claimed = new Set<string>();
     for (const e of entries) {
       if (pinned.has(e.key) || pinned.has(e.sessionId)) {
@@ -151,17 +154,32 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         claimed.add(e.key);
       }
     }
-    for (const p of projects) {
-      const inProject = entries.filter(
-        (e) => !claimed.has(e.key) && (e.cwd === p.path || e.cwd.startsWith(p.path.replace(/[/\\]+$/, "") + "/"))
-      );
-      for (const e of inProject) claimed.add(e.key);
-      if (inProject.length > 0) groups.set(p.path, inProject);
-    }
+    // Group every remaining thread by its workspace (cwd). No bookmarking
+    // required — each distinct directory becomes a project group, ordered by
+    // most recent activity (entries are already sorted desc).
+    const groups = new Map<string, ThreadEntry[]>();
+    const chats: ThreadEntry[] = [];
     for (const e of entries) {
-      if (!claimed.has(e.key)) chats.push(e);
+      if (claimed.has(e.key)) continue;
+      const cwd = (e.cwd || "").replace(/[/\\]+$/, "");
+      if (!cwd || cwd === ".") {
+        chats.push(e);
+        continue;
+      }
+      const list = groups.get(cwd);
+      if (list) list.push(e);
+      else groups.set(cwd, [e]);
     }
-    return { pinnedEntries: pinnedList, projectGroups: [...groups.entries()], chatEntries: chats };
+    const sorted = [...groups.entries()].sort(
+      (a, b) => (b[1][0]?.lastActiveAt ?? 0) - (a[1][0]?.lastActiveAt ?? 0)
+    );
+    // Bookmarked projects with no threads still appear so a thread can be
+    // started in them.
+    for (const p of projects) {
+      const path = p.path.replace(/[/\\]+$/, "");
+      if (!groups.has(path)) sorted.push([p.path, []]);
+    }
+    return { pinnedEntries: pinnedList, projectGroups: sorted, chatEntries: chats };
   }, [entries, projects, pinned]);
 
   const togglePin = useCallback((e: ThreadEntry) => {
@@ -290,9 +308,9 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         title={`${e.title}\n${e.cwd}${e.numMessages !== undefined ? `\n${e.numMessages} messages` : ""}${waiting ? "\nWaiting for approval" : ""}`}
       >
         {running ? (
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="Running" />
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="运行中" />
         ) : waiting ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-yellow" title="Waiting for approval" />
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-yellow" title="等待审批" />
         ) : (
           <span className="h-1.5 w-1.5 shrink-0" />
         )}
@@ -305,7 +323,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
               ev.stopPropagation();
               setMenu({ x: ev.clientX, y: ev.clientY, entry: e });
             }}
-            title="Thread actions"
+            title="会话操作"
           >
             …
           </button>
@@ -328,7 +346,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
             <div className={sectionLabel}>
               Triage
               {triage.filter((e) => !triageRead.has(e.cwd)).length > 0 && (
-                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="Unread findings" />
+                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="有未读发现" />
               )}
             </div>
             {triage.map((e) => {
@@ -354,7 +372,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
 
       {pinnedEntries.length > 0 && (
         <div className="mb-2">
-          <div className={sectionLabel}>Pinned</div>
+          <div className={sectionLabel}>置顶</div>
           {pinnedEntries.map(renderEntry)}
         </div>
       )}
@@ -364,11 +382,11 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="shrink-0">
             <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
           </svg>
-          Projects
+          项目
         </div>
         {projectGroups.length === 0 && (
           <p className="px-2 py-1 text-[11px] text-gb-muted/70">
-            Add a project (⌘O) to group threads by folder.
+            按 ⌘O 添加项目目录。
           </p>
         )}
         {projectGroups.map(([path, threads]) => {
@@ -398,7 +416,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
                     ev.stopPropagation();
                     setProjectMenu({ x: ev.clientX, y: ev.clientY, path });
                   }}
-                  title="Project actions"
+                  title="项目操作"
                 >
                   …
                 </button>
@@ -408,7 +426,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
                     ev.stopPropagation();
                     onNewSessionInDir(path);
                   }}
-                  title="New thread in this project"
+                  title="在此项目中新建会话"
                 >
                   <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
                     <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -423,9 +441,9 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
       </div>
 
       <div className="mb-2">
-        <div className={sectionLabel}>Chats</div>
+        <div className={sectionLabel}>会话</div>
         {chatEntries.length === 0 ? (
-          <p className="px-2 py-1 text-[11px] text-gb-muted/70">No unfiled threads.</p>
+          <p className="px-2 py-1 text-[11px] text-gb-muted/70">暂无未归档会话。</p>
         ) : (
           chatEntries.map(renderEntry)
         )}
@@ -435,20 +453,20 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         <>
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
           <div className="fixed z-50 w-48 rounded-lg border border-gb-border bg-gb-surface py-1 shadow-xl" style={{ left: menu.x, top: menu.y }}>
-            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { openEntry(menu.entry); setMenu(null); }}>Open</button>
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { openEntry(menu.entry); setMenu(null); }}>打开</button>
             <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => togglePin(menu.entry)}>
-              {pinned.has(menu.entry.key) ? "Unpin" : "Pin"}
+              {pinned.has(menu.entry.key) ? "取消置顶" : "置顶"}
             </button>
             {menu.entry.tabId && (
               <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { setRenaming({ key: menu.entry.key, value: menu.entry.title }); setMenu(null); }}>
-                Rename
+                重命名
               </button>
             )}
             {menu.entry.tabId && (
-              <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { onForkSession(menu.entry.tabId!); setMenu(null); }}>Fork</button>
+              <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => { onForkSession(menu.entry.tabId!); setMenu(null); }}>派生</button>
             )}
             {menu.entry.tabId && (
-              <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => exportEntry(menu.entry)}>Export as Markdown</button>
+              <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => exportEntry(menu.entry)}>导出为 Markdown</button>
             )}
             <button
               className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg"
@@ -457,11 +475,11 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
                 setMenu(null);
               }}
             >
-              Copy link
+              复制链接
             </button>
-            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => archiveEntry(menu.entry)}>Archive</button>
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => archiveEntry(menu.entry)}>归档</button>
             <div className="my-1 border-t border-gb-border" />
-            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>Delete…</button>
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>删除…</button>
           </div>
         </>
       )}
