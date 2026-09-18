@@ -6,6 +6,30 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::{fs, iter};
 
+/// Unique temp path for one protoc dependency-file emission.
+///
+/// The dependency list is emitted as a Makefile-format `.d` file. On Unix we
+/// could stream it through /dev/stdout, but that special file does not exist
+/// on Windows — a real (unique, per-invocation) temp path works everywhere.
+fn temp_deps_path() -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "xai-proto-build-deps-{}-{}.d",
+        std::process::id(),
+        seq
+    ))
+}
+
+/// The throwaway descriptor-set target for this platform.
+fn null_descriptor_target() -> &'static str {
+    if cfg!(windows) {
+        "NUL"
+    } else {
+        "/dev/null"
+    }
+}
+
 /// Find the protoc well-known types include directory.
 ///
 /// When PROTOC is set (e.g., in Bazel), the include directory is typically
@@ -153,9 +177,12 @@ impl XaiProtoBuilder {
         // Can only process one input file when using --dependency_out=FILE.
         for proto in protos {
             let mut command = Command::new(protoc.unwrap_or(Path::new("protoc")));
-            command
-                .arg("--dependency_out=/dev/stdout")
-                .arg("--descriptor_set_out=/dev/null");
+            let dep_file = temp_deps_path();
+            let mut dep_flag = String::from("--dependency_out=");
+            dep_flag.push_str(&dep_file.to_string_lossy());
+            let mut null_flag = String::from("--descriptor_set_out=");
+            null_flag.push_str(null_descriptor_target());
+            command.args([dep_flag, null_flag]);
 
             // Add protoc's well-known types include directory first (if found).
             // This is needed for Bazel sandboxed builds where protoc and its
@@ -176,19 +203,23 @@ impl XaiProtoBuilder {
             command.stdin(Stdio::null());
             command.stderr(Stdio::inherit());
 
-            let output = command.output().context("protoc command failed")?;
-            if !output.status.success() {
+            let run = command.output().context("protoc command failed")?;
+            let deps_text = fs::read_to_string(&dep_file).ok();
+            let _ = fs::remove_file(&dep_file);
+            if !run.status.success() {
                 return Err(anyhow::anyhow!("protoc command failed"));
             }
 
-            let output =
-                String::from_utf8(output.stdout).context("protoc command output not UTF-8")?;
+            let output = deps_text.context("protoc dependency file unreadable")?;
 
             let mut lines = output.lines();
             let first_line = lines.next().context("protoc command output is empty")?;
-            // Newer protoc emits Makefile-format "target: deps", older versions
-            // (e.g. 3.20.x) may omit the target prefix entirely.
+            // Newer protoc emits Makefile-format "target: deps"; the target
+            // mirrors our --descriptor_set_out (NUL on Windows, /dev/null on
+            // Unix); older versions (e.g. 3.20.x) may omit it entirely.
             let rem = if let Some(after_colon) = first_line.strip_prefix("/dev/null:") {
+                after_colon
+            } else if let Some(after_colon) = first_line.strip_prefix("NUL:") {
                 after_colon
             } else if first_line.contains(':') {
                 first_line.split_once(':').map(|(_, r)| r).unwrap_or(first_line)
