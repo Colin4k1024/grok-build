@@ -1,9 +1,15 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(async () => ({
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}", "electron/**/*.test.ts"],
+  },
   // Relative asset paths so the packaged Electron app can load from file://
   base: "./",
   plugins: [react()],
