@@ -7,11 +7,13 @@ import { useSessionStore } from "../../stores/sessionStore";
 import {
   getMcpServers, gitStatus, gitDiff, runCommand, createSession, sendMessage,
   onAcpEvent, respondPermission, gitCommit, listWorktrees, removeWorktree, closeSession,
+  gitTurnSnapshot, gitDiffSince, gitConflicted,
   ptySpawn, ptyDispose, ptyEnabled,
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
   type PtySession,
 } from "../../lib/tauri";
 import { InteractiveTerminal } from "./InteractiveTerminal";
+import { next as reviewNext, ViewVersion, type ReviewState } from "../../lib/reviewMachine";
 
 interface RightPanelProps {
   collapsed: boolean;
@@ -116,6 +118,11 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   const [note, setNote] = useState<string | null>(null);
   const prevFilesRef = useRef<Set<string> | null>(null);
   const wasStreaming = useRef(false);
+  // ISS-080: review-loop state machine + true turn-base snapshots.
+  const [reviewState, setReviewState] = useState<ReviewState>("clean");
+  const turnBaseRef = useRef<string | null>(null);
+  const diffVersionRef = useRef(new ViewVersion());
+  const [conflicts, setConflicts] = useState<string[]>([]);
   const isStreaming = useSessionStore((s) => s.isStreaming);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const inTriage = isWorktreeCwd(cwd);
@@ -124,11 +131,18 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   // snapshot is the "last turn" view.
   useEffect(() => {
     if (isStreaming) {
+      if (!wasStreaming.current) {
+        // Turn START (ISS-080): capture a dangling worktree snapshot as this
+        // turn's diff base; `git stash create` touches nothing on disk.
+        gitTurnSnapshot(cwd).then((r) => { turnBaseRef.current = r.sha; }).catch(() => {});
+        setReviewState((st) => reviewNext(st, { type: "review-opened" }));
+      }
       wasStreaming.current = true;
       return;
     }
     if (!wasStreaming.current) return;
     wasStreaming.current = false;
+    setReviewState((st) => reviewNext(st, { type: "agent-turn-completed" }));
     gitStatus(cwd)
       .then(async (entries) => {
         autoArchiveIfEmpty(cwd, entries);
@@ -153,13 +167,43 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   }, [isStreaming, cwd]);
 
   useEffect(() => {
-    if (view === "all") gitDiff(cwd).then(setDiff).catch(() => setDiff(""));
     if (inTriage) markTriageRead(cwd);
-  }, [cwd, view, inTriage]);
+  }, [cwd, inTriage]);
+
+  // Versioned diff fetches (ISS-080): the agent may keep editing mid-fetch —
+  // only the newest fetch's result may land, the view never tears.
+  useEffect(() => {
+    const token = diffVersionRef.current.begin();
+    if (view === "all") {
+      gitDiff(cwd)
+        .then((d) => { if (diffVersionRef.current.accept(token)) setDiff(d); })
+        .catch(() => { if (diffVersionRef.current.accept(token)) setDiff(""); });
+    } else {
+      gitDiffSince(cwd, turnBaseRef.current)
+        .then((d) => {
+          if (!diffVersionRef.current.accept(token)) return;
+          setLastDiff(d);
+          setLastTurnFiles(d ? d.split("\n").filter((l) => l.startsWith("diff --git ")) : []);
+        })
+        .catch(() => { if (diffVersionRef.current.accept(token)) setLastDiff(""); });
+    }
+    gitConflicted(cwd)
+      .then((f) => { if (diffVersionRef.current.accept(token)) setConflicts(f); })
+      .catch(() => {});
+    gitStatus(cwd)
+      .then((entries) => {
+        if (!diffVersionRef.current.accept(token)) return;
+        setReviewState((st) => reviewNext(st, { type: "files-changed", hasChanges: entries.length > 0 }));
+      })
+      .catch(() => {});
+  }, [cwd, view, isStreaming]);
 
   const runApprove = async () => {
+    const msg = input.trim() || "已通过审查队列批准";
+    if (!window.confirm(`将执行:\n  git add -A && git commit -m "${msg}"\n确认提交？`)) return;
     try {
-      const result = await gitCommit(cwd, input.trim() || "已通过审查队列批准");
+      const result = await gitCommit(cwd, msg);
+      setReviewState((st) => reviewNext(st, { type: "committed" }));
       setNote(result === "nothing-to-commit" ? "没有可提交的内容 —— 工作区已是干净的。" : "已在 worktree 分支上提交。");
       setAction("none");
       setInput("");
@@ -171,11 +215,16 @@ function ReviewPanel({ cwd }: { cwd: string }) {
 
   const runRevise = async () => {
     if (!activeSessionId || !input.trim()) return;
+    const prompt = `请根据以下 review 意见修订当前改动：\n${input.trim()
+      .split("\n")
+      .map((l, i) => `${i + 1}. ${l}`)
+      .join("\n")}`;
     try {
-      useSessionStore.getState().addUserMessage(activeSessionId, input.trim());
+      setReviewState((st) => reviewNext(st, { type: "changes-requested" }));
+      useSessionStore.getState().addUserMessage(activeSessionId, prompt);
       useSessionStore.getState().setStreaming(true);
-      await sendMessage(activeSessionId, input.trim());
-      setNote("修改意见已发送到会话。");
+      await sendMessage(activeSessionId, prompt);
+      setNote("修改意见已发送到会话（changes-requested）。");
       setAction("none");
       setInput("");
     } catch (e) {
@@ -199,6 +248,19 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       setAction("none");
     } catch (e) {
       setNote(String(e));
+    }
+  };
+
+  // PR helpers (ISS-080): every remote-touching action shows the exact
+  // command and requires an explicit second confirmation — never silent.
+  const runCommandConfirmed = async (label: string, command: string) => {
+    if (!window.confirm(`${label}\n将执行:\n  ${command}\n确认？`)) return;
+    try {
+      const r = await runCommand(cwd, command);
+      setNote(`${label} 完成。${(r.stderr || "").slice(0, 200)}`);
+      if (/git push/.test(command)) setNote(`${label} 完成：${(r.stdout || r.stderr || "").slice(0, 300)}`);
+    } catch (e) {
+      setNote(`${label} 失败：${String(e)}`);
     }
   };
 
@@ -257,6 +319,33 @@ function ReviewPanel({ cwd }: { cwd: string }) {
           {note && <p className="mt-1 text-[10px] text-gb-muted">{note}</p>}
         </div>
       )}
+      {conflicts.length > 0 && (
+        <div className="border-b border-gb-red/30 bg-gb-red/10 px-2 py-1 text-[10px] text-gb-red">
+          合并冲突 — 以下文件未解决：{conflicts.join("、")}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 border-b border-gb-border/8 px-2 py-0.5 text-[9px] text-gb-muted">
+        <span>review: {reviewState}</span>
+        <span className="flex-1" />
+        {inTriage && (
+          <>
+            <button
+              onClick={() => runCommandConfirmed("推送分支", "git push -u origin HEAD")}
+              className="rounded bg-gb-surface-hover px-1.5 py-0.5 hover:opacity-80"
+              title="git push -u origin HEAD（需确认）"
+            >
+              推送
+            </button>
+            <button
+              onClick={() => runCommandConfirmed("创建 PR", "gh pr create --fill")}
+              className="rounded bg-gb-surface-hover px-1.5 py-0.5 hover:opacity-80"
+              title="gh pr create --fill（需确认）"
+            >
+              开 PR
+            </button>
+          </>
+        )}
+      </div>
       <div className="min-h-0 flex-1 overflow-auto p-1">
         {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-6 text-center text-[11px] text-gb-muted">与 HEAD 相比没有变更。</p>}
       </div>
