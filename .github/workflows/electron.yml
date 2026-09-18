@@ -126,7 +126,9 @@ jobs:
 
       - name: Package with electron-builder
         shell: bash
-        run: npx electron-builder --publish never --arch ${{ matrix.arch }}
+        # electron-builder 26 has no --arch flag — arch is a CLI switch
+        # (--arm64 / --x64); the platform defaults to the build host.
+        run: npx electron-builder --publish never ${{ matrix.arch == 'arm64' && '--arm64' || '--x64' }}
         env:
           # Unsigned artifacts for now — signing/notarization is ISS-076.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
