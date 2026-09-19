@@ -35,8 +35,16 @@ export interface ResumeUi {
  * once resume resolves — the same rebindTabId migration the boot re-resume
  * uses, including its "prefer messages recorded under the new id" rule for
  * replay events that race the rebind.
+ *
+ * Returns "started" when THIS invocation launched the resume (it owns the
+ * restoring-state cleanup — it settles exactly when the spawn settles), or
+ * "focused" when it merely focused an existing/in-flight tab (must not
+ * clear another invocation's restoring state).
  */
-export async function openHistoryThread(session: HistorySession, ui: ResumeUi): Promise<void> {
+export async function openHistoryThread(
+  session: HistorySession,
+  ui: ResumeUi
+): Promise<"started" | "focused"> {
   const existing = useSessionStore.getState().tabs.find((t) => t.acpSessionId === session.id);
   if (existing) {
     useSessionStore.getState().setActiveSession(existing.id);
@@ -44,9 +52,9 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     // Active-writer conflict (ISS-079, codex #43253 semantics): another
     // surface holds the pen — follow the transcript read-only, retry after.
     if (useSessionStore.getState().streaming[existing.id]) ui.onStreamingExisting();
-    return;
+    return "focused";
   }
-  if (inFlight.has(session.id)) return;
+  if (inFlight.has(session.id)) return "focused";
   inFlight.add(session.id);
 
   const optimisticId = `pending:${session.id}`;
@@ -88,7 +96,7 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     // orphan the freshly spawned live session (agent running, no tab).
     if (!useSessionStore.getState().tabs.some((t) => t.id === optimisticId)) {
       closeSession(info.id).catch(() => {});
-      return;
+      return "started";
     }
     const st = useSessionStore.getState();
     st.finalizeMessages(info.id);
@@ -116,4 +124,5 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
   } finally {
     inFlight.delete(session.id);
   }
+  return "started";
 }

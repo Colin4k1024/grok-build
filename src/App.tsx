@@ -254,7 +254,7 @@ export default function App() {
   // session/load (agent spawn + transcript replay) proceeds behind the
   // "restoring" banner. See lib/threadResume.ts for the spawn/rebind flow.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
-    await openHistoryThread(session, {
+    const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
         const pendingId = `pending:${session.id}`;
@@ -270,15 +270,18 @@ export default function App() {
         if (useSessionStore.getState().tabs.length === 0) setShowHome(true);
       },
     });
-    // Remove only this thread's pending id — other concurrent restores keep
-    // their banner until their own spawn settles.
-    const settledId = `pending:${session.id}`;
-    setResumingIds((prev) => {
-      if (!prev.has(settledId)) return prev;
-      const next = new Set(prev);
-      next.delete(settledId);
-      return next;
-    });
+    // Only the invocation that STARTED the resume owns cleanup — a duplicate
+    // click settles immediately via the focus path and must not clear the
+    // banner while the first spawn is still in flight.
+    if (outcome === "started") {
+      const settledId = `pending:${session.id}`;
+      setResumingIds((prev) => {
+        if (!prev.has(settledId)) return prev;
+        const next = new Set(prev);
+        next.delete(settledId);
+        return next;
+      });
+    }
   }, []);
 
   const handleNewSession = useCallback(async () => {

@@ -117,16 +117,21 @@ describe("openHistoryThread", () => {
     let resolveResume!: (v: SessionInfo) => void;
     resumeMock.mockReturnValue(new Promise<SessionInfo>((r) => { resolveResume = r; }));
     const session = hist();
+    const ui = () => ({ onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
 
-    const p1 = openHistoryThread(session, { onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
-    const p2 = openHistoryThread(session, { onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
+    const p1 = openHistoryThread(session, ui());
+    const p2 = openHistoryThread(session, ui());
 
     // The second click saw the optimistic tab and just focused it.
     expect(resumeMock).toHaveBeenCalledTimes(1);
     expect(useSessionStore.getState().tabs).toHaveLength(1);
 
     resolveResume(info(session.id));
-    await Promise.all([p1, p2]);
+    const [r1, r2] = await Promise.all([p1, p2]);
+    // Ownership contract: only the invocation that launched the spawn
+    // reports "started" — the caller uses it to own restoring-state cleanup.
+    expect(r1).toBe("started");
+    expect(r2).toBe("focused");
     expect(useSessionStore.getState().tabs).toHaveLength(1);
   });
 
