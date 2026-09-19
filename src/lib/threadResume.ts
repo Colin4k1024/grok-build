@@ -64,10 +64,22 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
   });
   ui.onOptimisticOpen();
 
-  // Prefetch the on-disk transcript in parallel with the spawn. It is used
-  // only when the live replay produced nothing — never merged with a replay
-  // (both cover the same history; merging would duplicate the transcript).
-  const disk = getSessionHistoryMessages(session.id, session.cwd).catch(() => []);
+  // Disk transcript paints into the pending tab immediately — the read is
+  // local and fast, so the thread is readable long before the agent spawn
+  // finishes. Replay notifications for session/load complete before the
+  // resume RPC resolves, so they cannot append on top of this later; if
+  // replay content did land, rebindTabId prefers it and discards this copy.
+  getSessionHistoryMessages(session.id, session.cwd)
+    .then((historyMsgs) => {
+      if (historyMsgs.length === 0) return;
+      const st = useSessionStore.getState();
+      // The rebind may already have run — then this write would target a
+      // dead key; the resolve-time fallback below owns that case instead.
+      if (st.tabs.some((t) => t.id === optimisticId) && (st.messages[optimisticId] || []).length === 0) {
+        st.loadHistoryMessages(optimisticId, historyMsgs);
+      }
+    })
+    .catch(() => {});
 
   try {
     const info = await resumeSession(session.id, session.cwd);
@@ -84,10 +96,15 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     if (!session.model && info.models[0]?.id) {
       useSessionStore.getState().setTabModel(info.id, info.models[0].id);
     }
+    // Fallback for the race where the disk read was slower than the spawn:
+    // only when neither replay nor the immediate load produced anything.
     const replayed = useSessionStore.getState().messages[info.id];
     if (!replayed || replayed.length === 0) {
-      const historyMsgs = await disk;
-      if (historyMsgs.length > 0) {
+      const historyMsgs = await getSessionHistoryMessages(session.id, session.cwd).catch(() => []);
+      if (
+        historyMsgs.length > 0 &&
+        (useSessionStore.getState().messages[info.id] || []).length === 0
+      ) {
         useSessionStore.getState().loadHistoryMessages(info.id, historyMsgs);
       }
     }

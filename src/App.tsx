@@ -814,7 +814,7 @@ export default function App() {
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">
           <span className="text-xs font-medium text-gb-text">独立会话窗口</span>
         </header>
-        <MessageList />
+        <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
         <PromptInput
           onSend={handleSend}
           onCancel={handleCancel}
@@ -927,12 +927,12 @@ export default function App() {
             <>
               <WorktreeOnboardingBanner />
               {activeSessionId && resumingIds.has(activeSessionId) && (
-                <div className="flex shrink-0 items-center gap-2 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-1.5 text-xs text-gb-muted">
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border border-gb-border border-t-gb-accent" />
-                  正在恢复会话…
+                <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
+                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
+                  正在恢复会话 — 转录加载中，恢复完成后即可继续发送
                 </div>
               )}
-              <MessageList />
+              <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
               {activeSessionId && activePermissions.map((perm) => (
                 <ApprovalCard
                   key={perm.requestId}
@@ -958,7 +958,7 @@ export default function App() {
                 onSend={handleSend}
                 onCancel={handleCancel}
                 isStreaming={isStreaming}
-                disabled={false}
+                disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
                 cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
                 onSwitchProject={handleSwitchProject}
                 config={config}

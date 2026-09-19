@@ -207,6 +207,31 @@ describe("openHistoryThread", () => {
     expect(useSessionStore.getState().messages[live.id]).toBeUndefined();
   });
 
+  it("paints the disk transcript into the pending tab before the spawn resolves", async () => {
+    let resolveResume!: (v: SessionInfo) => void;
+    resumeMock.mockReturnValue(new Promise<SessionInfo>((r) => { resolveResume = r; }));
+    const session = hist();
+    diskMock.mockResolvedValue(diskMessages());
+    const optimisticId = `pending:${session.id}`;
+
+    void openHistoryThread(session, { onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
+
+    // The local disk read settles in microtasks — the agent spawn does not.
+    await vi.waitFor(() => {
+      expect(msgs(optimisticId).map((m) => m.content)).toContain("from disk");
+    });
+    expect(resumeMock).toHaveBeenCalledTimes(1);
+
+    const live = info(session.id);
+    resolveResume(live);
+    await vi.waitFor(() => {
+      expect(useSessionStore.getState().tabs[0]?.id).toBe(live.id);
+    });
+    // The pre-painted transcript migrated to the live id — not duplicated.
+    expect(msgs(live.id).map((m) => m.content)).toContain("from disk");
+    expect(msgs(live.id)).toHaveLength(2);
+  });
+
   it("focuses an already-open live tab without spawning", async () => {
     const session = hist();
     const open: SessionTab = {
