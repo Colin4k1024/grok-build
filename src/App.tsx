@@ -33,11 +33,13 @@ import {
   setSessionModel, resumeSession, addWorktree, listWorktrees,
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
-  onTrayAction, onConfigChanged, getSessionHistoryMessages, gitDiff,
+  onTrayAction, onConfigChanged, gitDiff,
   renameHistorySession, persistTranscript } from "./lib/tauri";
 import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
+import { openHistoryThread } from "./lib/threadResume";
+import type { PendingPermission, PendingQuestion } from "./stores/sessionStore";
 import { UsagePanel } from "./components/panels/UsagePanel";
 import { ImportPanel } from "./components/panels/ImportPanel";
 import { formatRetry } from "./lib/usage";
@@ -50,15 +52,39 @@ import type { Command } from "./components/layout/CommandPalette";
 // 2026-09-18: same session resumed 4x, auth errors from concurrent loads).
 let bootResumeStarted = false;
 
+// Fine-grained subscriptions: streaming text deltas (up to 20 Hz per open
+// tab) only re-render the message list, not the whole shell. The previous
+// whole-store destructure re-rendered sidebar/titlebar/panels on every flush.
+const EMPTY_PERMISSIONS: PendingPermission[] = [];
+const EMPTY_QUESTIONS: PendingQuestion[] = [];
+
 export default function App() {
   useAcpEventListener();
 
-  const {
-    tabs, messages, activeSessionId, isStreaming,
-    setActiveSession, addTab, removeTab, renameTab,
-    setStreaming, addUserMessage,
-    pendingPermissions, removePendingPermission, pendingQuestions, removePendingQuestion,
-  } = useSessionStore();
+  const tabs = useSessionStore((s) => s.tabs);
+  const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const isStreaming = useSessionStore((s) => s.isStreaming);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
+  const addTab = useSessionStore((s) => s.addTab);
+  const removeTab = useSessionStore((s) => s.removeTab);
+  const renameTab = useSessionStore((s) => s.renameTab);
+  const setStreaming = useSessionStore((s) => s.setStreaming);
+  const addUserMessage = useSessionStore((s) => s.addUserMessage);
+  const removePendingPermission = useSessionStore((s) => s.removePendingPermission);
+  const removePendingQuestion = useSessionStore((s) => s.removePendingQuestion);
+  // Per-session slices: unrelated sessions' permission changes don't re-render.
+  const activePermissions =
+    useSessionStore((s) => (s.activeSessionId ? s.pendingPermissions[s.activeSessionId] : undefined)) ??
+    EMPTY_PERMISSIONS;
+  const activeQuestions =
+    useSessionStore((s) => (s.activeSessionId ? s.pendingQuestions[s.activeSessionId] : undefined)) ??
+    EMPTY_QUESTIONS;
+  // Numeric selector — re-renders only when the badge count actually changes.
+  const pendingTotal = useSessionStore(
+    (s) =>
+      Object.values(s.pendingPermissions).reduce((sum, arr) => sum + arr.length, 0) +
+      Object.values(s.pendingQuestions).reduce((sum, arr) => sum + arr.length, 0)
+  );
   const clearMessages = useSessionStore((s) => s.clearMessages);
   const setTabCwd = useSessionStore((s) => s.setTabCwd);
   const setTabWorkMode = useSessionStore((s) => s.setTabWorkMode);
@@ -87,6 +113,10 @@ export default function App() {
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // Optimistic thread-open banner: pending tab ids whose resumeSession is
+  // still spawning the agent. A set, because several threads can restore
+  // concurrently — one settling must not clear another's restoring state.
+  const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -220,48 +250,36 @@ export default function App() {
   }, []);
 
   // Resume a persisted thread (Home "Recent threads" / Threads picker):
-  // session/load restores full agent context and replays the transcript.
+  // opens optimistically — the tab and view switch on the click itself and
+  // session/load (agent spawn + transcript replay) proceeds behind the
+  // "restoring" banner. See lib/threadResume.ts for the spawn/rebind flow.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
-    // Already open as a live tab? Focus it instead of spawning a duplicate.
-    const existing = useSessionStore.getState().tabs.find((t) => t.acpSessionId === session.id);
-    if (existing) {
-      setActiveSession(existing.id);
-      setShowHome(false);
-      // Active-writer conflict (ISS-079, codex #43253 semantics): another
-      // surface holds the pen — follow the transcript read-only, retry after.
-      if (useSessionStore.getState().streaming[existing.id]) {
-        setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送");
-      }
-      return;
-    }
-    setCreating(true);
-    setError(null);
-    try {
-      const info = await resumeSession(session.id, session.cwd);
-      useSessionStore.getState().finalizeMessages(info.id);
-      addTab({
-        id: info.id,
-        acpSessionId: info.acp_session_id,
-        title: session.title.slice(0, 40) + (session.title.length > 40 ? "…" : ""),
-        cwd: session.cwd,
-        model: session.model || info.models[0]?.id || "",
-        reasoningEffort: "medium",
-        createdAt: Date.now(),
-        lastActiveAt: Date.now(),
-      });
-      // If the agent's session/load replay produced nothing, rebuild the
-      // transcript from the on-disk history so the thread opens with content.
-      const replayed = useSessionStore.getState().messages[info.id];
-      if (!replayed || replayed.length === 0) {
-        const historyMsgs = await getSessionHistoryMessages(session.id, session.cwd);
-        if (historyMsgs.length > 0) {
-          useSessionStore.getState().loadHistoryMessages(info.id, historyMsgs);
-        }
-      }
-      setShowHome(false);
-    } catch (e) { setError(String(e)); }
-    finally { setCreating(false); }
-  }, [addTab, setActiveSession]);
+    await openHistoryThread(session, {
+      onOptimisticOpen: () => {
+        setShowHome(false);
+        const pendingId = `pending:${session.id}`;
+        setResumingIds((prev) => new Set(prev).add(pendingId));
+      },
+      onFocusExisting: () => setShowHome(false),
+      onStreamingExisting: () =>
+        setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送"),
+      onError: (m) => {
+        setError(`恢复会话失败：${m}`);
+        // The optimistic tab was rolled back — if nothing else is open,
+        // land back on Home instead of an empty chat view.
+        if (useSessionStore.getState().tabs.length === 0) setShowHome(true);
+      },
+    });
+    // Remove only this thread's pending id — other concurrent restores keep
+    // their banner until their own spawn settles.
+    const settledId = `pending:${session.id}`;
+    setResumingIds((prev) => {
+      if (!prev.has(settledId)) return prev;
+      const next = new Set(prev);
+      next.delete(settledId);
+      return next;
+    });
+  }, []);
 
   const handleNewSession = useCallback(async () => {
     setCreating(true);
@@ -378,22 +396,19 @@ export default function App() {
   }, []);
 
   // Dock badge = threads waiting for approval across all sessions (ISS-062).
-  const pendingTotal = useMemo(
-    () => Object.values(pendingPermissions).reduce((sum, arr) => sum + arr.length, 0),
-    [pendingPermissions]
-  );
+  // pendingTotal comes from a numeric store selector above.
   useEffect(() => {
     invoke("set_badge", { count: pendingTotal }).catch(() => {});
   }, [pendingTotal]);
 
   const handleCloseSession = useCallback(async (id: string) => {
-    const msgs = messages[id] || [];
+    const msgs = useSessionStore.getState().messages[id] || [];
     if (msgs.length > 0 || isStreaming) {
       setConfirmClose(id);
       return;
     }
     await performClose(id);
-  }, [messages, isStreaming]);
+  }, [isStreaming]);
 
   const performClose = useCallback(async (id: string) => {
     try { await closeSession(id); } catch (e) { console.error(e); }
@@ -778,7 +793,8 @@ export default function App() {
     );
   }
 
-  const currentMessages = activeSessionId ? (messages[activeSessionId] || []) : [];
+  // MessageList subscribes to the active session's messages itself — App no
+  // longer holds the messages slice, so stream flushes skip the shell.
 
   // Detached window: render only the chat area
   if (detachedSessionId) {
@@ -798,7 +814,7 @@ export default function App() {
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">
           <span className="text-xs font-medium text-gb-text">独立会话窗口</span>
         </header>
-        <MessageList messages={currentMessages} />
+        <MessageList />
         <PromptInput
           onSend={handleSend}
           onCancel={handleCancel}
@@ -910,8 +926,14 @@ export default function App() {
           ) : (
             <>
               <WorktreeOnboardingBanner />
-              <MessageList messages={currentMessages} />
-              {activeSessionId && (pendingPermissions[activeSessionId] || []).map((perm) => (
+              {activeSessionId && resumingIds.has(activeSessionId) && (
+                <div className="flex shrink-0 items-center gap-2 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-1.5 text-xs text-gb-muted">
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border border-gb-border border-t-gb-accent" />
+                  正在恢复会话…
+                </div>
+              )}
+              <MessageList />
+              {activeSessionId && activePermissions.map((perm) => (
                 <ApprovalCard
                   key={perm.requestId}
                   sessionId={activeSessionId}
@@ -922,7 +944,7 @@ export default function App() {
                   onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
                 />
               ))}
-              {activeSessionId && (pendingQuestions[activeSessionId] || []).map((q) => (
+              {activeSessionId && activeQuestions.map((q) => (
                 <QuestionCard
                   key={q.requestId}
                   sessionId={activeSessionId}

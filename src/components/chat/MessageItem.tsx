@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, type CSSProperties } from "react";
+import { memo, useState, useCallback, useMemo, type CSSProperties } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -15,6 +15,14 @@ function MessageItemImpl({ message }: Props) {
   const [viewingImage, setViewingImage] = useState<{ src: string; alt: string } | null>(null);
   const isUser = message.role === "user";
   const isTool = message.role === "tool";
+
+  // While streaming, skip AST-level syntax highlighting: the growing message
+  // re-renders on every ~50 ms flush, and re-highlighting its code blocks was
+  // the dominant render cost. The final (streaming=false) render highlights.
+  const rehypePlugins = useMemo(
+    () => (message.streaming ? [] : [rehypeHighlight]),
+    [message.streaming]
+  );
 
   const handleApplyCode = useCallback((code: string, language?: string) => {
     // Dispatch a DOM event so the parent (App / session plumbing) can decide
@@ -68,7 +76,7 @@ function MessageItemImpl({ message }: Props) {
             <div className="prose prose-sm prose-invert max-w-none">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
+                rehypePlugins={rehypePlugins}
                 components={{
                   img: ({ src, alt }) => (
                     <img

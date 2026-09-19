@@ -8,17 +8,24 @@ import type { ChatMessage, CompactionMarker } from "../../stores/sessionStore";
 const RENDER_WINDOW = 150;
 const OVERSCAN = 20;
 
-interface Props { messages: ChatMessage[]; }
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
+interface Props { sessionId?: string; }
 
 type FlatItem = { type: "message"; data: ChatMessage } | { type: "marker"; data: CompactionMarker };
 
-export function MessageList({ messages }: Props) {
+export function MessageList({ sessionId }: Props = {}) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW);
   const [scrollState, setScrollState] = useState({ top: false, bottom: false });
   const activeSessionId = useSessionStore(s => s.activeSessionId);
   const markers = useSessionStore(s => activeSessionId ? s.compactionMarkers[activeSessionId] || [] : []);
+  // Self-subscribed messages slice: stream flushes re-render this list (and
+  // via memo only the one changed MessageItem), never the App shell above.
+  const messages =
+    useSessionStore((s) => ((sessionId ?? s.activeSessionId) ? s.messages[(sessionId ?? s.activeSessionId)!] : undefined)) ??
+    EMPTY_MESSAGES;
 
   const items: FlatItem[] = [];
   let markerIdx = 0;

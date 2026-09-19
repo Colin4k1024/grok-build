@@ -10,15 +10,15 @@ interface BackupData {
 }
 
 export function useAutoSave() {
-  const tabs = useSessionStore((s) => s.tabs);
-  const messages = useSessionStore((s) => s.messages);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Snapshot reads inside the interval only — no render-level subscription.
+  // A whole-map `messages` selector here re-rendered the App host on every
+  // streaming flush (up to 20 Hz) just to save a backup every 10 s.
   useEffect(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-
     timerRef.current = setInterval(() => {
       try {
+        const { tabs, messages } = useSessionStore.getState();
         const backup: BackupData = {
           tabs: tabs.map((t) => ({
             id: t.id,
@@ -56,7 +56,7 @@ export function useAutoSave() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [tabs, messages]);
+  }, []);
 }
 
 export function loadSessionBackup(): BackupData | null {
