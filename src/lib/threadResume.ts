@@ -1,6 +1,7 @@
 import { useSessionStore } from "../stores/sessionStore";
 import {
   resumeSession,
+  closeSession,
   getSessionHistoryMessages,
   type HistorySession,
 } from "./tauri";
@@ -70,6 +71,13 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
 
   try {
     const info = await resumeSession(session.id, session.cwd);
+    // The user may have closed the optimistic tab while the spawn was in
+    // flight. Honor that immediately: rebinding onto a removed tab would
+    // orphan the freshly spawned live session (agent running, no tab).
+    if (!useSessionStore.getState().tabs.some((t) => t.id === optimisticId)) {
+      closeSession(info.id).catch(() => {});
+      return;
+    }
     const st = useSessionStore.getState();
     st.finalizeMessages(info.id);
     st.rebindTabId(optimisticId, info.id, info.acp_session_id);

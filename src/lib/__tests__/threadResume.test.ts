@@ -1,18 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useSessionStore, type SessionTab, type ChatMessage } from "../../stores/sessionStore";
 import { openHistoryThread } from "../threadResume";
-import { resumeSession, getSessionHistoryMessages, type HistorySession, type SessionInfo } from "../../lib/tauri";
+import {
+  resumeSession,
+  closeSession,
+  getSessionHistoryMessages,
+  type HistorySession,
+  type SessionInfo,
+} from "../../lib/tauri";
 
 vi.mock("../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/tauri")>();
   return {
     ...actual,
     resumeSession: vi.fn(),
+    closeSession: vi.fn(),
     getSessionHistoryMessages: vi.fn(),
   };
 });
 
 const resumeMock = vi.mocked(resumeSession);
+const closeMock = vi.mocked(closeSession);
 const diskMock = vi.mocked(getSessionHistoryMessages);
 
 /** Full reset — zustand merges partials, so spell out every slice. */
@@ -69,9 +77,11 @@ function msgs(sessionId: string): ChatMessage[] {
 beforeEach(() => {
   resetStore();
   resumeMock.mockReset();
+  closeMock.mockReset();
   diskMock.mockReset();
   // Safe defaults — individual tests override.
   resumeMock.mockResolvedValue({ id: "live-default", cwd: "/w/demo", acp_session_id: "acp-default", models: [] });
+  closeMock.mockResolvedValue(undefined);
   diskMock.mockResolvedValue([]);
 });
 
@@ -174,6 +184,27 @@ describe("openHistoryThread", () => {
     await openHistoryThread(session, { onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
     expect(resumeMock).toHaveBeenCalledTimes(2);
     expect(useSessionStore.getState().tabs).toHaveLength(1);
+  });
+
+  it("closing the optimistic tab mid-spawn closes the live session instead of orphaning it", async () => {
+    let resolveResume!: (v: SessionInfo) => void;
+    resumeMock.mockReturnValue(new Promise<SessionInfo>((r) => { resolveResume = r; }));
+    const session = hist();
+    const optimisticId = `pending:${session.id}`;
+
+    const promise = openHistoryThread(session, { onOptimisticOpen: vi.fn(), onFocusExisting: vi.fn(), onStreamingExisting: vi.fn(), onError: vi.fn() });
+    // User closes the pending tab while the agent is still spawning.
+    useSessionStore.getState().removeTab(optimisticId);
+    expect(useSessionStore.getState().tabs).toHaveLength(0);
+
+    const live = info(session.id);
+    resolveResume(live);
+    await promise;
+
+    // The freshly spawned backend session is torn down, nothing rebinds.
+    expect(closeMock).toHaveBeenCalledWith(live.id);
+    expect(useSessionStore.getState().tabs).toHaveLength(0);
+    expect(useSessionStore.getState().messages[live.id]).toBeUndefined();
   });
 
   it("focuses an already-open live tab without spawning", async () => {

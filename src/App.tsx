@@ -113,9 +113,10 @@ export default function App() {
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  // Optimistic thread-open banner: the pending tab id while resumeSession
-  // spawns the agent behind the already-switched view.
-  const [resumingSessionId, setResumingSessionId] = useState<string | null>(null);
+  // Optimistic thread-open banner: pending tab ids whose resumeSession is
+  // still spawning the agent. A set, because several threads can restore
+  // concurrently — one settling must not clear another's restoring state.
+  const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -256,7 +257,8 @@ export default function App() {
     await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
-        setResumingSessionId(`pending:${session.id}`);
+        const pendingId = `pending:${session.id}`;
+        setResumingIds((prev) => new Set(prev).add(pendingId));
       },
       onFocusExisting: () => setShowHome(false),
       onStreamingExisting: () =>
@@ -268,7 +270,15 @@ export default function App() {
         if (useSessionStore.getState().tabs.length === 0) setShowHome(true);
       },
     });
-    setResumingSessionId(null);
+    // Remove only this thread's pending id — other concurrent restores keep
+    // their banner until their own spawn settles.
+    const settledId = `pending:${session.id}`;
+    setResumingIds((prev) => {
+      if (!prev.has(settledId)) return prev;
+      const next = new Set(prev);
+      next.delete(settledId);
+      return next;
+    });
   }, []);
 
   const handleNewSession = useCallback(async () => {
@@ -916,7 +926,7 @@ export default function App() {
           ) : (
             <>
               <WorktreeOnboardingBanner />
-              {resumingSessionId && activeSessionId === resumingSessionId && (
+              {activeSessionId && resumingIds.has(activeSessionId) && (
                 <div className="flex shrink-0 items-center gap-2 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-1.5 text-xs text-gb-muted">
                   <span className="inline-block h-3 w-3 animate-spin rounded-full border border-gb-border border-t-gb-accent" />
                   正在恢复会话…
