@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { readJournal } from "./journal";
 
 /** Mirror the agent's GROK_HOME resolution ("Set GROK_HOME to override"). */
 function grokHome(): string {
@@ -169,15 +170,20 @@ function historyFromChatHistory(file: string): ChatHistoryEntry[] {
 }
 
 export function getSessionHistory(sessionId: string, cwd: string): ChatHistoryEntry[] {
+  // Our own live-stream journal first: it is the only source that records
+  // assistant replies (the agent core's persistence never writes them, so
+  // threads that predate the journal open empty or user-side-only).
+  const journaled = readJournal(sessionId);
+  if (journaled.length > 0) return journaled;
+
   const dirHit = findSessionDir(sessionId, cwd);
   if (!dirHit) throw new Error(`No history found for session ${sessionId}`);
 
-  // Prefer the authoritative update stream; fall back to the raw model
-  // transcript for sessions that predate updates.jsonl.
-  return (
-    historyFromUpdates(path.join(dirHit, "updates.jsonl")) ??
-    historyFromChatHistory(path.join(dirHit, "chat_history.jsonl"))
-  );
+  // Agent-core streams next. An EMPTY updates.jsonl result must fall through
+  // to chat_history.jsonl — `[]` is not nullish, so `??` never did.
+  const fromUpdates = historyFromUpdates(path.join(dirHit, "updates.jsonl"));
+  if (fromUpdates && fromUpdates.length > 0) return fromUpdates;
+  return historyFromChatHistory(path.join(dirHit, "chat_history.jsonl"));
 }
 
 /** Locate a persisted session dir: encoded cwd first, then a group scan. */

@@ -11,16 +11,21 @@ import {
 
 let tmp = "";
 const savedGrokHome = process.env.GROK_HOME;
+const savedJournalDir = process.env.GB_JOURNAL_DIR;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gb-hist-test-"));
   process.env.GROK_HOME = tmp;
+  // Isolate the journal source so history tests exercise the intended chain.
+  process.env.GB_JOURNAL_DIR = path.join(tmp, "journal");
 });
 
 afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
   if (savedGrokHome === undefined) delete process.env.GROK_HOME;
   else process.env.GROK_HOME = savedGrokHome;
+  if (savedJournalDir === undefined) delete process.env.GB_JOURNAL_DIR;
+  else process.env.GB_JOURNAL_DIR = savedJournalDir;
 });
 
 /** Resolve a session dir inside the tmp sessions root, refusing escapes. */
@@ -181,14 +186,42 @@ describe("getSessionHistory", () => {
     ]);
   });
 
-  it("empty updates.jsonl yields an empty transcript (not a crash, not a fallback)", () => {
+  it("an updates.jsonl that parses to zero entries falls through to chat_history.jsonl", () => {
+    // Real-world sessions routinely have a present-but-sparse updates.jsonl
+    // (the agent core only journals user chunks + lifecycle noise). The old
+    // `[] ?? fallback` chain never reached chat_history for those — this is
+    // the regression test for the "resumed thread opens empty" bug.
     writeSession(encodeURIComponent("/w/alpha"), "sid-1", {
       "summary.json": summaryJson(),
-      "updates.jsonl": "",
-      "chat_history.jsonl": JSON.stringify({ type: "user", content: "stale" }),
+      "updates.jsonl": JSON.stringify({
+        timestamp: 1,
+        params: { update: { sessionUpdate: "hook_execution", content: "noise" } },
+      }),
+      "chat_history.jsonl": JSON.stringify({ type: "user", content: "recovered" }),
     });
 
-    expect(getSessionHistory("sid-1", "/w/alpha")).toEqual([]);
+    expect(getSessionHistory("sid-1", "/w/alpha")).toEqual([
+      { role: "user", content: "recovered", timestamp: 0 },
+    ]);
+  });
+
+  it("the live-stream journal wins over the agent-core streams", async () => {
+    writeSession(encodeURIComponent("/w/alpha"), "sid-1", {
+      "summary.json": summaryJson(),
+      "updates.jsonl": JSON.stringify({
+        timestamp: 1,
+        params: { update: { sessionUpdate: "user_message_chunk", content: [{ type: "text", text: "user only" }] } },
+      }),
+    });
+    const { appendJournal } = await import("../journal");
+    appendJournal("sid-1", "user", "journaled user");
+    appendJournal("sid-1", "assistant", "journaled reply");
+    appendJournal("sid-1", "turn_end", "");
+
+    expect(getSessionHistory("sid-1", "/w/alpha")).toEqual([
+      { role: "user", content: "journaled user", timestamp: expect.any(Number) },
+      { role: "assistant", content: "journaled reply", timestamp: expect.any(Number) },
+    ]);
   });
 
   it("finds the session by scanning groups when the encoded cwd misses", () => {
