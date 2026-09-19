@@ -310,6 +310,23 @@ async function startSessionRecord(cwd: string, resumeAcpId?: string) {
   sessions.set(id, rec);
 
   const emit = (event: Record<string, unknown>) => {
+    // Live-turn transcript journal: the agent core never persists assistant
+    // replies itself, so resumed threads opened empty. Replayed history was
+    // journaled by its original turn — never re-journal it.
+    try {
+      if (event.replay !== true) {
+        const rec = sessions.get(event.session_id as string);
+        if (rec?.acp_session_id) {
+          if (event.type === "TextDelta" && typeof event.delta === "string" && event.delta) {
+            appendJournal(rec.acp_session_id, "assistant", event.delta);
+          } else if (event.type === "TurnComplete") {
+            appendJournal(rec.acp_session_id, "turn_end", "");
+          }
+        }
+      }
+    } catch {
+      /* journaling must never break the live stream */
+    }
     mainWindow?.webContents.send("acp_event", event);
     // Fan out to detached windows so the read-only side keeps following.
     detachRegistry.prune();
@@ -380,6 +397,11 @@ ipcMain.handle("session_send", (e, args: { session_id: string; message: string; 
         `Session ${args.session_id} is detached to another window — this view is read-only`
       );
     }
+  }
+  try {
+    if (session.acp_session_id) appendJournal(session.acp_session_id, "user", args.message ?? "");
+  } catch {
+    /* see emit(): journaling never breaks the live path */
   }
   return session.agent.prompt(args.message, args.images ?? []).then(() => ok(null));
 });
@@ -571,6 +593,7 @@ import {
   unmarkClaudeImported,
 } from "./claude-import";
 import { persistTranscript } from "./transcript-store";
+import { appendJournal } from "./journal";
 
 // --- Selective import from Claude Code (ISS-083) ---
 ipcMain.handle("claude_probe", () => ok(probeClaudeSources()));
