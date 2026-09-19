@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { writeText } from "../../lib/desktop";
 
 interface CodeBlockProps {
@@ -10,17 +10,44 @@ interface CodeBlockProps {
   onApply?: (code: string, language?: string) => void;
 }
 
+/** Line-number gutter. Memoized on count alone: a 500-line block is 500 DOM
+ *  nodes that used to be rebuilt on every parent render (i.e. every 50 ms
+ *  stream flush while the fence was still growing). */
+const LineGutter = memo(function LineGutter({ count }: { count: number }) {
+  const rows = useMemo(() => {
+    const out = new Array<string>(count);
+    for (let i = 0; i < count; i++) out[i] = String(i + 1);
+    return out;
+  }, [count]);
+  return (
+    <span
+      aria-hidden
+      className="select-none border-r border-gb-border/8 bg-gb-bg-secondary px-2 py-2 text-right text-[10px] text-gb-muted/60"
+    >
+      {rows.map((n, i) => (
+        <span key={i} className="block">
+          {n}
+        </span>
+      ))}
+    </span>
+  );
+});
+
 /**
  * Codex-style code block: header with language label + line count + copy +
  * apply buttons; collapsible body with line numbers.
  */
-export function CodeBlock({ code, language, onApply }: CodeBlockProps) {
+export const CodeBlock = memo(function CodeBlock({ code, language, onApply }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [applyState, setApplyState] = useState<"idle" | "applied" | "failed">("idle");
 
-  const lines = useMemo(() => code.split("\n"), [code]);
-  const lineCount = lines.length;
+  // Count newlines without allocating a full split of the code body.
+  const lineCount = useMemo(() => {
+    let n = 1;
+    for (let i = 0; i < code.length; i++) if (code.charCodeAt(i) === 10) n++;
+    return n;
+  }, [code]);
   const langLabel = language?.trim() || "text";
 
   const handleCopy = useCallback(async () => {
@@ -97,20 +124,11 @@ export function CodeBlock({ code, language, onApply }: CodeBlockProps) {
       {!collapsed && (
         <div className="overflow-x-auto">
           <pre className="flex text-[12px] leading-5">
-            <span
-              aria-hidden
-              className="select-none border-r border-gb-border/8 bg-gb-bg-secondary px-2 py-2 text-right text-[10px] text-gb-muted/60"
-            >
-              {lines.map((_, i) => (
-                <span key={i} className="block">
-                  {i + 1}
-                </span>
-              ))}
-            </span>
+            <LineGutter count={lineCount} />
             <code className="flex-1 px-3 py-2 font-mono text-gb-text">{code}</code>
           </pre>
         </div>
       )}
     </div>
   );
-}
+});

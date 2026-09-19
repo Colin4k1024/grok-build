@@ -1,14 +1,28 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { shallow } from "zustand/shallow";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useSessionStore } from "../../stores/sessionStore";
 import type { ChatMessage } from "../../stores/sessionStore";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
+const EMPTY_IDS: string[] = [];
+/** Minimum gap between corpus-driven search refreshes while a turn streams. */
+const CORPUS_REFRESH_MS = 500;
 
 /**
  * In-thread message search — searches the active session's messages and
  * renders a right-edge navigation rail with one marker per user message
  * (Codex's `thread-user-message-navigation-rail`). Clicking a marker
  * scrolls to that message.
+ *
+ * This component lives inside MessageList, so it re-renders on every stream
+ * flush (~20 Hz). Its subscriptions are deliberately narrow: the marker rail
+ * watches only user-message ids (shallow-compared, so an assistant delta
+ * changes nothing), and the full transcript is subscribed ONLY while a search
+ * is actually open. Previously it held the whole messages array, which made
+ * every delta re-filter the transcript, re-render the rail, and — because the
+ * debounce effect depended on `messages` — perpetually defer the search so it
+ * never returned results while a reply was streaming.
  */
 export function ThreadSearchRail() {
   const [open, setOpen] = useState(false);
@@ -17,38 +31,92 @@ export function ThreadSearchRail() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
-  const messages = useSessionStore((s) =>
-    activeSessionId ? (s.messages[activeSessionId] ?? EMPTY_MESSAGES) : EMPTY_MESSAGES
+
+  // Marker rail data: user-message ids only. `useStoreWithEqualityFn` is the
+  // supported way to pass a custom equality fn in zustand v4 (passing one to
+  // a `create()` hook is deprecated and warns).
+  const userMsgIds = useStoreWithEqualityFn(
+    useSessionStore,
+    useCallback((s) => {
+      const id = s.activeSessionId;
+      const msgs = id ? s.messages[id] : undefined;
+      if (!msgs || msgs.length === 0) return EMPTY_IDS;
+      const out: string[] = [];
+      for (const m of msgs) if (m.role === "user") out.push(m.id);
+      return out;
+    }, []),
+    shallow
   );
+
+  const hasAnyMessage = useSessionStore(useCallback((s) => {
+    const id = s.activeSessionId;
+    return !!id && (s.messages[id]?.length ?? 0) > 0;
+  }, []));
+
+  // Full transcript, subscribed only while a search can actually run.
+  const searchActive = open && query.trim().length > 0;
+  const messages = useSessionStore(useCallback((s) => {
+    if (!searchActive) return EMPTY_MESSAGES;
+    const id = s.activeSessionId;
+    return (id ? s.messages[id] : undefined) ?? EMPTY_MESSAGES;
+  }, [searchActive]));
+
+  // Runs the search against the CURRENT store contents (getState), never a
+  // captured snapshot — so it always sees the latest transcript.
+  const settledQueryRef = useRef("");
+  const lastCorpusRunRef = useRef(0);
+
+  const runSearch = useCallback((q: string) => {
+    const sid = useSessionStore.getState().activeSessionId;
+    const corpus = (sid ? useSessionStore.getState().messages[sid] : undefined) ?? [];
+    const found: { id: string; snippet: string }[] = [];
+    for (const m of corpus) {
+      const idx = m.content.toLowerCase().indexOf(q);
+      if (idx < 0) continue;
+      const start = Math.max(0, idx - 30);
+      const end = Math.min(m.content.length, idx + q.length + 50);
+      found.push({
+        id: m.id,
+        snippet:
+          (start > 0 ? "…" : "") +
+          m.content.slice(start, end).replace(/\n/g, " ") +
+          (end < m.content.length ? "…" : ""),
+      });
+    }
+    settledQueryRef.current = q;
+    lastCorpusRunRef.current = Date.now();
+    setMatches(found);
+  }, []);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
 
-  // Debounce search by 150ms so fast typists don't thrash the message list.
+  // Debounce the query by 150ms so fast typists don't thrash the message list.
+  //
+  // Deliberately NOT keyed on the messages array: a streaming reply changes it
+  // ~20×/s, and including it cleared and restarted this timer on every flush so
+  // the search never completed while an answer was arriving.
   useEffect(() => {
-    if (!query.trim()) {
-      setMatches([]);
+    const q = query.trim().toLowerCase();
+    if (!open || !q) {
+      settledQueryRef.current = "";
+      setMatches((prev) => (prev.length === 0 ? prev : []));
       return;
     }
-    const q = query.toLowerCase();
-    const timer = setTimeout(() => {
-      const found = messages
-        .filter((m) => m.content.toLowerCase().includes(q))
-        .map((m) => {
-          const idx = m.content.toLowerCase().indexOf(q);
-          const start = Math.max(0, idx - 30);
-          const end = Math.min(m.content.length, idx + q.length + 50);
-          const snippet =
-            (start > 0 ? "…" : "") +
-            m.content.slice(start, end).replace(/\n/g, " ") +
-            (end < m.content.length ? "…" : "");
-          return { id: m.id, snippet };
-        });
-      setMatches(found);
-    }, 150);
+    const timer = setTimeout(() => runSearch(q), 150);
     return () => clearTimeout(timer);
-  }, [query, messages]);
+  }, [query, open, runSearch]);
+
+  // Once a query has settled, keep results fresh as new content streams in —
+  // throttled so a live turn can't turn this into a per-flush full scan.
+  useEffect(() => {
+    if (!searchActive) return;
+    const q = query.trim().toLowerCase();
+    if (!q || q !== settledQueryRef.current) return;
+    if (Date.now() - lastCorpusRunRef.current < CORPUS_REFRESH_MS) return;
+    runSearch(q);
+  }, [messages, searchActive, query, runSearch]);
 
   const jumpTo = useCallback((id: string) => {
     const el = document.getElementById(`msg-${id}`);
@@ -58,12 +126,20 @@ export function ThreadSearchRail() {
     setTimeout(() => el?.classList.remove("gb-jump-highlight"), 1200);
   }, []);
 
-  const userMessages = useMemo(
-    () => messages.filter((m) => m.role === "user"),
-    [messages]
+  const markerCount = userMsgIds.length;
+  const markers = useMemo(
+    () =>
+      userMsgIds.map((id, i) => ({
+        id,
+        // Positioned proportionally down the right edge so the ticks hint at
+        // where messages live in the thread.
+        top: `${8 + (markerCount <= 1 ? 0 : i / (markerCount - 1)) * 84}%`,
+        index: i,
+      })),
+    [userMsgIds, markerCount]
   );
 
-  if (!activeSessionId || messages.length === 0) return null;
+  if (!activeSessionId || !hasAnyMessage) return null;
 
   return (
     <>
@@ -114,22 +190,16 @@ export function ThreadSearchRail() {
         </div>
       )}
 
-      {/* Marker rail — one tick per user message, positioned proportionally
-          down the right edge so the ticks hint at where messages live in the
-          thread. */}
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-1">
-        {userMessages.map((m, i) => {
-          const ratio = userMessages.length <= 1 ? 0 : i / (userMessages.length - 1);
-          return (
-            <button
-              key={m.id}
-              onClick={() => jumpTo(m.id)}
-              className="pointer-events-auto absolute left-0 h-2.5 w-full rounded-full bg-gb-border/30 transition-colors hover:bg-gb-accent"
-              style={{ top: `${8 + ratio * 84}%` }}
-              aria-label={`Jump to user message ${i + 1} of ${userMessages.length}`}
-            />
-          );
-        })}
+        {markers.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => jumpTo(m.id)}
+            className="pointer-events-auto absolute left-0 h-2.5 w-full rounded-full bg-gb-border/30 transition-colors hover:bg-gb-accent"
+            style={{ top: m.top }}
+            aria-label={`Jump to user message ${m.index + 1} of ${markerCount}`}
+          />
+        ))}
       </div>
     </>
   );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useMemo, memo, KeyboardEvent } from "react";
 import { SlashComplete } from "./SlashComplete";
 import type { SlashCommand } from "../../data/slashCommands";
 import { useVoiceInput } from "../../hooks/useVoiceInput";
@@ -40,6 +40,86 @@ interface Props {
 }
 
 type SessionTabEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Composer textarea growth cap (px). */
+const MAX_TEXTAREA_HEIGHT = 160;
+
+// Stable empty array — an inline `[]` return from useMemo is fine, but the
+// non-trigger path is hit on every keystroke so keep one shared instance.
+const EMPTY_MATCHES: string[] = [];
+
+interface ControlsProps {
+  /** Parent-computed visibility (home variant, or a live tab exists). */
+  show: boolean;
+  cwd?: string;
+  model?: string;
+  effort?: SessionTabEffort;
+  approval: ApprovalMode;
+  workMode: WorkMode;
+  branch?: string;
+  config?: ConfigSnapshot | null;
+  home: Props["home"];
+  onSwitchProject?: (cwd: string) => void;
+  onWorkModeChange?: (mode: WorkMode, branch?: string) => void;
+  onModelEffortChange?: (model: string, effort: SessionTabEffort) => void;
+}
+
+/** The select row, isolated from the textarea.
+ *
+ *  Every keystroke used to re-render ProjectSelector, WorkModeSelect,
+ *  BranchSelect, ModelEffortSelect and ApprovalModeSelect — five subtrees with
+ *  their own effects — purely because they share a parent with the input. */
+const ComposerControls = memo(function ComposerControls({
+  show, cwd, model, effort, approval, workMode, branch, config, home,
+  onSwitchProject, onWorkModeChange, onModelEffortChange,
+}: ControlsProps) {
+  if (!show) return null;
+
+  const handleApproval = (m: ApprovalMode) => {
+    if (home) home.onPatch({ approval: m });
+    else {
+      const id = useSessionStore.getState().activeSessionId;
+      if (id) {
+        useSessionStore.getState().setTabApprovalMode(id, m);
+        setSessionApprovalMode(id, m).catch(() => {});
+      }
+    }
+  };
+
+  const handleModelEffort = (m: string, e: SessionTabEffort) => {
+    if (home) home.onPatch({ model: m, effort: e });
+    else onModelEffortChange?.(m, e);
+  };
+
+  return (
+    <>
+      {cwd && onSwitchProject && (
+        <ProjectSelector cwd={cwd} onSwitchProject={onSwitchProject} variant="compact" />
+      )}
+      {cwd && onWorkModeChange && !home && (
+        <WorkModeSelect
+          cwd={cwd}
+          mode={workMode}
+          branch={branch}
+          onChange={onWorkModeChange}
+          onError={(msg) => console.error("[workmode]", msg)}
+        />
+      )}
+      {cwd && !home && workMode === "worktree" && onWorkModeChange && (
+        <BranchSelect cwd={cwd} branch={branch} onPickBranch={(b) => onWorkModeChange("worktree", b)} />
+      )}
+      {config && (
+        <ModelEffortSelect
+          config={config}
+          model={model || config.default_model || config.models[0]?.id || ""}
+          effort={effort ?? "medium"}
+          onChange={handleModelEffort}
+        />
+      )}
+      <ApprovalModeSelect mode={approval} onChange={handleApproval} />
+    </>
+  );
+});
 
 interface Trigger {
   char: "@" | "$";
@@ -111,8 +191,18 @@ export function PromptInput({
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
+    const current = ta.offsetHeight;
+    // While below the cap the element is content-sized, so scrollHeight is
+    // already accurate and we can skip the `height = "auto"` reset — that reset
+    // forced a synchronous reflow on every single keystroke. Only at/over the
+    // cap (or when shrinking back down) do we need to re-measure from zero.
+    if (current < MAX_TEXTAREA_HEIGHT) {
+      const grown = Math.min(ta.scrollHeight, MAX_TEXTAREA_HEIGHT);
+      if (grown !== current) ta.style.height = `${grown}px`;
+      return;
+    }
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    ta.style.height = `${Math.min(ta.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
   }, [text]);
 
   // Restore per-session draft on tab switch (R3-10).
@@ -141,7 +231,6 @@ export function PromptInput({
   const handleTextChange = (value: string) => {
     setText(value);
     setHistoryIdx(-1);
-    // Persist draft to localStorage on every change (R3-10).
     if (activeSessionId && !home) saveDraft(activeSessionId, value);
     const caret = textareaRef.current?.selectionStart ?? value.length;
     setTrigger(detectTrigger(value, caret));
@@ -156,11 +245,19 @@ export function PromptInput({
     }
   };
 
-  const triggerMatches: string[] = trigger
-    ? trigger.char === "@"
-      ? repoFiles.filter((f) => f.toLowerCase().includes(trigger.query.toLowerCase())).slice(0, 8)
-      : skills.filter((s) => s.name.toLowerCase().includes(trigger.query.toLowerCase())).map((s) => s.name).slice(0, 8)
-    : [];
+  // Memoized: filtering the whole tracked-file list on every keystroke (and on
+  // every unrelated re-render) was wasted work in large repos.
+  const triggerMatches = useMemo<string[]>(() => {
+    if (!trigger) return EMPTY_MATCHES;
+    const q = trigger.query.toLowerCase();
+    if (trigger.char === "@") {
+      return repoFiles.filter((f) => f.toLowerCase().includes(q)).slice(0, 8);
+    }
+    return skills
+      .filter((s) => s.name.toLowerCase().includes(q))
+      .map((s) => s.name)
+      .slice(0, 8);
+  }, [trigger, repoFiles, skills]);
 
   const applyTriggerSelection = (selection: string) => {
     if (!trigger) return;
@@ -182,7 +279,6 @@ export function PromptInput({
     const trimmed = text.trim();
     if ((!trimmed && images.length === 0) || disabled) return;
     if (isRecording) stopRecording();
-    // Clear the draft on successful send (R3-10).
     if (activeSessionId && !home) clearDraft(activeSessionId);
     // While a turn runs this is a codex-style mid-turn injection: the agent
     // receives the message immediately instead of the input being blocked.
@@ -308,45 +404,20 @@ export function PromptInput({
         <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
-          {showSessionControls && ctrlCwd && onSwitchProject && (
-            <ProjectSelector cwd={ctrlCwd} onSwitchProject={(p) => onSwitchProject?.(p)} variant="compact" />
-          )}
-          {showSessionControls && ctrlCwd && onWorkModeChange && !home && (
-            <WorkModeSelect
-              cwd={ctrlCwd}
-              mode={ctrlWorkMode}
-              branch={activeTab!.branch}
-              onChange={(m, b) => onWorkModeChange(m, b)}
-              onError={(msg) => console.error("[workmode]", msg)}
-            />
-          )}
-          {showSessionControls && ctrlCwd && !home && ctrlWorkMode === "worktree" && onWorkModeChange && (
-            <BranchSelect cwd={ctrlCwd} branch={activeTab!.branch} onPickBranch={(b) => onWorkModeChange("worktree", b)} />
-          )}
-          {showSessionControls && config && (
-            <ModelEffortSelect
-              config={config}
-              model={ctrlModel || config.default_model || config.models[0]?.id || ""}
-              effort={ctrlEffort ?? "medium"}
-              onChange={(m, e) => {
-                if (home) home.onPatch({ model: m, effort: e });
-                else onModelEffortChange?.(m, e);
-              }}
-            />
-          )}
-          {showSessionControls && (
-            <ApprovalModeSelect
-              mode={ctrlApproval}
-              onChange={(m: ApprovalMode) => {
-                if (home) home.onPatch({ approval: m });
-                else if (activeSessionId) {
-                  useSessionStore.getState().setTabApprovalMode(activeSessionId, m);
-                  // R3-01 (#186): push the mode to the main-process Policy.
-                  setSessionApprovalMode(activeSessionId, m).catch(() => {});
-                }
-              }}
-            />
-          )}
+          <ComposerControls
+            show={showSessionControls}
+            cwd={ctrlCwd}
+            model={ctrlModel}
+            effort={ctrlEffort}
+            approval={ctrlApproval}
+            workMode={ctrlWorkMode}
+            branch={activeTab?.branch}
+            config={config}
+            home={home}
+            onSwitchProject={onSwitchProject}
+            onWorkModeChange={onWorkModeChange}
+            onModelEffortChange={onModelEffortChange}
+          />
 
           <div className="flex-1" />
 

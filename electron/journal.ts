@@ -54,11 +54,126 @@ function journalFile(acpSessionId: string): string {
   return file;
 }
 
-/** Append one live-stream event. Never throws to callers that wrap it. */
+/** mkdir is idempotent but still a syscall — do it once per directory. */
+const ensuredDirs = new Set<string>();
+function ensureDir(file: string): void {
+  const dir = path.dirname(file);
+  if (ensuredDirs.has(dir)) return;
+  fs.mkdirSync(dir, { recursive: true });
+  ensuredDirs.add(dir);
+}
+
+function entry(kind: JournalKind, text: string): string {
+  return `${JSON.stringify({ t: Date.now(), kind, text })}\n`;
+}
+
+// ---- Buffered write path ----------------------------------------------------
+//
+// Assistant text arrives as one ACP TextDelta per token — tens to hundreds per
+// second. Journaling each with mkdirSync + appendFileSync blocked the Electron
+// main process (which also serves every renderer IPC) with 2-3 synchronous
+// syscalls per delta, so the whole app stalled behind the stream. Deltas are
+// coalesced in memory and written with ONE async append per flush tick.
+
+const FLUSH_INTERVAL_MS = 250;
+
+interface Pending {
+  file: string;
+  lines: string[];
+}
+
+const pending = new Map<string, Pending>();
+/** Per-session write chain — appends for one file must stay ordered. */
+const writeChain = new Map<string, Promise<void>>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function enqueueWrite(id: string, file: string, payload: string): Promise<void> {
+  const prev = writeChain.get(id) ?? Promise.resolve();
+  const next = prev
+    .then(() => fs.promises.appendFile(file, payload, "utf-8"))
+    .then(() => undefined)
+    .catch(() => {
+      /* journaling is best-effort — never reject into the stream path */
+    });
+  writeChain.set(id, next);
+  return next;
+}
+
+/** Queue a live-stream event for the next batched flush. Validates eagerly so
+ *  callers see the same contract as `appendJournal`. */
+export function queueJournal(acpSessionId: string, kind: JournalKind, text: string): void {
+  const file = journalFile(acpSessionId); // throws on traversal / invalid id
+  let p = pending.get(acpSessionId);
+  if (!p) {
+    p = { file, lines: [] };
+    pending.set(acpSessionId, p);
+  }
+  p.lines.push(entry(kind, text));
+  if (!flushTimer) {
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      void flushAllJournals();
+    }, FLUSH_INTERVAL_MS);
+    // Never hold the event loop open just to journal.
+    flushTimer.unref?.();
+  }
+}
+
+/** Flush one session's buffered lines. Resolves once they are on disk. */
+export function flushJournal(acpSessionId: string): Promise<void> {
+  const p = pending.get(acpSessionId);
+  if (!p || p.lines.length === 0) {
+    pending.delete(acpSessionId);
+    return writeChain.get(acpSessionId) ?? Promise.resolve();
+  }
+  pending.delete(acpSessionId);
+  ensureDir(p.file);
+  return enqueueWrite(acpSessionId, p.file, p.lines.join(""));
+}
+
+/** Flush every session's buffered lines — call on app quit. */
+export function flushAllJournals(): Promise<void> {
+  const ids = [...pending.keys()];
+  return Promise.all(ids.map((id) => flushJournal(id))).then(() => undefined);
+}
+
+/** Blocking flush for the quit path, where there is no later tick to await.
+ *  One write per dirty session, once per app lifetime. */
+export function flushAllJournalsSync(): void {
+  for (const id of [...pending.keys()]) {
+    try {
+      drainSync(id);
+    } catch {
+      /* best-effort */
+    }
+  }
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+}
+
+/** Synchronously drain one session's buffer so an immediate write stays
+ *  ordered after the deltas that preceded it. */
+function drainSync(acpSessionId: string): void {
+  const p = pending.get(acpSessionId);
+  if (!p || p.lines.length === 0) {
+    pending.delete(acpSessionId);
+    return;
+  }
+  pending.delete(acpSessionId);
+  ensureDir(p.file);
+  fs.appendFileSync(p.file, p.lines.join(""), "utf-8");
+}
+
+/** Append one live-stream event immediately. Never throws to callers that
+ *  wrap it. Buffered deltas for the same session are drained first so line
+ *  order matches arrival order. */
 export function appendJournal(acpSessionId: string, kind: JournalKind, text: string): void {
   const file = journalFile(acpSessionId);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, `${JSON.stringify({ t: Date.now(), kind, text })}\n`, "utf-8");
+  drainSync(acpSessionId);
+  ensureDir(file);
+  fs.appendFileSync(file, entry(kind, text), "utf-8");
 }
 
 /**
@@ -70,7 +185,11 @@ export function appendJournal(acpSessionId: string, kind: JournalKind, text: str
 export function readJournal(acpSessionId: string): JournalEntry[] {
   let raw: string;
   try {
-    raw = fs.readFileSync(journalFile(acpSessionId), "utf-8");
+    const file = journalFile(acpSessionId);
+    // Buffered deltas must be on disk before we read, or a resume that races
+    // the live stream silently loses the tail of the transcript.
+    drainSync(acpSessionId);
+    raw = fs.readFileSync(file, "utf-8");
   } catch {
     return [];
   }

@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
 
 export interface ChatMessage {
   id: string;
@@ -183,15 +182,57 @@ const streamBuffer: Record<string, string> = {};
 const streamFlushMap: Record<string, number> = {};
 const streamFlushTimerMap: Record<string, number | undefined> = {};
 
+// ---- Shell persistence ------------------------------------------------------
+//
+// zustand's `persist` middleware wrapped `set` and ran a full
+// `{ ...get() }` + JSON.stringify + SYNCHRONOUS localStorage write on every
+// single state change. During a streaming turn that is 20-100 main-thread
+// disk writes per second for data that never changes (only `tabs` and
+// `activeSessionId` are persisted). Replaced with a change-detected,
+// throttled writer subscribed to the two keys we actually keep.
+
+const STORAGE_KEY = "gb-session-tabs";
+const STORAGE_VERSION = 1;
+/** Debounce window; a burst of tab edits collapses into one write. */
+const WRITE_THROTTLE_MS = 400;
+/** Hard ceiling so a continuous stream of edits can never starve the disk. */
+const WRITE_MAX_WAIT_MS = 3000;
+
+interface PersistedShell {
+  tabs: SessionTab[];
+  activeSessionId: string | null;
+}
+
+function readPersistedShell(): PersistedShell {
+  const empty: PersistedShell = { tabs: [], activeSessionId: null };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw) as { state?: Partial<PersistedShell> };
+    const state = parsed?.state;
+    if (!state) return empty;
+    return {
+      tabs: Array.isArray(state.tabs) ? state.tabs : [],
+      activeSessionId:
+        typeof state.activeSessionId === "string" ? state.activeSessionId : null,
+    };
+  } catch {
+    return empty; // corrupt payload — start clean rather than crash at boot
+  }
+}
+
+// Hydrate synchronously at module load so the very first render already sees
+// the restored tabs (no empty-shell flash, no second layout pass).
+const bootShell = readPersistedShell();
+
 function genId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export const useSessionStore = create<SessionState>()(
-  persist(
     (set, get) => ({
-  tabs: [],
-  activeSessionId: null,
+  tabs: bootShell.tabs,
+  activeSessionId: bootShell.activeSessionId,
   messages: {},
   pendingPermissions: {},
   pendingQuestions: {},
@@ -210,7 +251,12 @@ export const useSessionStore = create<SessionState>()(
 	  connectionStatus: {},
 	  connectionError: {},
 
-  setActiveSession: (id) => set({ activeSessionId: id }),
+  // No-op guard: `set` always notifies every subscriber, so writing an
+  // identical value used to re-run every selector in the app for nothing.
+  setActiveSession: (id) => {
+    if (get().activeSessionId === id) return;
+    set({ activeSessionId: id });
+  },
 
   addTab: (tab) =>
     set((state) => ({
@@ -257,9 +303,11 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   renameTab: (id, title) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, title } : t)),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || target.title === title) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, title } : t)) };
+    }),
 
   rebindTabId: (oldId, newId, acpSessionId) =>
     set((state) => {
@@ -294,36 +342,56 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   updateTabActivity: (id) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, lastActiveAt: Date.now() } : t)),
-    })),
+    set((state) => {
+      const now = Date.now();
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target) return state;
+      // Coarse-grained: sub-second repeats are indistinguishable to the UI and
+      // used to rebuild the tabs array (and re-render the thread tree) each time.
+      if (now - target.lastActiveAt < 1000) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, lastActiveAt: now } : t)) };
+    }),
 
   setTabModel: (id, model) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, model } : t)),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || target.model === model) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, model } : t)) };
+    }),
 
   setTabEffort: (id, effort) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, reasoningEffort: effort } : t)),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || target.reasoningEffort === effort) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, reasoningEffort: effort } : t)) };
+    }),
 
   setTabCwd: (id, cwd) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || target.cwd === cwd) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, cwd } : t)) };
+    }),
 
   setTabWorkMode: (id, mode, branch) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, workMode: mode, branch: branch ?? (mode === "local" ? undefined : t.branch) } : t
-      ),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target) return state;
+      const nextBranch = branch ?? (mode === "local" ? undefined : target.branch);
+      if (target.workMode === mode && target.branch === nextBranch) return state;
+      return {
+        tabs: state.tabs.map((t) =>
+          t.id === id ? { ...t, workMode: mode, branch: nextBranch } : t
+        ),
+      };
+    }),
 
   setTabApprovalMode: (id, mode) =>
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === id ? { ...t, approvalMode: mode } : t)),
-    })),
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || (target.approvalMode ?? "ask") === mode) return state;
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, approvalMode: mode } : t)) };
+    }),
 
   addPendingQuestion: (sessionId, q) =>
     set((state) => ({
@@ -380,9 +448,15 @@ export const useSessionStore = create<SessionState>()(
     })),
 
   setTodos: (sessionId, todos) =>
-    set((state) => ({
-      todos: { ...state.todos, [sessionId]: todos },
-    })),
+    set((state) => {
+      const prev = state.todos[sessionId];
+      // PlanUpdate re-fires with identical content on every turn tick; skip the
+      // new-array churn so TodoPanel/RightPanel don't re-render for nothing.
+      if (prev && prev.length === todos.length && prev.every((t, i) => t === todos[i])) {
+        return state;
+      }
+      return { todos: { ...state.todos, [sessionId]: todos } };
+    }),
 
   toggleTodo: (sessionId, id) =>
     set((state) => ({
@@ -399,6 +473,7 @@ export const useSessionStore = create<SessionState>()(
   setTokenUsage: (sessionId, used, size) =>
     set((state) => {
       const current = state.tokenUsage[sessionId];
+      if (current && current.used === used && current.size === size) return state;
       // Monotonic guard (ISS-081): out-of-order or stale usage events must
       // never shrink the counter — drop them instead of showing wrong numbers.
       if (current && used < current.used) {
@@ -410,7 +485,7 @@ export const useSessionStore = create<SessionState>()(
   setRateLimit: (sessionId, limit) =>
     set((state) => {
       if (limit === null) {
-        if (!(sessionId in state.rateLimits)) return {};
+        if (!(sessionId in state.rateLimits)) return state;
         const { [sessionId]: _drop, ...rest } = state.rateLimits;
         return { rateLimits: rest };
       }
@@ -418,9 +493,10 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   setCompacting: (sessionId, compacting) =>
-    set((state) => ({
-      compacting: { ...state.compacting, [sessionId]: compacting },
-    })),
+    set((state) => {
+      if ((state.compacting[sessionId] ?? false) === compacting) return state;
+      return { compacting: { ...state.compacting, [sessionId]: compacting } };
+    }),
 
   snapshotForCompaction: (sessionId) =>
     set((state) => ({
@@ -441,7 +517,7 @@ export const useSessionStore = create<SessionState>()(
   rollbackCompaction: (sessionId) =>
     set((state) => {
       const snapshot = state.preCompactSnapshot[sessionId];
-      if (!snapshot) return {};
+      if (!snapshot) return state;
       const markers = state.compactionMarkers[sessionId] || [];
       const lastMarkerIdx = markers.reduce((acc, m, i) => m.timestamp > markers[acc].timestamp ? i : acc, 0);
       return {
@@ -453,17 +529,23 @@ export const useSessionStore = create<SessionState>()(
       };
     }),
 
-  setStreaming: (streaming) => set({ isStreaming: streaming }),
+  setStreaming: (streaming) => {
+    if (get().isStreaming === streaming) return;
+    set({ isStreaming: streaming });
+  },
 
   setSessionStreaming: (sessionId, streaming) =>
-    set((state) => ({
-      streaming: { ...state.streaming, [sessionId]: streaming },
-    })),
+    set((state) => {
+      // Fires on every text delta; without this guard each one built a new
+      // `streaming` record and re-rendered the whole thread tree at token rate.
+      if ((state.streaming[sessionId] ?? false) === streaming) return state;
+      return { streaming: { ...state.streaming, [sessionId]: streaming } };
+    }),
 
   finalizeMessages: (sessionId) =>
     set((state) => {
       const msgs = state.messages[sessionId];
-      if (!msgs || !msgs.some((m) => m.streaming)) return {};
+      if (!msgs || !msgs.some((m) => m.streaming)) return state;
       return {
         messages: {
           ...state.messages,
@@ -489,9 +571,14 @@ export const useSessionStore = create<SessionState>()(
 
   addUserMessage: (sessionId, content) =>
     set((state) => {
-      const tabs = state.tabs.map((t) =>
-        t.id === sessionId ? { ...t, lastActiveAt: Date.now() } : t
+      // Only touch `tabs` when the timestamp actually moves — rebuilding the
+      // array invalidates every tab-derived selector across the shell.
+      const needsActivity = state.tabs.some(
+        (t) => t.id === sessionId && Date.now() - t.lastActiveAt >= 1000
       );
+      const tabs = needsActivity
+        ? state.tabs.map((t) => (t.id === sessionId ? { ...t, lastActiveAt: Date.now() } : t))
+        : state.tabs;
       return {
         tabs,
         messages: {
@@ -507,7 +594,7 @@ export const useSessionStore = create<SessionState>()(
   removeLastUserMessage: (sessionId) =>
     set((state) => {
       const msgs = state.messages[sessionId];
-      if (!msgs || msgs.length === 0) return {};
+      if (!msgs || msgs.length === 0) return state;
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i].role === "user") {
           return {
@@ -518,7 +605,7 @@ export const useSessionStore = create<SessionState>()(
           };
         }
       }
-      return {}; // no trailing user message to remove
+      return state; // no trailing user message to remove
     }),
 
   appendAssistantText: (sessionId, delta) => {
@@ -703,17 +790,80 @@ export const useSessionStore = create<SessionState>()(
       const { [sessionId]: _q, ...restQueued } = state.queuedPrompts;
       return { messages: rest, pendingPermissions: restPerm, subagents: restSub, todos: restTodos, tokenUsage: restUsage, rateLimits: restRateLimits, compacting: restCompact, compactionMarkers: restMarkers, preCompactSnapshot: restSnap, queuedPrompts: restQueued };
     }),
-    }),
-    {
-      name: "gb-session-tabs",
-      storage: createJSONStorage(() => localStorage),
-      version: 1,
-      // Persist only the shell state needed to restore tabs across restarts;
-      // streaming buffers and per-session message contents stay in memory.
-      partialize: (state) => ({
-        tabs: state.tabs,
-        activeSessionId: state.activeSessionId,
-      }),
-    }
-  )
+    })
 );
+
+// ---- Throttled shell writer -------------------------------------------------
+
+let lastSerialized = "";
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+let firstDirtyAt = 0;
+
+/** Serialize + write the persisted slice. Skips the write entirely when the
+ *  JSON is byte-identical to what is already on disk. */
+export function flushPersistedShell(): void {
+  const { tabs, activeSessionId } = useSessionStore.getState();
+  let next: string;
+  try {
+    next = JSON.stringify({
+      state: { tabs, activeSessionId },
+      version: STORAGE_VERSION,
+    });
+  } catch {
+    return; // unserializable state — keep the previous snapshot
+  }
+  if (next === lastSerialized) return;
+  lastSerialized = next;
+  try {
+    localStorage.setItem(STORAGE_KEY, next);
+  } catch {
+    /* quota exceeded — in-memory state is still authoritative */
+  }
+}
+
+function scheduleShellWrite(): void {
+  const now = Date.now();
+  if (!firstDirtyAt) firstDirtyAt = now;
+  if (writeTimer) {
+    // Guarantee a bounded staleness window under continuous edits.
+    if (now - firstDirtyAt < WRITE_MAX_WAIT_MS) return;
+    clearTimeout(writeTimer);
+  }
+  writeTimer = setTimeout(() => {
+    writeTimer = null;
+    firstDirtyAt = 0;
+    flushPersistedShell();
+  }, WRITE_THROTTLE_MS);
+}
+
+// Only the two persisted keys can dirty the snapshot. Message/streaming churn
+// — the 20-100 Hz path — never touches localStorage at all now.
+useSessionStore.subscribe((state, prev) => {
+  if (state.tabs !== prev.tabs || state.activeSessionId !== prev.activeSessionId) {
+    scheduleShellWrite();
+  }
+});
+
+// Seed the change-detector with what we just hydrated so a no-op edit does
+// not rewrite the identical payload.
+try {
+  lastSerialized =
+    localStorage.getItem(STORAGE_KEY) ??
+    JSON.stringify({ state: bootShell, version: STORAGE_VERSION });
+} catch {
+  lastSerialized = "";
+}
+
+if (typeof window !== "undefined") {
+  // A pending debounce must not be lost when the window goes away.
+  const flush = () => {
+    if (writeTimer) {
+      clearTimeout(writeTimer);
+      writeTimer = null;
+      firstDirtyAt = 0;
+    }
+    flushPersistedShell();
+  };
+  window.addEventListener("pagehide", flush);
+  window.addEventListener("beforeunload", flush);
+}
