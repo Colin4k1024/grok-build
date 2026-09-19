@@ -254,7 +254,7 @@ export default function App() {
   // session/load (agent spawn + transcript replay) proceeds behind the
   // "restoring" banner. See lib/threadResume.ts for the spawn/rebind flow.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
-    await openHistoryThread(session, {
+    const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
         const pendingId = `pending:${session.id}`;
@@ -270,15 +270,18 @@ export default function App() {
         if (useSessionStore.getState().tabs.length === 0) setShowHome(true);
       },
     });
-    // Remove only this thread's pending id — other concurrent restores keep
-    // their banner until their own spawn settles.
-    const settledId = `pending:${session.id}`;
-    setResumingIds((prev) => {
-      if (!prev.has(settledId)) return prev;
-      const next = new Set(prev);
-      next.delete(settledId);
-      return next;
-    });
+    // Only the invocation that STARTED the resume owns cleanup — a duplicate
+    // click settles immediately via the focus path and must not clear the
+    // banner while the first spawn is still in flight.
+    if (outcome === "started") {
+      const settledId = `pending:${session.id}`;
+      setResumingIds((prev) => {
+        if (!prev.has(settledId)) return prev;
+        const next = new Set(prev);
+        next.delete(settledId);
+        return next;
+      });
+    }
   }, []);
 
   const handleNewSession = useCallback(async () => {
@@ -814,7 +817,7 @@ export default function App() {
         <header className="flex h-9 shrink-0 items-center border-b border-gb-border bg-gb-surface px-3">
           <span className="text-xs font-medium text-gb-text">独立会话窗口</span>
         </header>
-        <MessageList />
+        <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
         <PromptInput
           onSend={handleSend}
           onCancel={handleCancel}
@@ -927,12 +930,12 @@ export default function App() {
             <>
               <WorktreeOnboardingBanner />
               {activeSessionId && resumingIds.has(activeSessionId) && (
-                <div className="flex shrink-0 items-center gap-2 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-1.5 text-xs text-gb-muted">
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border border-gb-border border-t-gb-accent" />
-                  正在恢复会话…
+                <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
+                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
+                  正在恢复会话 — 转录加载中，恢复完成后即可继续发送
                 </div>
               )}
-              <MessageList />
+              <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
               {activeSessionId && activePermissions.map((perm) => (
                 <ApprovalCard
                   key={perm.requestId}
@@ -958,7 +961,7 @@ export default function App() {
                 onSend={handleSend}
                 onCancel={handleCancel}
                 isStreaming={isStreaming}
-                disabled={false}
+                disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
                 cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
                 onSwitchProject={handleSwitchProject}
                 config={config}

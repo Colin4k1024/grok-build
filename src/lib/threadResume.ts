@@ -35,8 +35,16 @@ export interface ResumeUi {
  * once resume resolves — the same rebindTabId migration the boot re-resume
  * uses, including its "prefer messages recorded under the new id" rule for
  * replay events that race the rebind.
+ *
+ * Returns "started" when THIS invocation launched the resume (it owns the
+ * restoring-state cleanup — it settles exactly when the spawn settles), or
+ * "focused" when it merely focused an existing/in-flight tab (must not
+ * clear another invocation's restoring state).
  */
-export async function openHistoryThread(session: HistorySession, ui: ResumeUi): Promise<void> {
+export async function openHistoryThread(
+  session: HistorySession,
+  ui: ResumeUi
+): Promise<"started" | "focused"> {
   const existing = useSessionStore.getState().tabs.find((t) => t.acpSessionId === session.id);
   if (existing) {
     useSessionStore.getState().setActiveSession(existing.id);
@@ -44,9 +52,9 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     // Active-writer conflict (ISS-079, codex #43253 semantics): another
     // surface holds the pen — follow the transcript read-only, retry after.
     if (useSessionStore.getState().streaming[existing.id]) ui.onStreamingExisting();
-    return;
+    return "focused";
   }
-  if (inFlight.has(session.id)) return;
+  if (inFlight.has(session.id)) return "focused";
   inFlight.add(session.id);
 
   const optimisticId = `pending:${session.id}`;
@@ -64,10 +72,22 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
   });
   ui.onOptimisticOpen();
 
-  // Prefetch the on-disk transcript in parallel with the spawn. It is used
-  // only when the live replay produced nothing — never merged with a replay
-  // (both cover the same history; merging would duplicate the transcript).
-  const disk = getSessionHistoryMessages(session.id, session.cwd).catch(() => []);
+  // Disk transcript paints into the pending tab immediately — the read is
+  // local and fast, so the thread is readable long before the agent spawn
+  // finishes. Replay notifications for session/load complete before the
+  // resume RPC resolves, so they cannot append on top of this later; if
+  // replay content did land, rebindTabId prefers it and discards this copy.
+  getSessionHistoryMessages(session.id, session.cwd)
+    .then((historyMsgs) => {
+      if (historyMsgs.length === 0) return;
+      const st = useSessionStore.getState();
+      // The rebind may already have run — then this write would target a
+      // dead key; the resolve-time fallback below owns that case instead.
+      if (st.tabs.some((t) => t.id === optimisticId) && (st.messages[optimisticId] || []).length === 0) {
+        st.loadHistoryMessages(optimisticId, historyMsgs);
+      }
+    })
+    .catch(() => {});
 
   try {
     const info = await resumeSession(session.id, session.cwd);
@@ -76,7 +96,7 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     // orphan the freshly spawned live session (agent running, no tab).
     if (!useSessionStore.getState().tabs.some((t) => t.id === optimisticId)) {
       closeSession(info.id).catch(() => {});
-      return;
+      return "started";
     }
     const st = useSessionStore.getState();
     st.finalizeMessages(info.id);
@@ -84,10 +104,15 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
     if (!session.model && info.models[0]?.id) {
       useSessionStore.getState().setTabModel(info.id, info.models[0].id);
     }
+    // Fallback for the race where the disk read was slower than the spawn:
+    // only when neither replay nor the immediate load produced anything.
     const replayed = useSessionStore.getState().messages[info.id];
     if (!replayed || replayed.length === 0) {
-      const historyMsgs = await disk;
-      if (historyMsgs.length > 0) {
+      const historyMsgs = await getSessionHistoryMessages(session.id, session.cwd).catch(() => []);
+      if (
+        historyMsgs.length > 0 &&
+        (useSessionStore.getState().messages[info.id] || []).length === 0
+      ) {
         useSessionStore.getState().loadHistoryMessages(info.id, historyMsgs);
       }
     }
@@ -99,4 +124,5 @@ export async function openHistoryThread(session: HistorySession, ui: ResumeUi): 
   } finally {
     inFlight.delete(session.id);
   }
+  return "started";
 }

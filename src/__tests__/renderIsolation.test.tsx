@@ -126,4 +126,14 @@ describe("streaming render isolation", () => {
     expect(await screen.findByText(/visible-delta/)).toBeTruthy();
     unmount();
   });
+
+  it("an empty resuming session shows the restoring state, not 开始对话", () => {
+    act(() => {
+      useSessionStore.getState().addTab(tab("s-resume"));
+    });
+    const { unmount } = render(<MessageList resuming />);
+    expect(screen.getByText("正在恢复会话…")).toBeTruthy();
+    expect(screen.queryByText("开始对话")).toBeNull();
+    unmount();
+  });
 });
