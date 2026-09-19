@@ -18,5 +18,11 @@ export default defineConfig(async () => ({
     // Bind IPv4 explicitly — wait-on and the Electron dev URL both target
     // 127.0.0.1; `host: false` lets Node bind ::1 only and they never meet.
     host: "127.0.0.1",
+    watch: {
+      // Packaging output and compiled main-process artifacts must not trigger
+      // renderer page reloads (electron:pack while dev runs caused reload
+      // storms via release/**).
+      ignored: ["**/release/**", "**/dist-electron/**", "**/src-tauri/**", "**/target/**"],
+    },
   },
 }));
