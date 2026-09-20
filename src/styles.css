@@ -146,6 +146,33 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
   animation: gb-jump-flash 1.2s ease-out;
 }
 
+/* Dark-mode prose override — the gb-text/gb-text-secondary color tokens
+   win over the Tailwind Typography defaults so markdown renders correctly
+   against the dark background (prose-invert doesn't use CSS vars). */
+.dark .prose {
+  color: rgb(var(--gb-text));
+}
+.dark .prose h1, .dark .prose h2, .dark .prose h3,
+.dark .prose h4, .dark .prose h5, .dark .prose h6 {
+  color: rgb(var(--gb-text));
+}
+.dark .prose strong, .dark .prose b {
+  color: rgb(var(--gb-text));
+}
+.dark .prose code {
+  color: rgb(var(--gb-text-secondary));
+}
+.dark .prose a {
+  color: rgb(var(--gb-text-secondary));
+  text-decoration: underline;
+}
+.dark .prose blockquote {
+  border-left-color: rgb(var(--gb-border) / 0.15);
+}
+.dark .prose hr {
+  border-color: rgb(var(--gb-border) / 0.1);
+}
+
 /* Screenshot tool animation (ISS-056) */
 @keyframes gb-screenshot-flash {
   0% { opacity: 0.9; transform: scale(1.02); }
