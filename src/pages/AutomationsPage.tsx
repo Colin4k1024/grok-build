@@ -2,18 +2,24 @@ import { useState, useEffect } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import {
   loadAutomations,
-  saveAutomations,
+  syncAutomations,
   nextCronRun,
-  startAutomationScheduler,
+  setActiveSession,
+  runNow,
+  onAutomationsChanged,
   type Automation,
 } from "../lib/automation";
 
 /**
  * Automations page — schedule prompts to run in the current session on an
  * interval. Codex parity: `automations-page`.
+ *
+ * ISS-191: Scheduling is driven by the Electron main process so it survives
+ * page reloads. The renderer syncs its list via `automations_sync` and
+ * receives run events on the `automation_run` IPC channel.
  */
 export function AutomationsPage({ onClose }: { onClose: () => void }) {
-  const [items, setItems] = useState<Automation[]>(() => loadAutomations());
+  const [items, setItems] = useState<Automation[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [schedule, setSchedule] = useState("0 9 * * *");
@@ -21,17 +27,23 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
 
-  // Re-read when the module-level scheduler fires an automation so the UI
-  // stays in sync (runCount, lastRunAt).
+  // Load from main process on mount.
   useEffect(() => {
-    const handler = () => setItems(loadAutomations());
-    window.addEventListener("grok:automations-changed", handler);
-    return () => window.removeEventListener("grok:automations-changed", handler);
+    loadAutomations().then(setItems);
   }, []);
 
-  // Boot the module-level scheduler on mount (idempotent).
+  // Keep main-process active session in sync.
   useEffect(() => {
-    startAutomationScheduler(() => useSessionStore.getState().activeSessionId);
+    setActiveSession(activeSessionId);
+  }, [activeSessionId]);
+
+  // Re-read when the main-process timer fires an automation so the UI
+  // stays in sync (runCount, lastRunAt).
+  useEffect(() => {
+    const p = onAutomationsChanged(() => {
+      loadAutomations().then(setItems);
+    });
+    return () => { p.then((fn) => fn()); };
   }, []);
 
   const isValidCron = (expr: string): boolean => {
@@ -60,7 +72,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
     };
     const updated = [...items, next];
     setItems(updated);
-    saveAutomations(updated);
+    syncAutomations(updated);
     setShowForm(false);
     setName("");
     setPrompt("");
@@ -70,23 +82,11 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   const handleDelete = (id: string) => {
     const updated = items.filter((a) => a.id !== id);
     setItems(updated);
-    saveAutomations(updated);
+    syncAutomations(updated);
   };
 
   const handleRunNow = (id: string) => {
-    const updated = items.map((a) =>
-      a.id === id ? { ...a, lastRunAt: Date.now(), runCount: a.runCount + 1 } : a
-    );
-    setItems(updated);
-    saveAutomations(updated);
-    const auto = updated.find((a) => a.id === id);
-    if (auto && activeSessionId) {
-      window.dispatchEvent(
-        new CustomEvent("grok:automation-run", {
-          detail: { automationId: id, sessionId: activeSessionId, prompt: auto.prompt },
-        })
-      );
-    }
+    runNow(id);
   };
 
   return (
@@ -94,19 +94,19 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
       {/* macOS traffic-light clearance */}
       <div className="app-drag h-9 shrink-0" />
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 pl-24 pr-4">
-        <h2 className="text-[13px] font-medium">自动化</h2>
+        <h2 className="text-[13px] font-medium">Automations</h2>
         <div className="flex gap-2">
           <button
             onClick={() => setShowForm((v) => !v)}
             className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-gb-bg hover:opacity-85"
           >
-            {showForm ? "取消" : "+ 新建自动化"}
+            {showForm ? "Cancel" : "+ New"}
           </button>
           <button
             className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
             onClick={onClose}
           >
-            ← 返回
+            Back
           </button>
         </div>
       </header>
@@ -117,7 +117,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="自动化名称"
+              placeholder="Name"
               className="w-full rounded border border-gb-border bg-gb-bg px-3 py-1.5 text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
             />
             <input
@@ -126,18 +126,18 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
                 setSchedule(e.target.value);
                 setScheduleError(null);
               }}
-              placeholder="Cron 表达式（例如 0 9 * * *）"
+              placeholder="Cron expression (e.g. 0 9 * * *)"
               className={`w-full rounded border bg-gb-bg px-3 py-1.5 font-mono text-[12px] text-gb-text outline-none ${
-                scheduleError ? "border-gb-red/50" : "border-gb-border focus:border-gb-accent/50"
+                scheduleError ? "border-red-500" : "border-gb-border focus:border-gb-accent/50"
               }`}
             />
             {scheduleError && (
-              <p className="text-[11px] text-gb-red">{scheduleError}</p>
+              <p className="text-[11px] text-red-500">{scheduleError}</p>
             )}
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="触发时发送的提示词"
+              placeholder="Prompt to send on trigger"
               rows={3}
               className="w-full resize-none rounded border border-gb-border bg-gb-bg px-3 py-1.5 text-[12px] text-gb-text outline-none focus:border-gb-accent/50"
             />
@@ -172,25 +172,25 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
                       onClick={() => handleRunNow(a.id)}
                       disabled={!activeSessionId}
                       className="rounded border border-gb-border/20 px-2 py-1 text-[11px] text-gb-muted hover:text-gb-text disabled:opacity-40"
-                      title={activeSessionId ? "在当前会话中运行" : "暂无活跃会话"}
+                      title={activeSessionId ? "Run in current session" : "No active session"}
                     >
-                      ▶ 运行
+                      Run
                     </button>
                     <button
                       onClick={() => handleDelete(a.id)}
-                      className="rounded px-2 py-1 text-[11px] text-gb-red hover:bg-gb-red/10"
+                      className="rounded px-2 py-1 text-[11px] text-red-500 hover:bg-red-500/10"
                     >
-                      删除
+                      Delete
                     </button>
                   </div>
                 </div>
                 <p className="mt-2 line-clamp-2 text-[11px] text-gb-text-secondary">{a.prompt}</p>
                 <p className="mt-1 text-[10px] text-gb-muted">
                   {a.runCount > 0
-                    ? `${a.runCount} 次运行 · 最近一次 ${
-                        a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : "从未"
+                    ? `${a.runCount} runs · Last ${
+                        a.lastRunAt ? new Date(a.lastRunAt).toLocaleString() : "never"
                       }`
-                    : "从未运行"}
+                    : "Never run"}
                 </p>
               </div>
             ))}
