@@ -13,6 +13,10 @@ function makeCtx(overrides: Partial<SlashContext> = {}): SlashContext {
     showDiff: vi.fn(async () => "diff --git a/x b/x\n+hello"),
     openUsage: vi.fn(),
     openImport: vi.fn(),
+    forkCurrentThread: vi.fn(),
+    archiveCurrentThread: vi.fn(),
+    openReviewPanel: vi.fn(),
+    createWorktree: vi.fn(),
     notify: vi.fn(),
   };
   return {
@@ -73,11 +77,11 @@ describe("routing", () => {
   });
 
   it("degraded commands explain what unlocks them", async () => {
-    const r = await executeSlashCommand("/fork", makeCtx());
-    expect(r.type).toBe("error");
-    expect((r as { notice: string }).notice).toContain("ISS-079");
-    const r2 = await executeSlashCommand("/review", makeCtx());
-    expect((r2 as { notice: string }).notice).toContain("ISS-080");
+    // All previously degraded commands have been promoted to local:
+    // /fork, /archive, /review are now real implementations (R3-03).
+    // The registry no longer has any degraded entries.
+    const degraded = SLASH_COMMANDS.filter((c) => c.kind === "degraded");
+    expect(degraded).toHaveLength(0);
   });
 
   it("unknown commands error loudly instead of being sent", async () => {
@@ -157,17 +161,17 @@ describe("local commands", () => {
     expect((r as { notice?: string }).notice).toContain("无改动");
   });
 
-  it("/worktree validates the mode argument", async () => {
+  it("/worktree validates the mode argument and triggers full create flow", async () => {
     const bad = await executeSlashCommand("/worktree sideways", makeCtx());
     expect(bad.type).toBe("error");
 
     const ctx = makeCtx();
     await executeSlashCommand("/worktree worktree feat-x", ctx);
-    expect(ctx.actions.setWorkMode).toHaveBeenCalledWith("s1", "worktree", "feat-x");
+    expect(ctx.actions.createWorktree).toHaveBeenCalledWith("/w/alpha", "worktree", "feat-x");
 
     const ctx2 = makeCtx();
     await executeSlashCommand("/worktree local", ctx2);
-    expect(ctx2.actions.setWorkMode).toHaveBeenCalledWith("s1", "local", undefined);
+    expect(ctx2.actions.createWorktree).toHaveBeenCalledWith("/w/alpha", "local", undefined);
   });
 
   it("/import opens the preview panel (ISS-083)", async () => {
@@ -187,7 +191,7 @@ describe("local commands", () => {
 
 describe("session guards", () => {
   it("thread commands without an active session are explicit errors", async () => {
-    for (const cmd of ["/clear", "/cd /tmp", "/rename x", "/worktree local"]) {
+    for (const cmd of ["/clear", "/cd /tmp", "/rename x", "/worktree local", "/fork", "/archive", "/review"]) {
       const r = await executeSlashCommand(cmd, makeCtx({ sessionId: null }));
       expect(r.type, cmd).toBe("error");
     }
@@ -201,5 +205,42 @@ describe("session guards", () => {
     const r = await executeSlashCommand("/diff", ctx);
     expect(r.type).toBe("error");
     expect((r as { notice: string }).notice).toContain("not a git repo");
+  });
+
+  // ---- R3-03: newly wired commands ----
+
+  it("/fork triggers the fork flow", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/fork", ctx);
+    expect(r.type).toBe("handled");
+    expect(ctx.actions.forkCurrentThread).toHaveBeenCalled();
+  });
+
+  it("/fork while streaming is refused", async () => {
+    const ctx = makeCtx({ streaming: true });
+    const r = await executeSlashCommand("/fork", ctx);
+    expect(r.type).toBe("error");
+    expect(ctx.actions.forkCurrentThread).not.toHaveBeenCalled();
+  });
+
+  it("/archive marks the thread archived", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/archive", ctx);
+    expect(r.type).toBe("handled");
+    expect(ctx.actions.archiveCurrentThread).toHaveBeenCalled();
+  });
+
+  it("/review opens the review panel", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/review", ctx);
+    expect(r.type).toBe("handled");
+    expect(ctx.actions.openReviewPanel).toHaveBeenCalled();
+  });
+
+  it("/rename calls renameThread (remains local; store persists via App)", async () => {
+    const ctx = makeCtx();
+    const r = await executeSlashCommand("/rename my cool thread", ctx);
+    expect(r.type).toBe("handled");
+    expect(ctx.actions.renameThread).toHaveBeenCalledWith("s1", "my cool thread");
   });
 });

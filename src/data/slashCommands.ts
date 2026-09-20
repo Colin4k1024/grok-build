@@ -25,14 +25,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 
   // ---- thread ----
   { name: "rename", description: "Rename the current thread", argumentHint: "<title>", group: "thread", kind: "local", minArgs: 1 },
-  { name: "fork", description: "Fork the current thread at this point", group: "thread", kind: "degraded", requires: "ISS-079 thread ops" },
-  { name: "archive", description: "Archive the current thread", group: "thread", kind: "degraded", requires: "ISS-079 thread ops" },
+  { name: "fork", description: "Fork the current thread at this point", group: "thread", kind: "local" },
+  { name: "archive", description: "Archive the current thread", group: "thread", kind: "local" },
   { name: "worktree", description: "Switch thread workspace (local | worktree [branch])", argumentHint: "local | worktree [branch]", group: "thread", kind: "local", minArgs: 1 },
 
   // ---- review ----
   { name: "diff", description: "Show the working-tree diff (optionally one path)", argumentHint: "[path]", group: "review", kind: "local" },
   { name: "import", description: "Import sessions & instructions from Claude Code (preview + confirm)", group: "review", kind: "local" },
-  { name: "review", description: "Open the review workflow for the current changes", group: "review", kind: "degraded", requires: "ISS-080 review loop" },
+  { name: "review", description: "Open the review workflow for the current changes", group: "review", kind: "local" },
 
   // ---- info ----
   { name: "status", description: "Show session details (model, turns, context usage)", aliases: ["session-info", "info"], group: "info", kind: "agent" },
