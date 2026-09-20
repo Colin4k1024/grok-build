@@ -15,3 +15,8 @@ goal-state.json
 release/
 build/icon.iconset/
 .ccb/
+
+# Test & coverage artifacts
+coverage/
+test-results/
+evidence/

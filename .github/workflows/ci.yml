@@ -21,14 +21,43 @@ jobs:
           node-version: '20'
           cache: npm
 
-      - name: Install dependencies
+      - name: Install dependencies (locked)
         run: npm ci
 
       - name: Unit tests (Vitest)
         run: npm test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+            coverage/
+          retention-days: 7
 
       - name: Typecheck + frontend build
         run: npm run build
 
       - name: Electron main bundle
         run: bash electron/build.sh
+
+      # Evidence chain: record the SHA and test summary for acceptance checks
+      - name: Generate evidence snapshot
+        if: always()
+        run: |
+          mkdir -p evidence
+          echo "sha=$(git rev-parse HEAD)" >> evidence/summary.txt
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> evidence/summary.txt
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/summary.txt
+          echo "tests=$(cat test-results/junit.xml 2>/dev/null | grep -c '<testcase ' || echo 'unknown')" >> evidence/summary.txt
+          cat evidence/summary.txt
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-evidence
+          path: evidence/
+          retention-days: 7

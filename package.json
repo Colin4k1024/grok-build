@@ -13,7 +13,9 @@
     "electron:start": "npm run electron:build && electron .",
     "electron:pack": "npm run build && npm run electron:build && electron-builder",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:ci": "vitest run --coverage",
+    "test:evidence": "vitest run --reporter=junit --outputFile=test-results/junit.xml && vitest run --coverage"
   },
   "dependencies": {
     "@types/react-window": "^1.8.8",
