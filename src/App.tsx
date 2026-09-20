@@ -33,6 +33,7 @@ import {
   getAuthStatus, logout, getConfig, listSessions, compactSession,
   setSessionModel, resumeSession, addWorktree, listWorktrees,
   addProject, pickDirectory,
+  SessionGoneError,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged, gitDiff,
   renameHistorySession, persistTranscript, getCrashRecoveryStatus } from "./lib/tauri";
@@ -670,7 +671,19 @@ export default function App() {
     }
     setStreaming(true);
     try { await sendMessage(sid, message, images); }
-    catch (e) { setError(String(e)); setStreaming(false); }
+    catch (e) {
+      // Stale session id after app restart: the renderer persisted this tab
+      // via zustand/persist but the backend never re-created it (resume was
+      // skipped or failed silently). Drop the dead tab so the next click
+      // opens a fresh session instead of erroring again.
+      if (e instanceof SessionGoneError) {
+        useSessionStore.getState().removeTab(sid);
+        setError("该会话已在后端失效（可能因应用重启）。已自动关闭此标签，请重新发送。");
+      } else {
+        setError(String(e));
+      }
+      setStreaming(false);
+    }
   }, [activeSessionId, addTab, addUserMessage, setStreaming, tabs, renameTab, clearMessages, setTabCwd, setTabWorkMode, isStreaming]);
 
 

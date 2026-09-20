@@ -10,6 +10,7 @@ import {
   onAcpEvent, respondPermission, gitCommit, listWorktrees, removeWorktree, closeSession,
   gitTurnSnapshot, gitDiffSince, gitConflicted,
   ptySpawn, ptyDispose, ptyEnabled,
+  SessionGoneError,
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
   type PtySession,
 } from "../../lib/tauri";
@@ -644,7 +645,22 @@ function SideChatPanel({ cwd }: { cwd: string }) {
       }
       setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
       setText("");
-      await sendMessage(sid.id, trimmed);
+      try {
+        await sendMessage(sid.id, trimmed);
+      } catch (e) {
+        // Session died on the backend (app restart, session_close elsewhere,
+        // or a failed boot resume). Drop the local handle so the next send
+        // spawns a fresh session instead of erroring on every retry.
+        if (e instanceof SessionGoneError) {
+          setSession(null);
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "（会话已在后端失效，已重置。请重新发送。）" },
+          ]);
+          return;
+        }
+        throw e;
+      }
     } catch (e) {
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${String(e)}` }]);
     } finally {

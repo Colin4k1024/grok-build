@@ -225,14 +225,40 @@ export async function getSessionHistoryMessages(sessionId: string, cwd: string):
   }
 }
 
+/** Thrown when the main process no longer knows the session id the renderer
+ *  is holding — typically after an app restart where zustand/persist restored
+ *  tabs whose backend sessions died with the last quit, or when a stale
+ *  detached window tries to send to a closed session. Callers should catch
+ *  this specifically and self-heal (drop the stale tab, prompt the user)
+ *  instead of surfacing the raw IPC text. */
+export class SessionGoneError extends Error {
+  constructor(public readonly sessionId: string) {
+    super(`Session ${sessionId} is no longer live on the backend`);
+    this.name = "SessionGoneError";
+  }
+}
+
+/** Electron wraps main-process throw as
+ *  "Error invoking remote method '<channel>': Error: <original message>".
+ *  Recognise the "Session <id> not found" shape regardless of the wrap. */
+function isSessionNotFound(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Session\s+\S+\s+not\s+found/.test(msg);
+}
+
 export async function sendMessage(
   sessionId: string,
   message: string,
   images: { data: string; mime_type: string }[] = []
 ): Promise<void> {
   console.log("[tauri.ts] sendMessage called", { sessionId, msgLen: message.length, images: images.length });
-  const result: unknown = await invoke("session_send", { session_id: sessionId, message, images });
-  console.log("[tauri.ts] sendMessage invoke done", result);
+  try {
+    const result: unknown = await invoke("session_send", { session_id: sessionId, message, images });
+    console.log("[tauri.ts] sendMessage invoke done", result);
+  } catch (e) {
+    if (isSessionNotFound(e)) throw new SessionGoneError(sessionId);
+    throw e;
+  }
 }
 
 export async function cancelSession(sessionId: string): Promise<void> {

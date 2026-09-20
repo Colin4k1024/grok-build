@@ -5,6 +5,8 @@ import {
   safeListen,
   onAcpEvent,
   onAuthMessage,
+  sendMessage,
+  SessionGoneError,
 } from "../tauri";
 
 describe("transport without an Electron bridge (ACP disconnect analog)", () => {
@@ -81,5 +83,54 @@ describe("transport over a mock bridge", () => {
 
     un();
     expect(listeners.has("acp_event")).toBe(false);
+  });
+});
+
+describe("sendMessage SessionGoneError mapping", () => {
+  afterEach(() => {
+    delete (window as { electron?: unknown }).electron;
+  });
+
+  function mockBridgeRejects(rawMessage: string) {
+    (window as { electron?: unknown }).electron = {
+      invoke: async () => {
+        throw new Error(rawMessage);
+      },
+      on: () => () => {},
+      platform: "darwin",
+    };
+  }
+
+  it("maps 'Session <id> not found' to SessionGoneError", async () => {
+    // The exact text Electron produces when main's handler throws
+    // "Session <id> not found" — ipcRenderer wraps it in
+    // "Error invoking remote method '<channel>': Error: <original>".
+    mockBridgeRejects(
+      "Error invoking remote method 'session_send': Error: Session session-mu96wmtl-mkj9o5 not found"
+    );
+
+    const err = await sendMessage("session-mu96wmtl-mkj9o5", "hi", []).catch((e) => e);
+    expect(err).toBeInstanceOf(SessionGoneError);
+    expect((err as SessionGoneError).sessionId).toBe("session-mu96wmtl-mkj9o5");
+    expect((err as Error).message).not.toMatch(/Error invoking remote method/);
+  });
+
+  it("matches the bare main-process text too (no Electron wrap)", async () => {
+    mockBridgeRejects("Session session-abc-def not found");
+    await expect(sendMessage("session-abc-def", "hi", [])).rejects.toBeInstanceOf(
+      SessionGoneError
+    );
+  });
+
+  it("does not swallow unrelated errors", async () => {
+    mockBridgeRejects("Session session-abc has no live agent");
+    const err = await sendMessage("session-abc", "hi", []).catch((e) => e);
+    expect(err).not.toBeInstanceOf(SessionGoneError);
+    expect(String(err)).toContain("no live agent");
+  });
+
+  it("does not swallow permission / validation errors", async () => {
+    mockBridgeRejects("user denied permission");
+    await expect(sendMessage("s1", "hi", [])).rejects.not.toBeInstanceOf(SessionGoneError);
   });
 });
