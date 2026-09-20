@@ -1,14 +1,15 @@
 import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
 import { getNotificationEnabled, setNotificationEnabled } from "../../hooks/useNotifications";
-import { getThemeMode, setThemeMode } from "../../hooks/useTheme";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useUpdater } from "../../hooks/useUpdater";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(getNotificationEnabled());
-  const [themeMode, setThemeModeState] = useState(getThemeMode());
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
   const updater = useUpdater();
 
   useEffect(() => {
@@ -113,11 +114,10 @@ export function GeneralSettings() {
               <button
                 key={t}
                 onClick={() => {
-                  setThemeModeState(t);
-                  setThemeMode(t);
+                  setTheme(t);
                 }}
                 className={`rounded px-3 py-1.5 text-xs ${
-                  themeMode === t ? "bg-gb-accent/15 text-gb-text" : "bg-gb-bg text-gb-muted"
+                  theme === t ? "bg-gb-accent/15 text-gb-text" : "bg-gb-bg text-gb-muted"
                 }`}
               >
                 {t === "dark" ? "🌙 深色" : t === "light" ? "☀️ 浅色" : "🖥️ 跟随系统"}
