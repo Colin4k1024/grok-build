@@ -33,7 +33,9 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
 
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 px-4">
+      {/* macOS traffic-light clearance */}
+      <div className="app-drag h-9 shrink-0" />
+      <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 pl-24 pr-4">
         <h2 className="text-[13px] font-medium">工作区 Agent</h2>
         <button
           className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"

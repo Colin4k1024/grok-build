@@ -33,7 +33,9 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
 
   return (
     <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-gb-border bg-gb-surface px-4">
+      {/* macOS traffic-light clearance */}
+      <div className="app-drag h-9 shrink-0" />
+      <header className="flex h-10 shrink-0 items-center justify-between border-b border-gb-border bg-gb-surface pl-24 pr-4">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold">仪表盘</h2>
           <span className="text-[10px] text-gb-muted">全局概览</span>
