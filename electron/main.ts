@@ -632,12 +632,29 @@ ipcMain.handle("git_worktree_add", async (_e, args: { cwd: string; branch: strin
     ? ["worktree", "add", "-b", args.branch, wtPath]
     : ["worktree", "add", args.branch, wtPath];
   await execFileAsync("git", argv, { cwd: args.cwd || "." });
+  // Register in managed registry (R3-05)
+  registerWorktree({
+    path: wtPath, branch: args.branch, repo: args.cwd || ".",
+    createdAt: Date.now(), ownerSessionId: null,
+  });
   return ok(wtPath);
 });
 
 ipcMain.handle("git_worktree_remove", async (_e, args: { cwd: string; path: string; force: boolean }) => {
   const argv = ["worktree", "remove", ...(args.force ? ["--force"] : []), path.resolve(args.path)];
   await execFileAsync("git", argv, { cwd: args.cwd || "." });
+  // Unregister from managed registry (R3-05)
+  unregisterWorktree(path.resolve(args.path));
+  return ok(null);
+});
+
+// --- Managed worktree registry IPC (R3-05) ---
+ipcMain.handle("worktree_registry_list", () => ok(readRegistry().worktrees));
+ipcMain.handle("worktree_registry_orphans", () => ok(listOrphans()));
+ipcMain.handle("worktree_registry_prune", () => ok(pruneOrphans()));
+ipcMain.handle("worktree_registry_count", () => ok(worktreeCount()));
+ipcMain.handle("worktree_registry_touch", (_e, args: { path: string }) => {
+  touchWorktree(args.path);
   return ok(null);
 });
 
@@ -712,6 +729,10 @@ import {
 } from "./claude-import";
 import { persistTranscript } from "./transcript-store";
 import { appendJournal } from "./journal";
+import {
+  registerWorktree, unregisterWorktree, touchWorktree,
+  listOrphans, pruneOrphans, worktreeCount, readRegistry,
+} from "./worktree-registry";
 
 // --- Selective import from Claude Code (ISS-083) ---
 ipcMain.handle("claude_probe", () => ok(probeClaudeSources()));
