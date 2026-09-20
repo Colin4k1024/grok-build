@@ -1,26 +1,29 @@
 import { useState, useRef, useEffect } from "react";
-
-const SANDBOX_KEY = "gb-sandbox-mode";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useSessionStore } from "../../stores/sessionStore";
 
 export type SandboxMode = "sandbox" | "full";
 
-export function getSandboxMode(): SandboxMode {
-  return (localStorage.getItem(SANDBOX_KEY) as SandboxMode) || "sandbox";
-}
-
-export function setSandboxMode(mode: SandboxMode) {
-  localStorage.setItem(SANDBOX_KEY, mode);
-}
-
-/** Compact sandbox/full-access toggle for the TitleBar. */
+/** Compact sandbox/full-access toggle for the TitleBar.
+ *
+ *  R3-01 / R3-11: reads/writes through the centralized settingsStore
+ *  ("gb-settings" key). Syncs every open tab's approvalMode:
+ *  "sandbox" → "ask", "full" → "full-access". */
 export function SandboxToggle() {
-  const [mode, setMode] = useState<SandboxMode>(getSandboxMode());
+  const sandboxMode = useSettingsStore((s) => s.sandboxMode);
+  const setSandboxModeStore = useSettingsStore((s) => s.setSandboxMode);
   const [showTooltip, setShowTooltip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  const tabs = useSessionStore((s) => s.tabs);
+  const setTabApprovalMode = useSessionStore((s) => s.setTabApprovalMode);
+
   useEffect(() => {
-    setSandboxMode(mode);
-  }, [mode]);
+    const approval: "ask" | "full-access" = sandboxMode === "sandbox" ? "ask" : "full-access";
+    for (const tab of tabs) {
+      setTabApprovalMode(tab.id, approval);
+    }
+  }, [sandboxMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showTooltip) return;
@@ -31,12 +34,12 @@ export function SandboxToggle() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showTooltip]);
 
-  const isSandbox = mode === "sandbox";
+  const isSandbox = sandboxMode === "sandbox";
 
   return (
     <div ref={ref} className="relative" data-no-drag>
       <button
-        onClick={() => setMode(isSandbox ? "full" : "sandbox")}
+        onClick={() => setSandboxModeStore(isSandbox ? "full" : "sandbox")}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
         className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
@@ -45,7 +48,7 @@ export function SandboxToggle() {
             : "bg-gb-yellow/10 text-gb-yellow hover:bg-gb-yellow/15"
         }`}
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        aria-label={`沙箱模式: ${mode}. Click to toggle.`}
+        aria-label={`沙箱模式: ${sandboxMode}. Click to toggle.`}
       >
         <span>{isSandbox ? "🔒" : "⚡"}</span>
         <span>{isSandbox ? "Sandbox" : "完全访问"}</span>
@@ -57,17 +60,14 @@ export function SandboxToggle() {
             <>
               <p className="mb-1 font-medium text-gb-green">沙箱模式</p>
               <p className="text-gb-text-secondary">
-                Commands run in an isolated environment. Writes outside the
-                working directory require approval. Network access is limited
-                to the model provider.
+                工具调用需逐个审批。写入、网络和命令访问受限。
               </p>
             </>
           ) : (
             <>
               <p className="mb-1 font-medium text-gb-yellow">完全访问</p>
               <p className="text-gb-text-secondary">
-                Commands run directly on your machine with no sandboxing.
-                Trusted folders and permission rules still apply.
+                工具调用自动批准。受信文件夹和权限规则仍然适用。
               </p>
             </>
           )}
@@ -76,4 +76,16 @@ export function SandboxToggle() {
       )}
     </div>
   );
+}
+
+/** Standalone getter for non-React call-sites (e.g. session creation). */
+export function getSandboxMode(): SandboxMode {
+  try {
+    const raw = localStorage.getItem("gb-settings");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return parsed?.state?.sandboxMode === "full" ? "full" : "sandbox";
+    }
+  } catch {}
+  return "sandbox";
 }

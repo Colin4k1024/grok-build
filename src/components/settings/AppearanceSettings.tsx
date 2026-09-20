@@ -1,8 +1,5 @@
 import { useState, useEffect } from "react";
-import { getThemeMode, setThemeMode, type ThemeMode } from "../../hooks/useTheme";
-
-const FONT_SIZE_KEY = "gb-font-size";
-const ZOOM_KEY = "gb-zoom";
+import { useSettingsStore, type ThemeMode, type FontSizeId } from "../../stores/settingsStore";
 
 const FONT_SIZES = [
   { id: "small", label: "小", px: 12 },
@@ -10,7 +7,6 @@ const FONT_SIZES = [
   { id: "large", label: "大", px: 15 },
   { id: "xlarge", label: "特大", px: 17 },
 ] as const;
-type FontSizeId = (typeof FONT_SIZES)[number]["id"];
 
 const ZOOM_LEVELS = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5] as const;
 
@@ -21,52 +17,44 @@ function applyFontSize(id: FontSizeId) {
 }
 
 function applyZoom(zoom: number) {
-  // Tauri webview respects CSS zoom on the root element.
   (document.body.style as CSSStyleDeclaration & { zoom?: string }).zoom = String(zoom);
-}
-
-export function getSavedFontSize(): FontSizeId {
-  return (localStorage.getItem(FONT_SIZE_KEY) as FontSizeId) || "medium";
-}
-
-export function getSavedZoom(): number {
-  const raw = localStorage.getItem(ZOOM_KEY);
-  const parsed = raw ? parseFloat(raw) : 1.0;
-  return ZOOM_LEVELS.includes(parsed as (typeof ZOOM_LEVELS)[number]) ? parsed : 1.0;
 }
 
 /** Apply persisted appearance preferences on app boot. Called from main.tsx. */
 export function bootstrapAppearance() {
-  applyFontSize(getSavedFontSize());
-  applyZoom(getSavedZoom());
+  try {
+    const raw = localStorage.getItem("gb-settings");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const st = parsed?.state;
+      if (st) {
+        applyFontSize((st.fontSize as FontSizeId) ?? "medium");
+        applyZoom(typeof st.zoom === "number" ? st.zoom : 1.0);
+        return;
+      }
+    }
+  } catch {}
+  applyFontSize("medium");
+  applyZoom(1.0);
 }
 
 export function AppearanceSettings() {
-  const [themeMode, setThemeModeState] = useState<ThemeMode>(getThemeMode());
-  const [fontSize, setFontSize] = useState<FontSizeId>(getSavedFontSize());
-  const [zoom, setZoom] = useState<number>(getSavedZoom());
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const setFontSizeStore = useSettingsStore((s) => s.setFontSize);
+  const zoom = useSettingsStore((s) => s.zoom);
+  const setZoomStore = useSettingsStore((s) => s.setZoom);
 
-  useEffect(() => {
-    // Ensure DOM reflects the current settings on mount (in case user lands
-    // directly on Settings before bootstrapAppearance runs).
-    applyFontSize(fontSize);
-    applyZoom(zoom);
-  }, [fontSize, zoom]);
+  const [localFont, setLocalFont] = useState<FontSizeId>(fontSize);
+  const [localZoom, setLocalZoom] = useState(zoom);
 
-  const handleThemeChange = (t: ThemeMode) => {
-    setThemeModeState(t);
-    setThemeMode(t);
-  };
+  useEffect(() => { applyFontSize(localFont); }, [localFont]);
+  useEffect(() => { applyZoom(localZoom); }, [localZoom]);
 
-  const handleFontSize = (id: FontSizeId) => {
-    setFontSize(id);
-    localStorage.setItem(FONT_SIZE_KEY, id);
-  };
-
-  const handleZoom = (z: number) => {
-    setZoom(z);
-    localStorage.setItem(ZOOM_KEY, String(z));
-  };
+  const handleThemeChange = (t: ThemeMode) => setTheme(t);
+  const handleFontSize = (id: FontSizeId) => { setLocalFont(id); setFontSizeStore(id); };
+  const handleZoom = (z: number) => { setLocalZoom(z); setZoomStore(z); };
 
   return (
     <div className="space-y-6 p-4">
@@ -79,7 +67,7 @@ export function AppearanceSettings() {
                 key={t}
                 onClick={() => handleThemeChange(t)}
                 className={`rounded px-3 py-1.5 text-xs transition-colors ${
-                  themeMode === t
+                  theme === t
                     ? "bg-gb-accent/15 text-gb-text"
                     : "bg-gb-bg text-gb-muted hover:text-gb-text"
                 }`}

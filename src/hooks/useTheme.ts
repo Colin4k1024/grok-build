@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-
-export type ThemeMode = "dark" | "light" | "auto";
-const THEME_KEY = "gb-theme-mode";
+import { useEffect, useCallback } from "react";
+import { useSettingsStore, type ThemeMode } from "../stores/settingsStore";
 
 function getSystemTheme(): "dark" | "light" {
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
@@ -20,36 +18,27 @@ function applyTheme(mode: ThemeMode) {
 }
 
 export function useTheme() {
-  const [mode, setMode] = useState<ThemeMode>(() => {
-    return (localStorage.getItem(THEME_KEY) as ThemeMode) || "light";
-  });
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
 
   useEffect(() => {
-    applyTheme(mode);
-    localStorage.setItem(THEME_KEY, mode);
-  }, [mode]);
+    applyTheme(theme);
+  }, [theme]);
 
   // Listen for system theme changes when in auto mode
   useEffect(() => {
-    if (mode !== "auto") return;
+    if (theme !== "auto") return;
     const media = window.matchMedia("(prefers-color-scheme: light)");
     const handler = () => applyTheme("auto");
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
-  }, [mode]);
+  }, [theme]);
 
   const changeMode = useCallback((newMode: ThemeMode) => {
-    setMode(newMode);
-  }, []);
+    setTheme(newMode);
+  }, [setTheme]);
 
-  return { mode, changeMode };
+  return { mode: theme, changeMode };
 }
 
-export function getThemeMode(): ThemeMode {
-  return (localStorage.getItem(THEME_KEY) as ThemeMode) || "light";
-}
-
-export function setThemeMode(mode: ThemeMode) {
-  localStorage.setItem(THEME_KEY, mode);
-  applyTheme(mode);
-}
+export { type ThemeMode };
