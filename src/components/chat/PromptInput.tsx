@@ -8,7 +8,7 @@ import { ModelEffortSelect } from "./composer/ModelEffortSelect";
 import { ApprovalModeSelect } from "./composer/ApprovalModeSelect";
 import { WorkModeSelect } from "./composer/WorkModeSelect";
 import { BranchSelect } from "./composer/BranchSelect";
-import { listRepoFiles, listSkills, type ConfigSnapshot, type SkillInfo } from "../../lib/tauri";
+import { listRepoFiles, listSkills, setSessionApprovalMode, type ConfigSnapshot, type SkillInfo } from "../../lib/tauri";
 import { useSessionStore, type ApprovalMode, type WorkMode } from "../../stores/sessionStore";
 import { saveDraft, loadDraft, clearDraft } from "../../lib/composerDraft";
 
@@ -339,7 +339,11 @@ export function PromptInput({
               mode={ctrlApproval}
               onChange={(m: ApprovalMode) => {
                 if (home) home.onPatch({ approval: m });
-                else if (activeSessionId) useSessionStore.getState().setTabApprovalMode(activeSessionId, m);
+                else if (activeSessionId) {
+                  useSessionStore.getState().setTabApprovalMode(activeSessionId, m);
+                  // R3-01 (#186): push the mode to the main-process Policy.
+                  setSessionApprovalMode(activeSessionId, m).catch(() => {});
+                }
               }}
             />
           )}

@@ -5,11 +5,22 @@ import { listHistorySessions, getSessionHistory, renameHistorySession } from "./
 import {
   getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer, type SaveInput,
 } from "./mcp-config";
+import { Policy, approvalModeToPolicyMode, type PolicyMode } from "./policy";
+import {
+  permissionStateMachine,
+  type PermissionRecord,
+} from "./permission-state";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+
+// R3-01 (#186): the renderer's ApprovalMode is an untrusted hint. The main
+// process keeps its own typed Policy per session and consults it before any
+// file write, command, git write, or network egress. The permission state
+// machine dedupes pending approvals and invalidates them on crash/restart.
+type ApprovalModeHint = "full-access" | "ask" | "read-only";
 
 const execFileAsync = promisify(execFile);
 
@@ -113,6 +124,13 @@ interface SessionRecord {
   currentModel?: string;
   createdAt: number;
   agent?: AcpSession;
+  /** Main-process Policy for this session — the real boundary that
+   *  run_command / git_commit / fs-bridge consult before any side effect.
+   *  Set on session create/resume; updated via session_set_approval_mode. */
+  policy?: Policy;
+  /** Effective approval mode (mirror for the renderer's per-tab state).
+   *  The Policy is the source of truth; this is for UI sync. */
+  approvalMode?: ApprovalModeHint;
 }
 
 const sessions = new Map<string, SessionRecord>();
@@ -326,9 +344,58 @@ ipcMain.handle("user_question_respond", (_e, args: { sessionId: string; requestI
 });
 
 ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; requestId: string; optionId: string }) => {
+  // R3-01 (#186): route every approval/denial through the main-process
+  // permission state machine. This is the line that prevents:
+  //   - a double-click from executing the side effect twice (dedup);
+  //   - an approval for a denied/cancelled request from resurrecting it;
+  //   - a stale approval from a crashed process authorizing a fresh exec
+  //     (the machine is in-memory and starts empty each process).
+  // The AcpSession's responder is still invoked so the agent gets its
+  // answer, but the state machine is the enforcement record.
+  const optionId = args.optionId;
+  const isDeny = /reject|deny|cancel/i.test(optionId);
+  const isAllow = /allow/i.test(optionId) && !isDeny;
+  if (isDeny) {
+    permissionStateMachine.deny(args.requestId);
+  } else if (isAllow) {
+    permissionStateMachine.approve(args.requestId);
+  } else {
+    permissionStateMachine.cancel(args.requestId);
+  }
   const rec = sessions.get(args.sessionId);
   rec?.agent?.respondPermission(args.requestId, args.optionId);
   return ok(null);
+});
+
+// R3-01 (#186): the renderer syncs its approvalMode hint here. The main
+// process updates the per-session Policy — this is the real mode change,
+// not a localStorage write. Default "ask" → sandbox (safe).
+ipcMain.handle("session_set_approval_mode", (_e, args: { sessionId: string; mode: ApprovalModeHint }) => {
+  const rec = sessions.get(args.sessionId);
+  if (!rec) throw new Error(`session_set_approval_mode: session ${args.sessionId} not found`);
+  const mode = args.mode || "ask";
+  rec.approvalMode = mode;
+  rec.policy?.setMode(approvalModeToPolicyMode(mode));
+  return ok({ mode, effectivePolicy: rec.policy?.getMode() });
+});
+
+// Read-only inspection of a session's effective policy state — for the
+// evidence-gate tests and any future UI that needs to confirm the main
+// process's real mode (not the renderer's hint).
+ipcMain.handle("session_get_policy_state", (_e, args: { sessionId: string }) => {
+  const rec = sessions.get(args.sessionId);
+  if (!rec) throw new Error(`session_get_policy_state: session ${args.sessionId} not found`);
+  return ok({
+    approvalMode: rec.approvalMode ?? "ask",
+    policyMode: rec.policy?.getMode() ?? "sandbox",
+    root: rec.policy?.getRoot() ?? rec.cwd,
+    pendingPermissions: permissionStateMachine.pending().map((r) => ({
+      requestId: r.requestId,
+      toolName: r.toolName,
+      command: r.command,
+      state: r.state,
+    })),
+  });
 });
 // --- Detached session windows (ISS-077) -----------------------------------
 // Write-lock: while a session is detached, only its detached window may send
@@ -401,6 +468,22 @@ ipcMain.handle("open_session_window", (_e, args: { sessionId?: string }) => {
 async function startSessionRecord(cwd: string, resumeAcpId?: string) {
   const id = `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const cfg = toConfigSnapshot(readModelsDoc());
+  // R3-01 (#186): every session gets a main-process Policy. Default mode is
+  // "sandbox" (the safe default — the renderer's "ask" maps to this). The
+  // Policy is the only enforcement source; the renderer's approvalMode is an
+  // untrusted hint that is synced via session_set_approval_mode.
+  const sandboxPref = (process.env.GROK_DEFAULT_SANDBOX_MODE as ApprovalModeHint | undefined) ?? "ask";
+  const policyMode: PolicyMode = approvalModeToPolicyMode(sandboxPref);
+  const auditPath = path.join(
+    process.env.GROK_HOME || path.join(os.homedir(), ".grok"),
+    "audit", "policy.jsonl"
+  );
+  const policy = new Policy({
+    root: path.resolve(cwd || "."),
+    mode: policyMode,
+    sessionId: id,
+    auditPath,
+  });
   const rec: SessionRecord = {
     id,
     cwd: cwd || ".",
@@ -408,6 +491,8 @@ async function startSessionRecord(cwd: string, resumeAcpId?: string) {
     models: cfg.models.map((m) => ({ id: m.id, name: m.name })),
     currentModel: cfg.default_model || cfg.models[0]?.id,
     createdAt: Date.now(),
+    policy,
+    approvalMode: sandboxPref,
   };
   sessions.set(id, rec);
 
@@ -808,6 +893,11 @@ ipcMain.handle("git_commit", async (_e, args: { cwd: string; message: string }) 
   const cwd = path.resolve(args?.cwd || ".");
   const message = String(args?.message || "").trim();
   if (!message) throw new Error("git_commit: commit message required");
+  // R3-01 (#186): git write operations go through the per-session Policy.
+  // If no session matches the cwd, a default sandbox Policy rooted at the
+  // cwd is used — the boundary is always enforced, never skipped.
+  const policy = policyForCwd(cwd);
+  policy.checkGit(cwd, "write");
   await execFileAsync("git", ["add", "-A"], { cwd });
   try {
     await execFileAsync("git", ["commit", "-m", message], { cwd, maxBuffer: 4 * 1024 * 1024 });
@@ -820,6 +910,22 @@ ipcMain.handle("git_commit", async (_e, args: { cwd: string; message: string }) 
   }
 });
 
+// R3-01 (#186): resolve the Policy for a cwd. If a session owns this cwd,
+// use its Policy (so the renderer's approvalMode sync applies). Otherwise
+// construct a default sandbox Policy rooted at the cwd — the safe default
+// that enforces path traversal and the deny-list even outside a session.
+function policyForCwd(cwd: string): Policy {
+  const abs = path.resolve(cwd);
+  for (const rec of sessions.values()) {
+    if (rec.policy && path.resolve(rec.cwd) === abs) return rec.policy;
+  }
+  return new Policy({
+    root: abs,
+    mode: approvalModeToPolicyMode("ask"),
+    sessionId: "adhoc",
+  });
+}
+
 // Side-panel Terminal tab — run a single shell command in the project cwd
 // (non-interactive; output capped).
 ipcMain.handle("run_command", async (_e, args: { cwd: string; command: string }) => {
@@ -827,6 +933,12 @@ ipcMain.handle("run_command", async (_e, args: { cwd: string; command: string })
   const command = String(args?.command || "").trim();
   if (!command) return ok({ stdout: "", stderr: "" });
   if (command.length > 2000) throw new Error("run_command: command too long");
+  // R3-01 (#186): every run_command goes through the Policy. The deny-list
+  // (rm -rf /, mkfs, dd to /dev, fork bombs, shutdown) always applies;
+  // sandbox mode additionally blocks network egress and non-allow-listed
+  // commands; read-only blocks all commands.
+  const policy = policyForCwd(cwd);
+  policy.checkCommand(command);
   try {
     const { stdout, stderr } = await execFileAsync("/bin/bash", ["-lc", command], {
       cwd,

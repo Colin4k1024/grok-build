@@ -20,6 +20,7 @@ import {
   type ReadParams,
   type WriteParams,
 } from "./fs-bridge";
+import { permissionStateMachine } from "./permission-state";
 
 // ---- agent binary resolution ------------------------------------------------
 
@@ -457,6 +458,19 @@ export class AcpSession {
           } else {
             this.respond(id, { outcome: { outcome: "selected", optionId } });
           }
+        });
+        // R3-01 (#186): register the request in the main-process permission
+        // state machine. This is what dedupes a re-sent request, tracks the
+        // requested→approved|denied→executed lifecycle, and — because the
+        // machine is in-memory and starts empty each process — invalidates
+        // any pending approval that lived in a crashed predecessor. The
+        // machine is the enforcement record; the responder above just talks
+        // to the agent.
+        permissionStateMachine.request({
+          requestId,
+          sessionId: this.id,
+          toolName: toolCall.title ?? "Unknown",
+          command,
         });
         this.emit({
           session_id: this.id,
