@@ -35,6 +35,10 @@ export interface SlashContext {
     notify(message: string): void;
     openUsage(): void;
     openImport(): void;
+    forkCurrentThread(): void;
+    archiveCurrentThread(): void;
+    openReviewPanel(): void;
+    createWorktree(cwd: string, mode: "local" | "worktree", branch?: string): void;
   };
 }
 
@@ -110,6 +114,35 @@ export async function executeSlashCommand(
       ctx.actions.renameThread(ctx.sessionId, argStr);
       return { type: "handled", notice: `已重命名为「${argStr}」` };
     }
+    case "fork": {
+      if (!ctx.sessionId) return { type: "error", notice: "没有活跃会话可派生" };
+      if (ctx.streaming) return { type: "error", notice: "回复仍在进行 — 请先停止（Esc）再 /fork" };
+      ctx.actions.forkCurrentThread();
+      return { type: "handled", notice: "正在派生新线程…" };
+    }
+    case "archive": {
+      if (!ctx.sessionId) return { type: "error", notice: "没有活跃会话可归档" };
+      ctx.actions.archiveCurrentThread();
+      return { type: "handled", notice: "已归档当前线程" };
+    }
+    case "review": {
+      if (!ctx.sessionId) return { type: "error", notice: "没有活跃会话" };
+      ctx.actions.openReviewPanel();
+      return { type: "handled", notice: "已打开 Review 面板" };
+    }
+    case "worktree": {
+      if (!ctx.sessionId) return { type: "error", notice: "没有活跃会话" };
+      const mode = args[0] === "worktree" ? "worktree" : args[0] === "local" ? "local" : null;
+      if (!mode) {
+        return { type: "error", notice: "用法：/worktree local | worktree [branch]" };
+      }
+      // Dispatch to the full worktree creation flow (spawn worktree, re-anchor session).
+      ctx.actions.createWorktree(ctx.cwd ?? "", mode, args[1]);
+      return {
+        type: "handled",
+        notice: mode === "local" ? "已切回当前 checkout" : `正在创建工作区${args[1] ? `（${args[1]}）` : ""}…`,
+      };
+    }
     case "usage": {
       // Opens the usage panel (ISS-081); per-thread data with 未知 fallbacks.
       ctx.actions.openUsage();
@@ -131,18 +164,6 @@ export async function executeSlashCommand(
       } catch (e) {
         return { type: "error", notice: `读取 diff 失败：${(e as Error).message}` };
       }
-    }
-    case "worktree": {
-      if (!ctx.sessionId) return { type: "error", notice: "没有活跃会话" };
-      const mode = args[0] === "worktree" ? "worktree" : args[0] === "local" ? "local" : null;
-      if (!mode) {
-        return { type: "error", notice: "用法：/worktree local | worktree [branch]" };
-      }
-      ctx.actions.setWorkMode(ctx.sessionId, mode, args[1]);
-      return {
-        type: "handled",
-        notice: mode === "local" ? "已切回当前 checkout" : `已切换 worktree 模式${args[1] ? `（${args[1]}）` : ""}`,
-      };
     }
     default:
       return { type: "error", notice: `/${cmd.name} 尚未接线（内部遗漏）` };

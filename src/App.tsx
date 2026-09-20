@@ -514,6 +514,36 @@ export default function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  // Apply Code listener (ISS-078 / R3-03): the CodeBlock "Apply" button fires
+  // grok:apply-code but no listener existed — the event silently dropped.
+  // Now: queue the patch as a prompt so the active agent applies it.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ev = e as CustomEvent<{ code: string; language?: string }>;
+      if (!ev.detail?.code) return;
+      const store = useSessionStore.getState();
+      const sid = store.activeSessionId;
+      if (!sid) {
+        setSlashNotice("没有活跃会话 — 请先打开或创建一个会话");
+        return;
+      }
+      const lang = ev.detail.language ? ` (${ev.detail.language})` : "";
+      const prompt = `Apply the following code change${lang}:\n\n\`\`\`${ev.detail.language ?? ""}\n${ev.detail.code}\n\`\`\``;
+      if (store.streaming[sid]) {
+        // Mid-turn: queue via Tab semantics (agent receives when current turn ends).
+        useSessionStore.getState().enqueueQueuedPrompt(sid, prompt);
+        setSlashNotice("当前 turn 完成后自动应用代码");
+      } else {
+        // Idle: send immediately as a prompt.
+        addUserMessage(sid, prompt);
+        setStreaming(true);
+        sendMessage(sid, prompt, []).catch((e) => { setError(String(e)); setStreaming(false); });
+      }
+    };
+    window.addEventListener("grok:apply-code", handler);
+    return () => window.removeEventListener("grok:apply-code", handler);
+  }, []);
+
   const handleSend = useCallback(async (message: string, images: { data: string; mime_type: string }[] = []) => {
     let sid = activeSessionId;
     // Auto-create a session when the user sends without one — makes the
@@ -553,7 +583,15 @@ export default function App() {
         })(),
         actions: {
           clearMessages,
-          renameThread: renameTab,
+          renameThread: (sessionId, title) => {
+            renameTab(sessionId, title);
+            // Also persist rename to backend history (ISS-079 real persistence).
+            const tab = useSessionStore.getState().tabs.find((t) => t.id === sessionId);
+            if (tab?.acpSessionId) {
+              const histSession = { id: tab.acpSessionId, title, cwd: tab.cwd };
+              renameHistorySession(histSession.id, histSession.cwd, title).catch(() => {});
+            }
+          },
           setCwd: setTabCwd,
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
@@ -561,6 +599,31 @@ export default function App() {
           newThread: () => { setActiveSession(null); setShowHome(true); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
+          forkCurrentThread: () => {
+            if (sid) handleForkSession(sid);
+          },
+          archiveCurrentThread: () => {
+            if (sid) {
+              const ARCHIVE_KEY = "gb-archived-threads";
+              const tab = useSessionStore.getState().tabs.find((t) => t.id === sid);
+              const key = tab?.acpSessionId ?? sid;
+              try {
+                const raw = localStorage.getItem(ARCHIVE_KEY);
+                const set = new Set<string>(raw ? JSON.parse(raw) : []);
+                set.add(key);
+                set.add(sid);
+                localStorage.setItem(ARCHIVE_KEY, JSON.stringify([...set]));
+                window.dispatchEvent(new CustomEvent("gb-threads-changed"));
+              } catch { /* storage unavailable */ }
+            }
+          },
+          openReviewPanel: () => {
+            setRightPanelCollapsed(false);
+            window.dispatchEvent(new CustomEvent("gb-open-review"));
+          },
+          createWorktree: (_cwd, mode, branch) => {
+            handleWorkModeChange(mode, branch);
+          },
           notify: (m) => setSlashNotice(m),
         },
       });
