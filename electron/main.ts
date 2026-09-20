@@ -60,13 +60,16 @@ function probeOsPermissions(): Record<string, string> {
 function buildAppMenu(): void {
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: "appMenu" as const }] : []),
+    ...(isMac ? [{ role: "appMenu" } as Electron.MenuItemConstructorOptions] : []),
     {
       label: "File",
       submenu: [
         { label: "New Session", accelerator: "CmdOrCtrl+N", click: () => mainWindow?.webContents.send("tray-action", "new-session") },
         { type: "separator" },
-        isMac ? { role: "close" } : { label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => app.quit() },
+        ...(isMac
+          ? [{ role: "close" } as Electron.MenuItemConstructorOptions]
+          : [{ label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => app.quit() } as Electron.MenuItemConstructorOptions]
+        ),
       ],
     },
     {
@@ -88,7 +91,10 @@ function buildAppMenu(): void {
       label: "Window",
       submenu: [
         { role: "minimize" }, { role: "zoom" },
-        ...(isMac ? [{ type: "separator" as const }, { role: "front" }] : [{ role: "close" }]),
+        ...(isMac
+          ? [{ type: "separator" }, { role: "front" }] as Electron.MenuItemConstructorOptions[]
+          : [{ role: "close" }] as Electron.MenuItemConstructorOptions[]
+        ),
       ],
     },
   ];
@@ -1298,108 +1304,6 @@ ipcMain.handle("crash_recovery_status", () => {
 
 // OS permissions probe: which system-level permissions are granted (R3-14).
 ipcMain.handle("os_permissions", () => ok(probeOsPermissions()));
-
-// --- Native automations scheduler (R3-06) ---
-import { readRegistry as readWorktrees } from "./worktree-registry";
-
-interface AutomationEntry {
-  id: string;
-  name: string;
-  trigger: string;
-  schedule: string;
-  prompt: string;
-  createdAt: number;
-  lastRunAt: number | null;
-  runCount: number;
-}
-
-let _automations: AutomationEntry[] = [];
-let _activeSessionId: string | null = null;
-
-// Load persisted automations from disk on boot
-const AUTOMATIONS_PATH = path.join(
-  process.env.GROK_HOME || path.join(os.homedir(), ".grok"),
-  "automations.json"
-);
-try {
-  if (fs.existsSync(AUTOMATIONS_PATH)) {
-    _automations = JSON.parse(fs.readFileSync(AUTOMATIONS_PATH, "utf-8")) as AutomationEntry[];
-  }
-} catch { /* fresh start */ }
-
-function persistAutomations(): void {
-  try {
-    fs.mkdirSync(path.dirname(AUTOMATIONS_PATH), { recursive: true });
-    const tmp = path.join(path.dirname(AUTOMATIONS_PATH), `.automations.${process.pid}.tmp`);
-    fs.writeFileSync(tmp, JSON.stringify(_automations, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, AUTOMATIONS_PATH);
-  } catch { /* disk unavailable */ }
-}
-
-// Main-process cron evaluation every 30s
-setInterval(() => {
-  if (_automations.length === 0 || !_activeSessionId) return;
-  const now = Date.now();
-  for (const a of _automations) {
-    // Simple interval trigger: lastRunAt + interval
-    const intervalMs = parseInt(a.schedule, 10) * 60 * 1000; // minutes to ms
-    if (isNaN(intervalMs)) continue;
-    if (a.lastRunAt && now - a.lastRunAt < intervalMs) continue;
-    // Try to parse cron expression
-    try {
-      const fields = a.schedule.trim().split(/\s+/);
-      if (fields.length === 5) {
-        // Cron expression — rely on the renderer's nextCronRun parser
-        // We do a simple "last run was more than 1 minute ago" check for cron
-        if (a.lastRunAt && now - a.lastRunAt < 60_000) continue;
-      }
-    } catch { /* fall through to interval check */ }
-    a.lastRunAt = now;
-    a.runCount = (a.runCount || 0) + 1;
-    // Dispatch to renderer
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send("automation_run", {
-        automationId: a.id,
-        sessionId: _activeSessionId,
-        prompt: a.prompt,
-      });
-    }
-  }
-  persistAutomations();
-}, 30_000);
-
-ipcMain.handle("automations_sync", (_e, args: { items: AutomationEntry[] }) => {
-  _automations = (args?.items ?? []).map((a) => ({
-    ...a,
-    lastRunAt: a.lastRunAt ?? null,
-    runCount: a.runCount ?? 0,
-  }));
-  persistAutomations();
-  return ok(null);
-});
-
-ipcMain.handle("automations_get", () => ok(_automations));
-
-ipcMain.handle("automations_set_active_session", (_e, args: { sessionId: string | null }) => {
-  _activeSessionId = args?.sessionId ?? null;
-  return ok(null);
-});
-
-ipcMain.handle("automations_run_now", (_e, args: { automationId: string }) => {
-  const a = _automations.find((x) => x.id === args?.automationId);
-  if (!a || !_activeSessionId) return ok(null);
-  a.lastRunAt = Date.now();
-  a.runCount = (a.runCount || 0) + 1;
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send("automation_run", {
-      automationId: a.id,
-      sessionId: _activeSessionId,
-      prompt: a.prompt,
-    });
-  }
-  persistAutomations();
-  return ok(null);
-});
 
 // --- Window setup ---
 

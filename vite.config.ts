@@ -20,6 +20,14 @@ export default defineConfig(async () => ({
         "src/**/__tests__/**",
         "src/**/*.test.{ts,tsx}",
       ],
+      // Coverage gate (ISS-189): fail CI below these thresholds so "已完成"
+      // is never claimed without a measurable evidence floor.
+      thresholds: {
+        statements: 40,
+        branches: 30,
+        functions: 35,
+        lines: 40,
+      },
     },
     // CI fixture: JUnit XML for evidence chain (no extra deps needed)
     reporters: process.env.CI ? ["verbose", "junit"] : ["verbose"],
