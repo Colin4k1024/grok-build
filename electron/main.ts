@@ -894,6 +894,187 @@ ipcMain.handle("log_frontend", (_e, args: { level: string; message: string }) =>
   return ok(null);
 });
 
+// --- Automation scheduler (ISS-191) ----------------------------------------
+// Main-process 30-second interval timer replaces the fragile page-level
+// setInterval in src/lib/automation.ts. Automations persist to
+// ~/.grok/automations.json so they survive page reloads and app restarts.
+// The renderer syncs its list via `automations_sync` and receives run events
+// via `automation_run` / `automations_changed` IPC messages.
+
+interface AutomationRecord {
+  id: string;
+  name: string;
+  trigger: "interval";
+  schedule: string;
+  prompt: string;
+  createdAt: number;
+  lastRunAt: number | null;
+  runCount: number;
+}
+
+const AUTOMATIONS_PATH = path.join(GROK_HOME, "automations.json");
+
+let _automations: AutomationRecord[] = [];
+let _activeSessionId: string | null = null;
+let _schedulerTimer: ReturnType<typeof setInterval> | null = null;
+
+function loadAutomationsFromDisk(): AutomationRecord[] {
+  try {
+    if (fs.existsSync(AUTOMATIONS_PATH)) {
+      const raw = JSON.parse(fs.readFileSync(AUTOMATIONS_PATH, "utf-8"));
+      if (Array.isArray(raw)) return raw;
+    }
+  } catch (e) {
+    console.error("[automations] failed to read:", e);
+  }
+  return [];
+}
+
+function persistAutomations(list: AutomationRecord[]): void {
+  try {
+    fs.mkdirSync(GROK_HOME, { recursive: true });
+    fs.writeFileSync(AUTOMATIONS_PATH, JSON.stringify(list, null, 2));
+  } catch (e) {
+    console.error("[automations] failed to write:", e);
+  }
+}
+
+/**
+ * Parse a 5-field cron expression and return the next run time (ms epoch).
+ * Duplicated from src/lib/automation.ts so the main process can evaluate
+ * schedules without a renderer round-trip.
+ */
+function nextCronRunMain(expr: string, fromMs: number = Date.now()): number | null {
+  const fields = expr.trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+
+  const parseField = (f: string, min: number, max: number): number[] | null => {
+    if (f === "*") {
+      const arr: number[] = [];
+      for (let i = min; i <= max; i++) arr.push(i);
+      return arr;
+    }
+    if (f.startsWith("*/")) {
+      const stepStr = f.slice(2);
+      if (!/^\d+$/.test(stepStr)) return null;
+      const step = parseInt(stepStr, 10);
+      if (!Number.isFinite(step) || step <= 0) return null;
+      const arr: number[] = [];
+      for (let i = min; i <= max; i += step) arr.push(i);
+      return arr;
+    }
+    if (f.includes("/")) return null;
+    const out: number[] = [];
+    for (const part of f.split(",")) {
+      const rangeMatch = /^(\d+)-(\d+)$/.exec(part);
+      if (rangeMatch) {
+        const lo = parseInt(rangeMatch[1], 10);
+        const hi = parseInt(rangeMatch[2], 10);
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo > hi || lo < min || hi > max) {
+          return null;
+        }
+        for (let i = lo; i <= hi; i++) out.push(i);
+        continue;
+      }
+      if (!/^\d+$/.test(part)) return null;
+      const n = parseInt(part, 10);
+      if (!Number.isFinite(n) || n < min || n > max) return null;
+      out.push(n);
+    }
+    return out;
+  };
+
+  const minutes = parseField(fields[0], 0, 59);
+  const hours = parseField(fields[1], 0, 23);
+  const days = parseField(fields[2], 1, 31);
+  const months = parseField(fields[3], 1, 12);
+  const weekdays = parseField(fields[4], 0, 7);
+  if (!minutes || !hours || !days || !months || !weekdays) return null;
+
+  const cap = fromMs + 366 * 24 * 60 * 60 * 1000;
+  let t = new Date(fromMs);
+  t.setSeconds(0, 0);
+  t = new Date(t.getTime() + 60_000);
+  while (t.getTime() < cap) {
+    const m = t.getMinutes();
+    const h = t.getHours();
+    const d = t.getDate();
+    const mo = t.getMonth() + 1;
+    const w = t.getDay();
+    const domRestricted = fields[2] !== "*";
+    const dowRestricted = fields[4] !== "*";
+    const domMatch = days.includes(d);
+    const dowMatch = weekdays.includes(w) || (weekdays.includes(7) && w === 0);
+    const dayOk = domRestricted && dowRestricted ? domMatch || dowMatch : domMatch && dowMatch;
+    if (minutes.includes(m) && hours.includes(h) && months.includes(mo) && dayOk) {
+      return t.getTime();
+    }
+    t = new Date(t.getTime() + 60_000);
+  }
+  return null;
+}
+
+function startAutomationTimer(): void {
+  if (_schedulerTimer) return;
+  _automations = loadAutomationsFromDisk();
+  console.log("[automations] loaded", _automations.length, "from disk");
+  _schedulerTimer = setInterval(() => {
+    if (_automations.length === 0 || !_activeSessionId || !mainWindow) return;
+    const now = Date.now();
+    let changed = false;
+    for (const a of _automations) {
+      const baseline = a.lastRunAt ?? a.createdAt;
+      const next = nextCronRunMain(a.schedule, baseline);
+      if (next !== null && next <= now) {
+        changed = true;
+        a.lastRunAt = now;
+        a.runCount++;
+        mainWindow.webContents.send("automation_run", {
+          automationId: a.id,
+          sessionId: _activeSessionId,
+          prompt: a.prompt,
+        });
+      }
+    }
+    if (changed) {
+      persistAutomations(_automations);
+      mainWindow.webContents.send("automations_changed", null);
+    }
+  }, 30_000);
+}
+
+// IPC: renderer pushes its full automation list to keep main in sync.
+ipcMain.handle("automations_sync", (_e, args: { items: AutomationRecord[] }) => {
+  _automations = args?.items ?? [];
+  persistAutomations(_automations);
+  return ok(null);
+});
+
+// IPC: renderer fetches the current list (e.g. on cold start or refresh).
+ipcMain.handle("automations_get", () => ok(_automations));
+
+// IPC: renderer tells main which session is active so the timer can dispatch.
+ipcMain.handle("automations_set_active_session", (_e, args: { sessionId: string | null }) => {
+  _activeSessionId = args?.sessionId ?? null;
+  return ok(null);
+});
+
+// IPC: renderer requests an immediate run of a single automation ("Run Now").
+ipcMain.handle("automations_run_now", (_e, args: { automationId: string }) => {
+  const a = _automations.find((x) => x.id === args.automationId);
+  if (a && _activeSessionId && mainWindow) {
+    a.lastRunAt = Date.now();
+    a.runCount++;
+    persistAutomations(_automations);
+    mainWindow.webContents.send("automation_run", {
+      automationId: a.id,
+      sessionId: _activeSessionId,
+      prompt: a.prompt,
+    });
+  }
+  return ok(null);
+});
+
 
 // --- Projects (directory bookmarks) --------------------------------------
 // Stored at ~/.grok/projects.json so both the Electron app and future CLI
@@ -1118,6 +1299,108 @@ ipcMain.handle("crash_recovery_status", () => {
 // OS permissions probe: which system-level permissions are granted (R3-14).
 ipcMain.handle("os_permissions", () => ok(probeOsPermissions()));
 
+// --- Native automations scheduler (R3-06) ---
+import { readRegistry as readWorktrees } from "./worktree-registry";
+
+interface AutomationEntry {
+  id: string;
+  name: string;
+  trigger: string;
+  schedule: string;
+  prompt: string;
+  createdAt: number;
+  lastRunAt: number | null;
+  runCount: number;
+}
+
+let _automations: AutomationEntry[] = [];
+let _activeSessionId: string | null = null;
+
+// Load persisted automations from disk on boot
+const AUTOMATIONS_PATH = path.join(
+  process.env.GROK_HOME || path.join(os.homedir(), ".grok"),
+  "automations.json"
+);
+try {
+  if (fs.existsSync(AUTOMATIONS_PATH)) {
+    _automations = JSON.parse(fs.readFileSync(AUTOMATIONS_PATH, "utf-8")) as AutomationEntry[];
+  }
+} catch { /* fresh start */ }
+
+function persistAutomations(): void {
+  try {
+    fs.mkdirSync(path.dirname(AUTOMATIONS_PATH), { recursive: true });
+    const tmp = path.join(path.dirname(AUTOMATIONS_PATH), `.automations.${process.pid}.tmp`);
+    fs.writeFileSync(tmp, JSON.stringify(_automations, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, AUTOMATIONS_PATH);
+  } catch { /* disk unavailable */ }
+}
+
+// Main-process cron evaluation every 30s
+setInterval(() => {
+  if (_automations.length === 0 || !_activeSessionId) return;
+  const now = Date.now();
+  for (const a of _automations) {
+    // Simple interval trigger: lastRunAt + interval
+    const intervalMs = parseInt(a.schedule, 10) * 60 * 1000; // minutes to ms
+    if (isNaN(intervalMs)) continue;
+    if (a.lastRunAt && now - a.lastRunAt < intervalMs) continue;
+    // Try to parse cron expression
+    try {
+      const fields = a.schedule.trim().split(/\s+/);
+      if (fields.length === 5) {
+        // Cron expression — rely on the renderer's nextCronRun parser
+        // We do a simple "last run was more than 1 minute ago" check for cron
+        if (a.lastRunAt && now - a.lastRunAt < 60_000) continue;
+      }
+    } catch { /* fall through to interval check */ }
+    a.lastRunAt = now;
+    a.runCount = (a.runCount || 0) + 1;
+    // Dispatch to renderer
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send("automation_run", {
+        automationId: a.id,
+        sessionId: _activeSessionId,
+        prompt: a.prompt,
+      });
+    }
+  }
+  persistAutomations();
+}, 30_000);
+
+ipcMain.handle("automations_sync", (_e, args: { items: AutomationEntry[] }) => {
+  _automations = (args?.items ?? []).map((a) => ({
+    ...a,
+    lastRunAt: a.lastRunAt ?? null,
+    runCount: a.runCount ?? 0,
+  }));
+  persistAutomations();
+  return ok(null);
+});
+
+ipcMain.handle("automations_get", () => ok(_automations));
+
+ipcMain.handle("automations_set_active_session", (_e, args: { sessionId: string | null }) => {
+  _activeSessionId = args?.sessionId ?? null;
+  return ok(null);
+});
+
+ipcMain.handle("automations_run_now", (_e, args: { automationId: string }) => {
+  const a = _automations.find((x) => x.id === args?.automationId);
+  if (!a || !_activeSessionId) return ok(null);
+  a.lastRunAt = Date.now();
+  a.runCount = (a.runCount || 0) + 1;
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("automation_run", {
+      automationId: a.id,
+      sessionId: _activeSessionId,
+      prompt: a.prompt,
+    });
+  }
+  persistAutomations();
+  return ok(null);
+});
+
 // --- Window setup ---
 
 function createWindow() {
@@ -1173,6 +1456,7 @@ function createWindow() {
 app.whenReady().then(() => {
   buildAppMenu();
   createWindow();
+  startAutomationTimer();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
