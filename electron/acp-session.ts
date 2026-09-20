@@ -31,12 +31,15 @@ import {
  *  4. <repo>/target/debug/xai-grok-pager
  *  5. "xai-grok-pager" from PATH
  */
+let _resolvedAgentBin: string | null = null;
+
 export function resolveAgentBinary(): string {
-  if (process.env.GROK_AGENT_BIN) return process.env.GROK_AGENT_BIN;
+  if (_resolvedAgentBin) return _resolvedAgentBin;
+  if (process.env.GROK_AGENT_BIN) return (_resolvedAgentBin = process.env.GROK_AGENT_BIN);
   try {
     if (app.isPackaged) {
       const bundled = path.join(process.resourcesPath, "xai-grok-pager");
-      if (fs.existsSync(bundled)) return bundled;
+      if (fs.existsSync(bundled)) return (_resolvedAgentBin = bundled);
     }
   } catch {
     // app not ready yet — fall through
@@ -49,9 +52,9 @@ export function resolveAgentBinary(): string {
   }
   const release = path.join(appPath, "target", "release", "xai-grok-pager");
   const debug = path.join(appPath, "target", "debug", "xai-grok-pager");
-  if (fs.existsSync(release)) return release;
-  if (fs.existsSync(debug)) return debug;
-  return "xai-grok-pager";
+  if (fs.existsSync(release)) return (_resolvedAgentBin = release);
+  if (fs.existsSync(debug)) return (_resolvedAgentBin = debug);
+  return (_resolvedAgentBin = "xai-grok-pager");
 }
 
 // ---- API key store — delegated to ./auth (ISS-073): atomic file store with

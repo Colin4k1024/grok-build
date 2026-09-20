@@ -130,15 +130,24 @@ let activeKeychain: KeychainAdapter = securityKeychain;
 
 // ---- file store (atomic) ------------------------------------------------------
 
+let _keyStoreCache: Record<string, string> | null = null;
+
 export function readKeyStore(storePath = apiKeyStorePath()): Record<string, string> {
+  if (_keyStoreCache) return _keyStoreCache;
   try {
     if (fs.existsSync(storePath)) {
-      return JSON.parse(fs.readFileSync(storePath, "utf-8"));
+      _keyStoreCache = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Record<string, string>;
+      return _keyStoreCache;
     }
   } catch (e) {
     console.error("[auth] failed to read key store:", e);
   }
-  return {};
+  _keyStoreCache = {};
+  return _keyStoreCache;
+}
+
+function invalidateKeyStoreCache(): void {
+  _keyStoreCache = null;
 }
 
 /** Atomic write: tmp file + rename, so a crash mid-login leaves the previous
@@ -152,6 +161,7 @@ export function writeKeyStoreAtomic(
   const tmp = path.join(dir, `.api_keys.${process.pid}.tmp`);
   fs.writeFileSync(tmp, JSON.stringify(store, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, storePath);
+  invalidateKeyStoreCache();
 }
 
 // ---- auth state ----------------------------------------------------------------
@@ -323,6 +333,7 @@ export async function logoutAuth(
 
   try {
     fs.rmSync(storePath, { force: true });
+    invalidateKeyStoreCache();
   } catch (e) {
     console.error("[auth] failed to remove key store:", e);
   }

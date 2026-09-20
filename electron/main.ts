@@ -139,16 +139,32 @@ const DEFAULT_MODELS_DOC = {
   session_summary: "grok-4-fast",
 };
 
+let _modelsDocCache: typeof DEFAULT_MODELS_DOC | null = null;
+
 function readModelsDoc(): typeof DEFAULT_MODELS_DOC {
+  if (_modelsDocCache) return _modelsDocCache;
   try {
     if (fs.existsSync(MODELS_PATH)) {
       const raw = fs.readFileSync(MODELS_PATH, "utf-8");
-      return JSON.parse(raw);
+      _modelsDocCache = JSON.parse(raw) as typeof DEFAULT_MODELS_DOC;
+      return _modelsDocCache;
     }
   } catch (e) {
     console.error("[config] failed to read models:", e);
   }
-  return DEFAULT_MODELS_DOC;
+  _modelsDocCache = DEFAULT_MODELS_DOC;
+  return _modelsDocCache;
+}
+
+/** Invalidate model cache — called after user saves models. */
+function invalidateModelsCache(): void {
+  _modelsDocCache = null;
+}
+
+/** Force re-read models from disk (used when cache freshness matters). */
+function readModelsDocFresh(): typeof DEFAULT_MODELS_DOC {
+  invalidateModelsCache();
+  return readModelsDoc();
 }
 
 function toConfigSnapshot(doc: typeof DEFAULT_MODELS_DOC) {
@@ -197,6 +213,9 @@ ipcMain.handle("save_models", (_e, args: { models: ModelInfoInput[]; defaults: M
 
   fs.mkdirSync(GROK_HOME, { recursive: true });
   fs.writeFileSync(MODELS_PATH, JSON.stringify(doc, null, 2));
+
+  // Invalidate in-memory cache so next read picks up the saved models.
+  invalidateModelsCache();
 
   // Notify any listeners (ModelManager, TitleBar) so they can refresh.
   mainWindow?.webContents.send("config_changed", null);
@@ -767,21 +786,29 @@ interface ProjectEntry {
 
 const PROJECTS_PATH = path.join(GROK_HOME, "projects.json");
 
+let _projectsCache: ProjectEntry[] | null = null;
+
 function readProjects(): ProjectEntry[] {
+  if (_projectsCache) return _projectsCache;
   try {
     if (fs.existsSync(PROJECTS_PATH)) {
       const raw = JSON.parse(fs.readFileSync(PROJECTS_PATH, "utf-8"));
-      if (Array.isArray(raw)) return raw.filter((p) => typeof p?.path === "string");
+      if (Array.isArray(raw)) {
+        _projectsCache = raw.filter((p) => typeof p?.path === "string");
+        return _projectsCache;
+      }
     }
   } catch (e) {
     console.error("[projects] failed to read:", e);
   }
-  return [];
+  _projectsCache = [];
+  return _projectsCache;
 }
 
 function writeProjects(list: ProjectEntry[]): void {
   fs.mkdirSync(GROK_HOME, { recursive: true });
   fs.writeFileSync(PROJECTS_PATH, JSON.stringify(list, null, 2));
+  _projectsCache = list;
 }
 
 function touchProject(dir: string): void {
