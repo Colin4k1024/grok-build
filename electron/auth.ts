@@ -130,23 +130,38 @@ let activeKeychain: KeychainAdapter = securityKeychain;
 
 // ---- file store (atomic) ------------------------------------------------------
 
-let _keyStoreCache: Record<string, string> | null = null;
+let _keyStoreCache: { store: Record<string, string>; path: string; mtimeMs: number } | null = null;
 
 export function readKeyStore(storePath = apiKeyStorePath()): Record<string, string> {
-  if (_keyStoreCache) return _keyStoreCache;
+  // Cache validity requires same path and unchanged mtime. If the file was
+  // deleted externally, the cache must not resurrect it.
+  if (_keyStoreCache && _keyStoreCache.path === storePath) {
+    try {
+      const stat = fs.statSync(storePath);
+      if (stat.mtimeMs === _keyStoreCache.mtimeMs) {
+        return _keyStoreCache.store;
+      }
+    } catch {
+      // File deleted or unreadable — drop cache and fall through.
+      _keyStoreCache = null;
+      return {};
+    }
+  }
   try {
     if (fs.existsSync(storePath)) {
-      _keyStoreCache = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Record<string, string>;
-      return _keyStoreCache;
+      const stat = fs.statSync(storePath);
+      const store = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Record<string, string>;
+      _keyStoreCache = { store, path: storePath, mtimeMs: stat.mtimeMs };
+      return store;
     }
   } catch (e) {
     console.error("[auth] failed to read key store:", e);
   }
-  _keyStoreCache = {};
-  return _keyStoreCache;
+  _keyStoreCache = null;
+  return {};
 }
 
-function invalidateKeyStoreCache(): void {
+export function invalidateKeyStoreCache(): void {
   _keyStoreCache = null;
 }
 

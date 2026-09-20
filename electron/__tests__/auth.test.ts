@@ -7,6 +7,7 @@ import {
   KNOWN_ENV_KEYS,
   apiKeyStorePath,
   checkAuthStatus,
+  invalidateKeyStoreCache,
   loginWithApiKey,
   logoutAuth,
   maskKey,
@@ -71,6 +72,7 @@ beforeEach(() => {
   process.env.GROK_HOME = tmp;
   delete process.env.GROK_DESKTOP_AUTH;
   clearKnownEnv();
+  invalidateKeyStoreCache();
   setKeychainAdapterForTests(stubKeychain());
 });
 
@@ -160,15 +162,15 @@ describe("loginWithApiKey", () => {
   it("garbage values fail the provider format check (review P1)", async () => {
     // wrong prefix, right shape
     await expect(loginWithApiKey("XAI_API_KEY", "not-an-xai-key-at-all-123456")).rejects.toThrow(
-      /format\/length check failed/
+      /格式不正确|至少需要/
     );
     // right prefix, too short
     await expect(loginWithApiKey("XAI_API_KEY", "xai-short")).rejects.toThrow(
-      /format\/length check failed/
+      /格式不正确|至少需要/
     );
     // arbitrary junk must not pass as a credential
     await expect(loginWithApiKey("OPENAI_API_KEY", "hello world")).rejects.toThrow(
-      /format\/length check failed/
+      /格式不正确|至少需要/
     );
     expect(fs.existsSync(apiKeyStorePath())).toBe(false);
   });
