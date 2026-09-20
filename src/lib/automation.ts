@@ -2,7 +2,14 @@
  * Automation scheduling primitives — pure TypeScript, no React imports, so
  * this module can be imported by both the UI (AutomationsPage) and the
  * background scheduler without breaking React Fast Refresh.
+ *
+ * ISS-191: Scheduling is now driven from the Electron main process so it
+ * survives page reloads.  The renderer keeps a local copy and syncs it to
+ * main via `automations_sync` whenever it changes.  Run events arrive on the
+ * `automation_run` IPC channel.
  */
+
+import { invoke, safeListen } from "./tauri";
 
 export interface Automation {
   id: string;
@@ -15,23 +22,71 @@ export interface Automation {
   runCount: number;
 }
 
-const STORAGE_KEY = "gb-automations";
+// ---- In-memory cache (renderer-side) ----
 
-export function loadAutomations(): Automation[] {
+let _items: Automation[] = [];
+
+export function getCachedAutomations(): Automation[] {
+  return _items;
+}
+
+// ---- IPC sync ----
+
+/** Push the current list to main and persist it on disk. */
+export async function syncAutomations(items: Automation[]): Promise<void> {
+  _items = items;
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch {
-    return [];
+    await invoke("automations_sync", { items });
+  } catch (e) {
+    console.error("[automation] sync failed:", e);
   }
 }
 
-export function saveAutomations(list: Automation[]) {
+/** Pull the canonical list from main (e.g. on cold start or after reload). */
+export async function loadAutomations(): Promise<Automation[]> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    const list = await invoke<Automation[]>("automations_get");
+    _items = Array.isArray(list) ? list : [];
   } catch {
-    /* quota */
+    _items = [];
+  }
+  return _items;
+}
+
+/** Tell the main-process timer which session is active. */
+export async function setActiveSession(sessionId: string | null): Promise<void> {
+  try {
+    await invoke("automations_set_active_session", { sessionId });
+  } catch (e) {
+    console.error("[automation] setActiveSession failed:", e);
   }
 }
+
+/** "Run Now" — immediately dispatch one automation through the main process. */
+export async function runNow(automationId: string): Promise<void> {
+  try {
+    await invoke("automations_run_now", { automationId });
+  } catch (e) {
+    console.error("[automation] runNow failed:", e);
+  }
+}
+
+/** Listen for run events dispatched by the main-process timer. */
+export function onAutomationRun(
+  handler: (payload: { automationId: string; sessionId: string; prompt: string }) => void
+): Promise<() => void> {
+  return safeListen<{ automationId: string; sessionId: string; prompt: string }>(
+    "automation_run",
+    handler
+  );
+}
+
+/** Listen for the "list changed" signal so the UI can re-read. */
+export function onAutomationsChanged(handler: () => void): Promise<() => void> {
+  return safeListen("automations_changed", handler);
+}
+
+// ---- Cron parser (kept here so the UI can validate expressions) ----
 
 /** Parse a 5-field cron expression and return the next run time (ms epoch),
  *  or null if the expression is invalid or yields no future run within the
@@ -56,7 +111,6 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
       for (let i = min; i <= max; i += step) arr.push(i);
       return arr;
     }
-    // Reject compound "1-10/2" — we don't implement stepped ranges.
     if (f.includes("/")) return null;
     const out: number[] = [];
     for (const part of f.split(",")) {
@@ -85,8 +139,6 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
   const weekdays = parseField(fields[4], 0, 7);
   if (!minutes || !hours || !days || !months || !weekdays) return null;
 
-  // Walk forward minute-by-minute from `fromMs` until we hit a match, with a
-  // hard cap so we don't loop forever on impossible combos (e.g. Feb 31).
   const cap = fromMs + 366 * 24 * 60 * 60 * 1000;
   let t = new Date(fromMs);
   t.setSeconds(0, 0);
@@ -108,52 +160,4 @@ export function nextCronRun(expr: string, fromMs: number = Date.now()): number |
     t = new Date(t.getTime() + 60_000);
   }
   return null;
-}
-
-// Module-level scheduler: keeps firing even when the user navigates away
-// from the Automations page.
-let schedulerTimer: ReturnType<typeof setInterval> | null = null;
-
-export function startAutomationScheduler(getActiveSessionId: () => string | null) {
-  if (schedulerTimer) return;
-  schedulerTimer = setInterval(() => {
-    const items = loadAutomations();
-    const now = Date.now();
-    const activeSessionId = getActiveSessionId();
-
-    const updated: Automation[] = [];
-    const toFire: Automation[] = [];
-    let changed = false;
-    for (const a of items) {
-      const baseline = a.lastRunAt ?? a.createdAt;
-      const nextRun = nextCronRun(a.schedule, baseline);
-      if (nextRun !== null && nextRun <= now && activeSessionId) {
-        changed = true;
-        const bumped = { ...a, lastRunAt: now, runCount: a.runCount + 1 };
-        updated.push(bumped);
-        toFire.push(bumped);
-      } else {
-        updated.push(a);
-      }
-    }
-
-    if (!changed) return;
-
-    saveAutomations(updated);
-    for (const a of toFire) {
-      window.dispatchEvent(
-        new CustomEvent("grok:automation-run", {
-          detail: { automationId: a.id, sessionId: activeSessionId, prompt: a.prompt },
-        })
-      );
-    }
-    window.dispatchEvent(new CustomEvent("grok:automations-changed"));
-  }, 30_000);
-}
-
-export function stopAutomationScheduler() {
-  if (schedulerTimer) {
-    clearInterval(schedulerTimer);
-    schedulerTimer = null;
-  }
 }
