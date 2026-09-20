@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { probeRealtimeCaps } from "../../lib/voiceMachine";
 
 const VOICE_LANG_KEY = "gb-voice-language";
 const VOICE_WAKE_KEY = "gb-voice-wake";
