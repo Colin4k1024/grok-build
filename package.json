@@ -15,7 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ci": "vitest run --coverage",
-    "test:evidence": "vitest run --reporter=junit --outputFile=test-results/junit.xml && vitest run --coverage"
+    "test:evidence": "vitest run --reporter=junit --outputFile=test-results/junit.xml && vitest run --coverage",
+    "evidence": "npx vitest run --reporter=junit --outputFile=test-results/junit.xml && node scripts/evidence-generator.mjs --strict",
+    "evidence:generate": "node scripts/evidence-generator.mjs --strict"
   },
   "dependencies": {
     "@types/react-window": "^1.8.8",
