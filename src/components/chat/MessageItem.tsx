@@ -94,8 +94,10 @@ function MessageItemImpl({ message }: Props) {
                     const match = /language-(\w+)/.exec(className || "");
                     const text = String(children ?? "").replace(/\n$/, "");
                     const lang = match?.[1]?.toLowerCase();
-                    const isBlock = Boolean(match) || text.includes("\n");
-                    if (isBlock) {
+                    // Only render as a rich CodeBlock when the fence carries a language tag.
+                    // Plain multi-line text (e.g. ``` with no language) must not get the
+                    // "Collapse / Apply / 复制" toolbar — it's prose content, not code.
+                    if (lang) {
                       // Render unified-diff fences inline via DiffViewer.
                       if (lang === "diff" || lang === "patch") {
                         return <InlineDiff diffText={text} />;
@@ -103,18 +105,16 @@ function MessageItemImpl({ message }: Props) {
                       return (
                         <CodeBlock
                           code={text}
-                          language={match?.[1]}
+                          language={lang}
                           onApply={handleApplyCode}
                         />
                       );
                     }
+                    // No language tag — plain code block without the toolbar.
                     return (
-                      <code
-                        className="rounded bg-gb-bg-secondary px-1 py-0.5 font-mono text-[12px] text-gb-accent"
-                        {...rest}
-                      >
-                        {children}
-                      </code>
+                      <pre className="overflow-x-auto rounded bg-black/25 p-3 font-mono text-[12px] text-gb-text">
+                        <code {...rest}>{children}</code>
+                      </pre>
                     );
                   },
                 }}
