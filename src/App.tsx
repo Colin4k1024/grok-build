@@ -19,6 +19,7 @@ import { Home } from "./pages/Home";
 import { AuthHandoff } from "./pages/AuthHandoff";
 import { WorkspaceAgentsPage } from "./pages/WorkspaceAgentsPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
+import { onAutomationRun } from "./lib/automation";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
@@ -518,6 +519,27 @@ export default function App() {
       }
     });
     return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Automation scheduler listener (ISS-191): the main-process timer dispatches
+  // `automation_run` IPC events.  When received, send the prompt to the active
+  // session.  If there is no active session or the session is mid-turn, the
+  // automation is silently skipped (it will fire again on the next tick).
+  useEffect(() => {
+    const unlisten = onAutomationRun(({ prompt }) => {
+      const store = useSessionStore.getState();
+      const sid = store.activeSessionId;
+      if (!sid) return;
+      if (store.streaming[sid]) return;
+      store.addUserMessage(sid, prompt);
+      store.setStreaming(true);
+      sendMessage(sid, prompt, []).catch((e: unknown) => {
+        setError(String(e));
+        store.setStreaming(false);
+      });
+    });
+    return () => { unlisten.then((fn: () => void) => fn()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Apply Code listener (ISS-078 / R3-03): the CodeBlock "Apply" button fires
