@@ -5,7 +5,8 @@ import { ThreadSummaryPanel } from "./ThreadSummaryPanel";
 import { DiffViewer } from "../chat/DiffViewer";
 import { useSessionStore } from "../../stores/sessionStore";
 import {
-  getMcpServers, gitStatus, gitDiff, runCommand, createSession, sendMessage,
+  getMcpServers, gitStatus, gitDiff, gitDiffStaged, gitResetFile, gitRestoreFile,
+  runCommand, createSession, sendMessage,
   onAcpEvent, respondPermission, gitCommit, listWorktrees, removeWorktree, closeSession,
   gitTurnSnapshot, gitDiffSince, gitConflicted,
   ptySpawn, ptyDispose, ptyEnabled,
@@ -110,12 +111,15 @@ function FilesPanel({ cwd }: { cwd: string }) {
 
 function ReviewPanel({ cwd }: { cwd: string }) {
   const [view, setView] = useState<"all" | "last-turn">("all");
+  const [scope, setScope] = useState<"working" | "staged">("working");
   const [diff, setDiff] = useState("");
+  const [stagedDiff, setStagedDiff] = useState("");
   const [lastTurnFiles, setLastTurnFiles] = useState<string[]>([]);
   const [lastDiff, setLastDiff] = useState("");
   const [action, setAction] = useState<"none" | "approve" | "revise">("none");
   const [input, setInput] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  const [files, setFiles] = useState<GitStatusEntry[]>([]);
   const prevFilesRef = useRef<Set<string> | null>(null);
   const wasStreaming = useRef(false);
   // ISS-080: review-loop state machine + true turn-base snapshots.
@@ -172,12 +176,18 @@ function ReviewPanel({ cwd }: { cwd: string }) {
 
   // Versioned diff fetches (ISS-080): the agent may keep editing mid-fetch —
   // only the newest fetch's result may land, the view never tears.
+  // R3-08: fetch both working-tree and staged diffs for scope switching.
   useEffect(() => {
     const token = diffVersionRef.current.begin();
     if (view === "all") {
-      gitDiff(cwd)
+      const fetcher = scope === "staged" ? gitDiffStaged : gitDiff;
+      fetcher(cwd)
         .then((d) => { if (diffVersionRef.current.accept(token)) setDiff(d); })
         .catch(() => { if (diffVersionRef.current.accept(token)) setDiff(""); });
+      // Always fetch staged in background so the toggle is instant.
+      gitDiffStaged(cwd)
+        .then((d) => { if (diffVersionRef.current.accept(token)) setStagedDiff(d); })
+        .catch(() => {});
     } else {
       gitDiffSince(cwd, turnBaseRef.current)
         .then((d) => {
@@ -193,10 +203,11 @@ function ReviewPanel({ cwd }: { cwd: string }) {
     gitStatus(cwd)
       .then((entries) => {
         if (!diffVersionRef.current.accept(token)) return;
+        setFiles(entries);
         setReviewState((st) => reviewNext(st, { type: "files-changed", hasChanges: entries.length > 0 }));
       })
       .catch(() => {});
-  }, [cwd, view, isStreaming]);
+  }, [cwd, view, scope, isStreaming]);
 
   const runApprove = async () => {
     const msg = input.trim() || "已通过审查队列批准";
@@ -273,7 +284,24 @@ function ReviewPanel({ cwd }: { cwd: string }) {
   // Re-poll status/diff so approve/reject reflect immediately.
   const refreshAfterMutation = useCallback(() => {
     gitDiff(cwd).then(setDiff).catch(() => {});
+    gitDiffStaged(cwd).then(setStagedDiff).catch(() => {});
+    gitStatus(cwd).then(setFiles).catch(() => {});
   }, [cwd]);
+
+  // R3-08: per-file revert — unstage or discard working-tree edits.
+  const handleRevertFile = async (path: string, isStaged: boolean) => {
+    try {
+      if (isStaged) {
+        await gitResetFile(cwd, path);
+        setNote(`已取消暂存: ${path}`);
+      } else {
+        if (!window.confirm(`放弃对 ${path} 的修改？此操作不可撤销。`)) return;
+        await gitRestoreFile(cwd, path);
+        setNote(`已还原: ${path}`);
+      }
+      refreshAfterMutation();
+    } catch (e) { setNote(`操作失败: ${String(e)}`); }
+  };
 
   if (view === "last-turn") {
     return (
@@ -333,27 +361,71 @@ function ReviewPanel({ cwd }: { cwd: string }) {
       <div className="flex items-center gap-1.5 border-b border-gb-border/8 px-2 py-0.5 text-[9px] text-gb-muted">
         <span>review: {reviewState}</span>
         <span className="flex-1" />
+        {/* Scope toggle: working-tree vs staged */}
+        <button
+          onClick={() => setScope("working")}
+          className={`rounded px-1.5 py-0.5 ${scope === "working" ? "bg-gb-accent/15 text-gb-accent" : "hover:bg-gb-surface-hover"}`}
+          title="未暂存的修改"
+        >
+          工作区
+        </button>
+        <button
+          onClick={() => setScope("staged")}
+          className={`rounded px-1.5 py-0.5 ${scope === "staged" ? "bg-gb-accent/15 text-gb-accent" : "hover:bg-gb-surface-hover"}`}
+          title="已暂存的修改"
+        >
+          暂存区
+        </button>
         {inTriage && (
           <>
             <button
               onClick={() => runCommandConfirmed("推送分支", "git push -u origin HEAD")}
               className="rounded bg-gb-surface-hover px-1.5 py-0.5 hover:opacity-80"
-              title="git push -u origin HEAD（需确认）"
             >
               推送
             </button>
             <button
               onClick={() => runCommandConfirmed("创建 PR", "gh pr create --fill")}
               className="rounded bg-gb-surface-hover px-1.5 py-0.5 hover:opacity-80"
-              title="gh pr create --fill（需确认）"
             >
               开 PR
             </button>
           </>
         )}
       </div>
+      {/* R3-08: file list with revert actions */}
+      {files.length > 0 && scope === "working" && (
+        <div className="max-h-24 overflow-y-auto border-b border-gb-border/8 p-1">
+          {files.slice(0, 30).map((e) => (
+            <div key={e.file} className="flex items-center gap-1 px-1 py-0.5 text-[10px] text-gb-text-secondary hover:bg-gb-surface-hover rounded">
+              <span className={`w-5 shrink-0 rounded px-0.5 text-center font-mono text-[8px] ${
+                e.status.includes("D") ? "bg-gb-red/15 text-gb-red" : e.status.includes("?") ? "bg-gb-yellow/15 text-gb-yellow" : "bg-gb-green/15 text-gb-green"
+              }`}>
+                {e.status || "M"}
+              </span>
+              <span className="flex-1 truncate">{e.file}</span>
+              {e.status[0] !== "?" && (e.status.includes("M") || e.status.includes("D")) && (
+                <button
+                  onClick={() => handleRevertFile(e.file, false)}
+                  className="shrink-0 rounded px-1 py-0 text-gb-red/60 hover:bg-gb-red/10 hover:text-gb-red"
+                  title="放弃此文件的修改"
+                >
+                  还原
+                </button>
+              )}
+            </div>
+          ))}
+          {files.length > 30 && <p className="px-1 text-[9px] text-gb-muted">+{files.length - 30} 更多文件</p>}
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto p-1">
-        {diff ? <DiffViewer oldContent="" newContent={diff} /> : <p className="py-6 text-center text-[11px] text-gb-muted">与 HEAD 相比没有变更。</p>}
+        {diff ? <DiffViewer oldContent="" newContent={diff} /> : (
+          scope === "staged" && !stagedDiff ? (
+            <p className="py-6 text-center text-[11px] text-gb-muted">暂存区暂无变更。</p>
+          ) : (
+            <p className="py-6 text-center text-[11px] text-gb-muted">与 HEAD 相比没有变更。</p>
+          )
+        )}
       </div>
     </div>
   );

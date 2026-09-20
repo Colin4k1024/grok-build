@@ -486,6 +486,21 @@ export async function gitDiff(cwd: string, path?: string): Promise<string> {
   return invoke<string>("git_diff", { cwd, path });
 }
 
+/** Staged (cached) diff — shows what's in the index versus HEAD. */
+export async function gitDiffStaged(cwd: string, path?: string): Promise<string> {
+  return invoke<string>("git_diff_staged", { cwd, path });
+}
+
+/** Unstage a single file. */
+export async function gitResetFile(cwd: string, path: string): Promise<void> {
+  return invoke<void>("git_reset_file", { cwd, path });
+}
+
+/** Discard working-tree changes to a single file. */
+export async function gitRestoreFile(cwd: string, path: string): Promise<void> {
+  return invoke<void>("git_restore_file", { cwd, path });
+}
+
 export async function runCommand(cwd: string, command: string): Promise<{ stdout: string; stderr: string }> {
   return invoke<{ stdout: string; stderr: string }>("run_command", { cwd, command });
 }

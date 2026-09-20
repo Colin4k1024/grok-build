@@ -598,6 +598,28 @@ ipcMain.handle("git_diff", async (_e, args: { cwd: string; path?: string }) => {
   return ok(stdout);
 });
 
+// Review scope: show staged (cached) changes separate from working-tree diffs.
+ipcMain.handle("git_diff_staged", async (_e, args: { cwd: string; path?: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  const argv = ["diff", "--cached", "--", ...(args?.path ? [args.path] : [])];
+  const { stdout } = await execFileAsync("git", argv, { cwd, maxBuffer: 8 * 1024 * 1024 });
+  return ok(stdout);
+});
+
+// Review hunk-level revert: unstage a single file.
+ipcMain.handle("git_reset_file", async (_e, args: { cwd: string; path: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  await execFileAsync("git", ["reset", "--", args.path], { cwd });
+  return ok(null);
+});
+
+// Review hunk-level revert: discard working-tree changes to a single file.
+ipcMain.handle("git_restore_file", async (_e, args: { cwd: string; path: string }) => {
+  const cwd = path.resolve(args?.cwd || ".");
+  await execFileAsync("git", ["checkout", "--", args.path], { cwd });
+  return ok(null);
+});
+
 // Triage Approve — stage everything and commit on the reviewed branch.
 // --- Review workflow git primitives (ISS-080) ---
 import { turnSnapshot, diffSince, conflictedFiles } from "./git-review";
