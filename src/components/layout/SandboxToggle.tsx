@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { setSessionApprovalMode } from "../../lib/tauri";
 
 const SANDBOX_KEY = "gb-sandbox-mode";
 
@@ -15,12 +16,13 @@ export function setSandboxMode(mode: SandboxMode) {
 
 /** Compact sandbox/full-access toggle for the TitleBar.
  *
- *  R3-01 fix: the toggle used to write gb-sandbox-mode to localStorage
- *  without any backend consumption. Now it syncs every open tab's
- *  approvalMode in the session store: "sandbox" → "ask" (must approve),
- *  "full" → "full-access" (auto-allow). New sessions pick up the current
- *  sandbox preference through the Home page composer which reads
- *  getSandboxMode(). */
+ *  R3-01 fix (#186): the toggle used to write gb-sandbox-mode to localStorage
+ *  without any backend consumption — the UI claimed "写入、网络和命令访问受限"
+ *  while the main process enforced nothing. Now it syncs every open tab's
+ *  approvalMode in the session store AND calls the main-process
+ *  `session_set_approval_mode` IPC, which updates the per-session typed
+ *  Policy that run_command / git_commit / fs-bridge actually consult. The
+ *  Policy is the real boundary; the renderer store is just for UI display. */
 export function SandboxToggle() {
   const [mode, setMode] = useState<SandboxMode>(getSandboxMode());
   const [showTooltip, setShowTooltip] = useState(false);
@@ -35,6 +37,13 @@ export function SandboxToggle() {
     const approval: "ask" | "full-access" = mode === "sandbox" ? "ask" : "full-access";
     for (const tab of tabs) {
       setTabApprovalMode(tab.id, approval);
+      // R3-01 (#186): push the mode to the main-process Policy — the real
+      // enforcement boundary. Failures are non-fatal (the Policy defaults
+      // to sandbox, the safe mode), but are logged so the mismatch is
+      // visible rather than silent.
+      setSessionApprovalMode(tab.id, approval).catch((e) =>
+        console.error("[sandbox] failed to sync approval mode to main process:", e)
+      );
     }
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -671,6 +671,32 @@ export async function logFrontend(level: "error" | "warn" | "info" | "log", mess
 
 // ===== Permissions =====
 
+/**
+ * Sync the renderer's approval-mode hint to the main-process Policy (R3-01 /
+ * #186). The Policy is the real enforcement source — this is the call that
+ * actually changes the security boundary, not the localStorage write the
+ * SandboxToggle used to do alone.
+ */
+export async function setSessionApprovalMode(
+  sessionId: string,
+  mode: "full-access" | "ask" | "read-only"
+): Promise<{ mode: string; effectivePolicy: string }> {
+  return invoke("session_set_approval_mode", { sessionId, mode });
+}
+
+/** Read the main-process Policy state for a session — for UI sync and the
+ *  evidence-gate tests. */
+export async function getSessionPolicyState(
+  sessionId: string
+): Promise<{
+  approvalMode: string;
+  policyMode: string;
+  root: string;
+  pendingPermissions: { requestId: string; toolName: string; command: string; state: string }[];
+}> {
+  return invoke("session_get_policy_state", { sessionId });
+}
+
 export async function respondPermission(
   sessionId: string,
   requestId: string,
