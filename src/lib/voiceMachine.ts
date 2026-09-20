@@ -35,6 +35,33 @@ export function realtimeVoiceAvailable(): boolean {
   return /^https:\/\//.test(REALTIME_URL);
 }
 
+/** Screen context capability probe (R3-15). Returns false unless a WebRTC
+ *  screen-capture endpoint is configured AND the browser supports
+ *  getDisplayMedia (Electron >= 15, Chromium >= 94). */
+export function screenContextAvailable(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return typeof (navigator.mediaDevices as { getDisplayMedia?: unknown }).getDisplayMedia === "function";
+}
+
+/** Aggregated capability probe result — all three face the same degradation
+ *  rule: if unavailable, hide the feature entry and show an explanation. */
+export interface RealtimeCapabilities {
+  voice: boolean;
+  screen: boolean;
+}
+
+export function probeRealtimeCaps(): RealtimeCapabilities {
+  if (typeof window === "undefined") return { voice: false, screen: false };
+  const SR = (window as unknown as {
+    SpeechRecognition?: unknown;
+    webkitSpeechRecognition?: unknown;
+  });
+  return {
+    voice: !!(SR.SpeechRecognition || SR.webkitSpeechRecognition),
+    screen: screenContextAvailable(),
+  };
+}
+
 export function next(state: VoiceState, event: VoiceEvent): VoiceState {
   switch (event.type) {
     case "start-requested":
