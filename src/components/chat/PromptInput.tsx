@@ -10,6 +10,7 @@ import { WorkModeSelect } from "./composer/WorkModeSelect";
 import { BranchSelect } from "./composer/BranchSelect";
 import { listRepoFiles, listSkills, type ConfigSnapshot, type SkillInfo } from "../../lib/tauri";
 import { useSessionStore, type ApprovalMode, type WorkMode } from "../../stores/sessionStore";
+import { saveDraft, loadDraft, clearDraft } from "../../lib/composerDraft";
 
 interface Props {
   onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
@@ -114,6 +115,13 @@ export function PromptInput({
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
   }, [text]);
 
+  // Restore per-session draft on tab switch (R3-10).
+  useEffect(() => {
+    if (!activeSessionId || home) return;
+    const saved = loadDraft(activeSessionId);
+    if (saved) setText(saved);
+  }, [activeSessionId, home]);
+
   const slashQuery = text.startsWith("/") && !text.includes(" ") ? text : null;
   useEffect(() => { setShowSlash(slashQuery !== null); }, [slashQuery]);
 
@@ -133,6 +141,8 @@ export function PromptInput({
   const handleTextChange = (value: string) => {
     setText(value);
     setHistoryIdx(-1);
+    // Persist draft to localStorage on every change (R3-10).
+    if (activeSessionId && !home) saveDraft(activeSessionId, value);
     const caret = textareaRef.current?.selectionStart ?? value.length;
     setTrigger(detectTrigger(value, caret));
     setPickIdx(0);
@@ -172,6 +182,8 @@ export function PromptInput({
     const trimmed = text.trim();
     if ((!trimmed && images.length === 0) || disabled) return;
     if (isRecording) stopRecording();
+    // Clear the draft on successful send (R3-10).
+    if (activeSessionId && !home) clearDraft(activeSessionId);
     // While a turn runs this is a codex-style mid-turn injection: the agent
     // receives the message immediately instead of the input being blocked.
     onSend(trimmed, images.map(img => ({ data: img.base64, mime_type: img.mimeType })));
