@@ -10,6 +10,7 @@ import {
   permissionStateMachine,
   type PermissionRecord,
 } from "./permission-state";
+import { AcpTransport, getSharedTransport } from "./acp-transport";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
@@ -131,6 +132,9 @@ interface SessionRecord {
   /** Effective approval mode (mirror for the renderer's per-tab state).
    *  The Policy is the source of truth; this is for UI sync. */
   approvalMode?: ApprovalModeHint;
+  /** R3-02 (#187): true when this session rides the shared ACP transport
+   *  (single connection, multi-session). False = old per-tab stdio model. */
+  usesTransport?: boolean;
 }
 
 const sessions = new Map<string, SessionRecord>();
@@ -330,7 +334,9 @@ ipcMain.handle("session_set_model", async (_e, args: Record<string, unknown>) =>
   if (!sessionId || !modelId) throw new Error(`session_set_model: missing sessionId or modelId. Received: ${JSON.stringify(args)}`);
   const rec = sessions.get(sessionId);
   if (!rec) throw new Error(`Session ${sessionId} not found`);
-  if (rec.agent) {
+  if (rec.usesTransport) {
+    await getSharedTransport().setModel(sessionId, modelId);
+  } else if (rec.agent) {
     await rec.agent.setModel(modelId);
   }
   rec.currentModel = modelId;
@@ -339,7 +345,11 @@ ipcMain.handle("session_set_model", async (_e, args: Record<string, unknown>) =>
 });
 ipcMain.handle("user_question_respond", (_e, args: { sessionId: string; requestId: string; response: Record<string, unknown> }) => {
   const rec = sessions.get(args.sessionId);
-  rec?.agent?.respondUserQuestion(args.requestId, args.response);
+  if (rec?.usesTransport) {
+    getSharedTransport().respondUserQuestion(args.sessionId, args.requestId, args.response);
+  } else {
+    rec?.agent?.respondUserQuestion(args.requestId, args.response);
+  }
   return ok(null);
 });
 
@@ -363,7 +373,13 @@ ipcMain.handle("session_respond_permission", (_e, args: { sessionId: string; req
     permissionStateMachine.cancel(args.requestId);
   }
   const rec = sessions.get(args.sessionId);
-  rec?.agent?.respondPermission(args.requestId, args.optionId);
+  if (rec?.usesTransport) {
+    // R3-02 (#187): route the permission response through the shared
+    // transport so it reaches the correct session on the single connection.
+    getSharedTransport().respondPermission(args.sessionId, args.requestId, args.optionId);
+  } else {
+    rec?.agent?.respondPermission(args.requestId, args.optionId);
+  }
   return ok(null);
 });
 
@@ -523,15 +539,28 @@ async function startSessionRecord(cwd: string, resumeAcpId?: string) {
   };
   try {
     const envKeys = Array.from(new Set(cfg.models.flatMap((m) => m.env_key ?? [])));
-    const agent = resumeAcpId
-      ? await AcpSession.load(id, resumeAcpId, rec.cwd, emit, envKeys)
-      : await AcpSession.create(id, rec.cwd, emit, envKeys);
-    rec.agent = agent;
-    rec.acp_session_id = agent.acpSessionId;
-    rec.cwd = agent.cwd; // absolute path resolved by the agent session
-    if (agent.models.length > 0) {
-      rec.models = agent.models;
-      rec.currentModel = agent.currentModelId || rec.currentModel;
+    // R3-02 (#187): prefer the managed ACP transport (single connection,
+    // multi-session) when enabled. ACP_MULTI_SESSION=off rolls back to the
+    // old per-tab stdio AcpSession model.
+    if (AcpTransport.enabled()) {
+      const transport = getSharedTransport();
+      const acpId = resumeAcpId
+        ? await transport.loadSession(id, resumeAcpId, rec.cwd, emit, envKeys)
+        : await transport.createSession(id, rec.cwd, emit, envKeys);
+      rec.acp_session_id = acpId || id;
+      rec.usesTransport = true;
+      // The transport resolves cwd to absolute; read it back if available.
+    } else {
+      const agent = resumeAcpId
+        ? await AcpSession.load(id, resumeAcpId, rec.cwd, emit, envKeys)
+        : await AcpSession.create(id, rec.cwd, emit, envKeys);
+      rec.agent = agent;
+      rec.acp_session_id = agent.acpSessionId;
+      rec.cwd = agent.cwd; // absolute path resolved by the agent session
+      if (agent.models.length > 0) {
+        rec.models = agent.models;
+        rec.currentModel = agent.currentModelId || rec.currentModel;
+      }
     }
     touchProject(rec.cwd);
   } catch (e) {
@@ -574,7 +603,6 @@ ipcMain.handle("session_list", () =>
 ipcMain.handle("session_send", (e, args: { session_id: string; message: string; images: { data: string; mime_type: string }[] }) => {
   const session = sessions.get(args.session_id);
   if (!session) throw new Error(`Session ${args.session_id} not found`);
-  if (!session.agent) throw new Error(`Session ${args.session_id} has no live agent`);
   // Write lock (ISS-077): while detached, only the owning window may send;
   // every other surface follows read-only.
   if (detachRegistry.isDetached(args.session_id)) {
@@ -590,19 +618,38 @@ ipcMain.handle("session_send", (e, args: { session_id: string; message: string; 
   } catch {
     /* see emit(): journaling never breaks the live path */
   }
+  // R3-02 (#187): transport sessions send through the shared transport;
+  // stdio sessions send through their own AcpSession.
+  if (session.usesTransport) {
+    return getSharedTransport().prompt(args.session_id, args.message, args.images ?? []).then(() => ok(null));
+  }
+  if (!session.agent) throw new Error(`Session ${args.session_id} has no live agent`);
   return session.agent.prompt(args.message, args.images ?? []).then(() => ok(null));
 });
 
 ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
   const session = id ? sessions.get(id) : undefined;
-  session?.agent?.cancel();
+  if (!session) return ok(null);
+  if (session.usesTransport) {
+    // R3-02 (#187): cancel one session — does not affect others on the
+    // shared transport.
+    getSharedTransport().cancel(id);
+  } else {
+    session.agent?.cancel();
+  }
   return ok(null);
 });
 ipcMain.handle("session_compact", async (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
   const session = id ? sessions.get(id) : undefined;
-  if (!session?.agent) throw new Error(`Session ${id} has no live agent`);
+  if (!session) throw new Error(`Session ${id} not found`);
+  if (session.usesTransport) {
+    // /compact is just a prompt — route through the transport.
+    await getSharedTransport().prompt(id, "/compact", []);
+    return ok(null);
+  }
+  if (!session.agent) throw new Error(`Session ${id} has no live agent`);
   await session.agent.compact();
   return ok(null);
 });
@@ -610,7 +657,17 @@ ipcMain.handle("session_close", (_e, args: { sessionId?: string; session_id?: st
   const id = args.sessionId ?? args.session_id;
   if (id) {
     const rec = sessions.get(id);
-    rec?.agent?.dispose();
+    if (rec?.usesTransport) {
+      // R3-02 (#187): closing a transport session closes just that session
+      // on the shared transport. When the last session closes, the transport
+      // reclaims its process and connection (the closeSession method does
+      // this — sessionCount()==0 triggers kill()).
+      getSharedTransport().closeSession(id).catch((e) =>
+        console.error(`[session_close] transport close failed for ${id}:`, e)
+      );
+    } else {
+      rec?.agent?.dispose();
+    }
     sessions.delete(id);
   }
   return ok(null);
