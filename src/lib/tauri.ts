@@ -181,6 +181,10 @@ export interface McpServerInfo {
   enabled: boolean;
   transport_type: string;
   env: [string, string][];
+  /** Installed version string (e.g. "1.2.3" or "latest"). */
+  version?: string;
+  /** Origin descriptor: "npm", "github:owner/repo", "local", or a catalog key. */
+  source?: string;
 }
 
 // ===== Session =====
@@ -407,6 +411,8 @@ export async function saveMcpServer(input: {
   url: string | null;
   env: [string, string][];
   enabled: boolean;
+  version?: string;
+  source?: string;
 }): Promise<void> {
   return invoke("save_mcp_server", input);
 }

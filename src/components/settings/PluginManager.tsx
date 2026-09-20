@@ -134,6 +134,7 @@ export function PluginManager() {
   }, [refresh]);
 
   const installedNames = new Set(servers.map((s) => s.name));
+  const disabledCount = servers.filter((s) => !s.enabled).length;
 
   const filtered = CATALOG.filter((entry) => {
     const matchesCategory = category === "All" || entry.category === category;
@@ -155,6 +156,8 @@ export function PluginManager() {
         url: entry.url || null,
         env,
         enabled: true,
+        version: "latest",
+        source: "npm",
       });
       await refresh();
     } catch (e) {
@@ -199,7 +202,7 @@ export function PluginManager() {
             view === "installed" ? "bg-gb-accent/15 text-gb-text" : "text-gb-muted hover:bg-gb-surface"
           }`}
         >
-          Installed ({servers.length})
+          Installed ({servers.length}{disabledCount > 0 ? `, ${disabledCount} disabled` : ""})
         </button>
       </div>
 
@@ -298,6 +301,7 @@ export function PluginManager() {
                       {server.enabled ? "ENABLED" : "DISABLED"}
                     </span>
                     <span className="rounded bg-gb-bg px-1.5 py-0.5 text-[9px] text-gb-muted">{server.transport_type}</span>
+                    <span className="rounded bg-gb-bg px-1.5 py-0.5 text-[9px] text-gb-muted">v{server.version || "latest"}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button

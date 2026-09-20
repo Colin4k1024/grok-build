@@ -28,6 +28,10 @@ export interface McpServerInfo {
   enabled: boolean;
   transport_type: string;
   env: [string, string][];
+  /** Installed version string (e.g. "1.2.3" or "latest"). */
+  version: string;
+  /** Origin descriptor: "npm", "github:owner/repo", "local", or a catalog key. */
+  source: string;
   startup_timeout_sec?: number;
   tool_timeout_sec?: number;
 }
@@ -171,6 +175,8 @@ export function getMcpServers(): McpServerInfo[] {
     const command = e.values.get("command");
     const url = e.values.get("url");
     const args = e.values.get("args");
+    const version = e.values.get("version");
+    const source = e.values.get("source");
     out.push({
       name,
       command: typeof command === "string" ? command : "",
@@ -178,6 +184,8 @@ export function getMcpServers(): McpServerInfo[] {
       url: typeof url === "string" ? url : null,
       enabled: e.values.get("enabled") !== false,
       transport_type: typeof command === "string" ? "stdio" : typeof url === "string" ? "http" : "unknown",
+      version: typeof version === "string" ? version : "latest",
+      source: typeof source === "string" ? source : "npm",
       env: Array.from(e.env.entries()),
       startup_timeout_sec: typeof e.values.get("startup_timeout_sec") === "number"
         ? (e.values.get("startup_timeout_sec") as number)
@@ -201,6 +209,8 @@ function serializeServer(name: string, input: SaveInput): string {
   }
   if (input.url) out.push(`url = ${JSON.stringify(input.url)}`);
   if (typeof input.enabled === "boolean") out.push(`enabled = ${input.enabled}`);
+  if (typeof input.version === "string" && input.version) out.push(`version = ${JSON.stringify(input.version)}`);
+  if (typeof input.source === "string" && input.source) out.push(`source = ${JSON.stringify(input.source)}`);
   if (typeof input.startup_timeout_sec === "number") out.push(`startup_timeout_sec = ${input.startup_timeout_sec}`);
   if (typeof input.tool_timeout_sec === "number") out.push(`tool_timeout_sec = ${input.tool_timeout_sec}`);
   if (input.env && input.env.length > 0) {
@@ -218,6 +228,8 @@ export interface SaveInput {
   url: string | null;
   env: [string, string][];
   enabled?: boolean;
+  version?: string;
+  source?: string;
   startup_timeout_sec?: number;
   tool_timeout_sec?: number;
 }
@@ -285,6 +297,8 @@ export function toggleMcpServer(name: string, enabled: boolean): void {
       url: existing.url,
       env: existing.env,
       enabled,
+      version: existing.version,
+      source: existing.source,
       startup_timeout_sec: existing.startup_timeout_sec,
       tool_timeout_sec: existing.tool_timeout_sec,
     },
