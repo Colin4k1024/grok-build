@@ -10,8 +10,9 @@ import { PermissionsManager } from "../components/settings/PermissionsManager";
 import { AgentSettings } from "../components/settings/AgentSettings";
 import { TrustedFoldersManager } from "../components/settings/TrustedFoldersManager";
 import { VoiceSettings } from "../components/settings/VoiceSettings";
+import { BrowserSettings } from "../components/settings/BrowserSettings";
 
-type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "agent" | "trusted" | "voice" | "general" | "about";
+type SettingsTab = "models" | "apikeys" | "mcp" | "plugins" | "worktrees" | "appearance" | "permissions" | "agent" | "trusted" | "voice" | "browser" | "general" | "about";
 
 const TAB_LABELS: Record<SettingsTab, string> = {
   models: "模型",
@@ -24,6 +25,7 @@ const TAB_LABELS: Record<SettingsTab, string> = {
   agent: "Agent",
   trusted: "受信任目录",
   voice: "语音",
+  browser: "浏览器控制",
   general: "通用",
   about: "关于",
 };
@@ -41,6 +43,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   agent: ["agent", "subagent", "autonomous", "effort", "reasoning"],
   trusted: ["trust", "folder", "directory", "workspace", "safe"],
   voice: ["voice", "speech", "stt", "tts", "microphone", "audio"],
+  browser: ["browser", "computer", "playwright", "puppeteer", "appshot", "screen"],
   general: ["general", "startup", "autostart", "notification", "update", "shortcut", "tray"],
   about: ["about", "version", "info"],
 };
@@ -125,6 +128,7 @@ export function Settings({ onClose, initialTab }: { onClose: () => void; initial
           {tab === "agent" && <AgentSettings />}
           {tab === "trusted" && <TrustedFoldersManager />}
           {tab === "voice" && <VoiceSettings />}
+          {tab === "browser" && <BrowserSettings />}
           {tab === "general" && <GeneralSettings />}
           {tab === "about" && <div className="p-6"><h3 className="mb-2 text-[15px] font-medium">Grok Build</h3><p className="text-[12px] text-gb-muted">Version 0.1.0</p></div>}
         </div>
