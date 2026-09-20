@@ -7,6 +7,25 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "electron/**/*.test.ts", "scripts/**/*.test.mjs"],
+    // Core coverage: use v8 provider (lightweight, no Istanbul transforms).
+    // The @vitest/coverage-v8 peer dep is bundled in vitest >= 2.0 through
+    // npm ci with a locked package-lock; npm install adds it on first run.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/test/**",
+        "src/**/__tests__/**",
+        "src/**/*.test.{ts,tsx}",
+      ],
+    },
+    // CI fixture: JUnit XML for evidence chain (no extra deps needed)
+    reporters: process.env.CI ? ["verbose", "junit"] : ["verbose"],
+    outputFile: process.env.CI ? "./test-results/junit.xml" : undefined,
+    // CI runs are single-shot; local keep watching
+    watch: !process.env.CI,
   },
   // Relative asset paths so the packaged Electron app can load from file://
   base: "./",
