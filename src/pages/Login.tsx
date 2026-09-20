@@ -66,6 +66,8 @@ export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
     setError(null);
     try {
       await loginWithApiKey(envKey, trimmed);
+      // Auto-complete onboarding on first successful auth
+      try { localStorage.setItem("gb-onboarding-completed", "true"); } catch {}
       onLoginSuccess();
     } catch (e) {
       setError(String(e));

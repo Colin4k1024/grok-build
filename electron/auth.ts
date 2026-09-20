@@ -247,23 +247,37 @@ export async function checkAuthStatus(deps: CheckDeps = {}): Promise<AuthStatus>
 
 // ---- login / logout --------------------------------------------------------------
 
-/** Minimal provider-side format checks: an arbitrary string must not pass
- *  as a credential. Real validation still happens on first agent use; these
- *  rules reject obvious garbage before anything is persisted. */
-const KEY_FORMAT_RULES: Record<string, { minLen: number; pattern?: RegExp }> = {
-  XAI_API_KEY: { minLen: 20, pattern: /^xai-[A-Za-z0-9_-]+$/ },
-  OPENAI_API_KEY: { minLen: 20, pattern: /^sk-[A-Za-z0-9_-]+$/ },
-  ANTHROPIC_API_KEY: { minLen: 20, pattern: /^sk-ant-[A-Za-z0-9_-]+$/ },
-  OPENROUTER_API_KEY: { minLen: 20, pattern: /^sk-or-[A-Za-z0-9_-]+$/ },
+/** Minimal provider-side format checks with explicit error messages.
+ *  Rules reject obvious garbage before anything is persisted;
+ *  real validation happens on first agent use (ACP init carries capability back). */
+const KEY_FORMAT_RULES: Record<string, { minLen: number; pattern?: RegExp; label: string }> = {
+  XAI_API_KEY: { minLen: 20, pattern: /^xai-[A-Za-z0-9_-]+$/, label: "xAI API Key" },
+  OPENAI_API_KEY: { minLen: 20, pattern: /^sk-[A-Za-z0-9_-]+$/, label: "OpenAI API Key" },
+  ANTHROPIC_API_KEY: { minLen: 20, pattern: /^sk-ant-[A-Za-z0-9_-]+$/, label: "Anthropic API Key" },
+  OPENROUTER_API_KEY: { minLen: 20, pattern: /^sk-or-[A-Za-z0-9_-]+$/, label: "OpenRouter API Key" },
+  GEMINI_API_KEY: { minLen: 20, label: "Gemini API Key" },
+  GOOGLE_API_KEY: { minLen: 20, label: "Google API Key" },
+  DEEPSEEK_API_KEY: { minLen: 20, pattern: /^sk-[A-Za-z0-9_-]+$/, label: "DeepSeek API Key" },
+  GROK_API_KEY: { minLen: 20, pattern: /^xai-[A-Za-z0-9_-]+$/, label: "Grok API Key" },
 };
 
-export function apiKeyLooksValid(envKey: string, value: string): boolean {
+export function apiKeyLooksValid(envKey: string, value: string): { ok: true } | { ok: false; reason: string } {
   const rule = KEY_FORMAT_RULES[envKey];
   const v = value.trim();
-  if (!rule) return v.length >= 20; // unknown providers: length floor only
-  if (v.length < rule.minLen) return false;
-  if (rule.pattern && !rule.pattern.test(v)) return false;
-  return true;
+  if (!v) return { ok: false, reason: "API key 不能为空" };
+  if (!rule) {
+    // Unknown providers: length floor only
+    if (v.length < 20) return { ok: false, reason: `API key 至少需要 20 个字符（当前 ${v.length}）` };
+    return { ok: true };
+  }
+  if (v.length < rule.minLen) {
+    return { ok: false, reason: `${rule.label} 至少需要 ${rule.minLen} 个字符（当前 ${v.length}）` };
+  }
+  if (rule.pattern && !rule.pattern.test(v)) {
+    const prefix = rule.label.split(" ")[0];
+    return { ok: false, reason: `${rule.label} 格式不正确 — 应以 "${prefix.toLowerCase().startsWith("xai") ? "xai-" : "sk-"}" 或类似前缀开头` };
+  }
+  return { ok: true };
 }
 
 export async function loginWithApiKey(
@@ -277,8 +291,9 @@ export async function loginWithApiKey(
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error("api key must be a non-empty string");
   }
-  if (!apiKeyLooksValid(envKey, value)) {
-    throw new Error(`value does not look like a valid ${envKey} key (format/length check failed)`);
+  const check = apiKeyLooksValid(envKey, value);
+  if (!check.ok) {
+    throw new Error(check.reason);
   }
   const keychain = deps.keychain ?? activeKeychain;
   const storePath = deps.storePath ?? apiKeyStorePath();
