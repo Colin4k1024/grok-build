@@ -34,7 +34,7 @@ import {
   addProject, pickDirectory,
   type AuthStatus, type ConfigSnapshot, type HistorySession,
   onTrayAction, onConfigChanged, gitDiff,
-  renameHistorySession, persistTranscript } from "./lib/tauri";
+  renameHistorySession, persistTranscript, getCrashRecoveryStatus } from "./lib/tauri";
 import { writeText } from "./lib/desktop";
 import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
@@ -93,6 +93,8 @@ export default function App() {
   // /usage panel (ISS-081) and /import panel (ISS-083)
   const [showUsage, setShowUsage] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  // Crash recovery banner — shown once on first boot after unclean exit (R3-14).
+  const [crashNotice, setCrashNotice] = useState<string | null>(null);
   useEffect(() => {
     const openUsage = () => setShowUsage(true);
     const openImport = () => setShowImport(true);
@@ -178,6 +180,10 @@ export default function App() {
 
   useEffect(() => {
     refreshAuth();
+    // Crash recovery probe (R3-14): show banner if last session didn't clean-quit.
+    getCrashRecoveryStatus().then((s) => {
+      if (s.crashed) setCrashNotice("检测到上次会话未正常退出。所有会话标签已恢复。");
+    }).catch(() => {});
     if (detachedSessionId) {
       listSessions().then((items) => {
         const item = items.find((s) => s.id === detachedSessionId);
@@ -952,6 +958,12 @@ export default function App() {
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
               <span className="flex-1">{error}</span>
               <button className="text-gb-red/60 hover:text-gb-red" onClick={() => setError(null)}>✕</button>
+            </div>
+          )}
+          {crashNotice && (
+            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/5 px-4 py-2 text-xs text-gb-yellow backdrop-blur-xl">
+              <span className="flex-1">{crashNotice}</span>
+              <button className="text-gb-yellow/60 hover:text-gb-yellow" onClick={() => setCrashNotice(null)}>✕</button>
             </div>
           )}
           {(() => {

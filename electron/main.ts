@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog } from "electron";
+import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog, Menu, systemPreferences } from "electron";
 import { AcpSession, saveApiKey, getApiKey, deleteApiKey, isApiKeySet } from "./acp-session";
 import { checkAuthStatus, loginWithApiKey, logoutAuth, KNOWN_ENV_KEYS } from "./auth";
 import { listHistorySessions, getSessionHistory, renameHistorySession } from "./session-history";
@@ -17,6 +17,83 @@ const isDev = process.env.NODE_ENV === "development" || !!process.env.VITE_DEV_S
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
 
 let mainWindow: BrowserWindow | null = null;
+
+// --- Single-instance lock (R3-14) ---
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+app.on("second-instance", () => {
+  // Focus the existing window when a second instance is launched.
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+// --- Crash recovery marker (R3-14) ---
+const CRASH_MARKER = path.join(app.getPath("userData"), ".crash-recovery");
+let crashRecoveryActive = false;
+try {
+  crashRecoveryActive = fs.existsSync(CRASH_MARKER);
+  // Touch the marker — cleared on clean quit.
+  fs.writeFileSync(CRASH_MARKER, String(Date.now()));
+} catch { /* userData unavailable */ }
+
+function clearCrashMarker(): void {
+  try { if (fs.existsSync(CRASH_MARKER)) fs.unlinkSync(CRASH_MARKER); } catch {}
+}
+
+// --- OS permission probe (R3-14) ---
+function probeOsPermissions(): Record<string, string> {
+  const caps: Record<string, string> = {};
+  try {
+    caps.accessibility = systemPreferences.isTrustedAccessibilityClient(false) ? "granted" : "denied";
+  } catch { caps.accessibility = "unknown"; }
+  try {
+    caps.media = systemPreferences.getMediaAccessStatus("microphone");
+  } catch { caps.media = "unknown"; }
+  return caps;
+}
+
+// --- Native application menu (R3-14) ---
+function buildAppMenu(): void {
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: "appMenu" as const }] : []),
+    {
+      label: "File",
+      submenu: [
+        { label: "New Session", accelerator: "CmdOrCtrl+N", click: () => mainWindow?.webContents.send("tray-action", "new-session") },
+        { type: "separator" },
+        isMac ? { role: "close" } : { label: "Quit", accelerator: "CmdOrCtrl+Q", click: () => app.quit() },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" }, { role: "redo" }, { type: "separator" },
+        { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" },
+        { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },
+        { type: "separator" }, { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" }, { role: "zoom" },
+        ...(isMac ? [{ type: "separator" as const }, { role: "front" }] : [{ role: "close" }]),
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // --- IPC handlers (ported from src-tauri/src/commands/*) ---
 // Stage 1: minimal viable set so the frontend can boot without crashing.
@@ -1012,6 +1089,14 @@ ipcMain.handle("app_relaunch", () => {
   app.exit(0);
 });
 
+// Crash recovery probe: returns whether the last session crashed (R3-14).
+ipcMain.handle("crash_recovery_status", () => {
+  return ok({ crashed: crashRecoveryActive, marker: CRASH_MARKER });
+});
+
+// OS permissions probe: which system-level permissions are granted (R3-14).
+ipcMain.handle("os_permissions", () => ok(probeOsPermissions()));
+
 // --- Window setup ---
 
 function createWindow() {
@@ -1065,6 +1150,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  buildAppMenu();
   createWindow();
 
   app.on("activate", () => {
@@ -1076,8 +1162,9 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Kill every live PTY controller on quit — no orphaned shells (ISS-075).
+// Clean quit: remove crash marker so next boot doesn't show recovery banner.
 app.on("will-quit", () => {
+  clearCrashMarker();
   ptyManager.disposeAll();
 });
 

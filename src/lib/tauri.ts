@@ -622,6 +622,15 @@ export async function disableAutostart(): Promise<void> {
   return invoke("disable_autostart");
 }
 
+// Platform lifecycle (R3-14)
+export async function getCrashRecoveryStatus(): Promise<{ crashed: boolean; marker: string }> {
+  return invoke("crash_recovery_status");
+}
+
+export async function getOsPermissions(): Promise<Record<string, string>> {
+  return invoke("os_permissions");
+}
+
 // ===== Logging =====
 
 export async function logFrontend(level: "error" | "warn" | "info" | "log", message: string) {
