@@ -71,6 +71,7 @@ export function SubagentPanel() {
     running: "bg-gb-accent",
     done: "bg-gb-green",
     failed: "bg-gb-red",
+    cancelled: "bg-gb-muted",
   };
 
   const statusLabels: Record<Subagent["status"], string> = {
@@ -78,6 +79,7 @@ export function SubagentPanel() {
     running: "运行中",
     done: "完成",
     failed: "失败",
+    cancelled: "已取消",
   };
 
   const activityIcon = (kind: AgentActivity["kind"]) => {

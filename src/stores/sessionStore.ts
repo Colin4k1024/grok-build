@@ -21,10 +21,23 @@ export interface TodoItem {
 export interface Subagent {
   id: string;
   name: string;
-  status: "spawning" | "running" | "done" | "failed";
+  status: "spawning" | "running" | "done" | "failed" | "cancelled";
   summary: string;
   toolCallId: string;
   createdAt: number;
+  progress?: string;
+  progressItems?: { label: string; status: "todo" | "in_progress" | "done" | "failed" }[];
+}
+
+/** Turn state machine (R3-09). Every TurnComplete advances the turn counter. */
+export type TurnState = "idle" | "streaming" | "queued" | "compacting";
+
+export interface TurnInfo {
+  turnId: number;
+  state: TurnState;
+  startedAt: number;
+  /** Messages belonging to this turn (indices into the session's messages array). */
+  messageIndices: number[];
 }
 
 export interface PendingQuestion {
@@ -93,6 +106,9 @@ interface SessionState {
   isStreaming: boolean;
   /** Per-thread running flags — sidebar status indicators (ISS-062). */
   streaming: Record<string, boolean>;
+  /** Turn counter + per-session turn state (R3-09). */
+  turnCounter: Record<string, number>;
+  turns: Record<string, TurnInfo[]>;
 
   setActiveSession: (id: string | null) => void;
   addTab: (tab: SessionTab) => void;
@@ -144,6 +160,12 @@ interface SessionState {
   enqueueQueuedPrompt: (sessionId: string, text: string) => void;
   /** Pop the oldest queued prompt (codex Tab-queue flush order). */
   shiftQueuedPrompt: (sessionId: string) => string | undefined;
+  /** Turn tracking (R3-09): start a new turn on user prompt send. */
+  startTurn: (sessionId: string) => number;
+  /** Complete the current turn. */
+  completeTurn: (sessionId: string) => void;
+  /** Update a subagent's progress items (R3-09). */
+  setSubagentProgress: (sessionId: string, id: string, progress: string, items?: { label: string; status: "todo" | "in_progress" | "done" | "failed" }[]) => void;
 }
 
 // Streaming throttle buffers (module-level for persistence across renders)
@@ -165,6 +187,8 @@ export const useSessionStore = create<SessionState>()(
   pendingQuestions: {},
   subagents: {},
   todos: {},
+  turnCounter: {},
+  turns: {},
   tokenUsage: {},
   rateLimits: {},
   compacting: {},
@@ -596,6 +620,53 @@ export const useSessionStore = create<SessionState>()(
     }));
     return queue[0];
   },
+
+  // ---- Turn tracking (R3-09) ----
+  startTurn: (sessionId) => {
+    const counter = (get().turnCounter[sessionId] || 0) + 1;
+    set((state) => ({
+      turnCounter: { ...state.turnCounter, [sessionId]: counter },
+      streaming: { ...state.streaming, [sessionId]: true },
+      turns: {
+        ...state.turns,
+        [sessionId]: [
+          ...(state.turns[sessionId] || []),
+          {
+            turnId: counter,
+            state: "streaming" as const,
+            startedAt: Date.now(),
+            messageIndices: (state.messages[sessionId]?.length ? [state.messages[sessionId].length] : []),
+          },
+        ],
+      },
+    }));
+    return counter;
+  },
+
+  completeTurn: (sessionId) =>
+    set((state) => {
+      const turns = state.turns[sessionId] || [];
+      if (turns.length === 0) return {};
+      const idx = turns.length - 1;
+      return {
+        streaming: { ...state.streaming, [sessionId]: false },
+        isStreaming: false,
+        turns: {
+          ...state.turns,
+          [sessionId]: turns.map((t, i) => i === idx ? { ...t, state: "idle" as const } : t),
+        },
+      };
+    }),
+
+  setSubagentProgress: (sessionId, id, progress, items) =>
+    set((state) => ({
+      subagents: {
+        ...state.subagents,
+        [sessionId]: (state.subagents[sessionId] || []).map((s) =>
+          s.id === id ? { ...s, progress, progressItems: items ?? s.progressItems } : s
+        ),
+      },
+    })),
 
   clearMessages: (sessionId) =>
     set((state) => {
