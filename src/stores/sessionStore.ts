@@ -65,6 +65,9 @@ export interface CompactionMarker {
 export type ApprovalMode = "full-access" | "ask" | "read-only";
 export type WorkMode = "local" | "worktree";
 
+/** Per-session ACP connection status (ISS-187). */
+export type ConnectionStatus = "connected" | "reconnecting" | "disconnected" | "error";
+
 export interface SessionTab {
   id: string;
   /** ACP session id of the underlying agent thread — lets a tab survive app
@@ -109,6 +112,10 @@ interface SessionState {
   /** Turn counter + per-session turn state (R3-09). */
   turnCounter: Record<string, number>;
   turns: Record<string, TurnInfo[]>;
+  /** ACP connection status per session (ISS-187). */
+  connectionStatus: Record<string, ConnectionStatus>;
+  /** Last connection error message per session. */
+  connectionError: Record<string, string | null>;
 
   setActiveSession: (id: string | null) => void;
   addTab: (tab: SessionTab) => void;
@@ -166,6 +173,9 @@ interface SessionState {
   completeTurn: (sessionId: string) => void;
   /** Update a subagent's progress items (R3-09). */
   setSubagentProgress: (sessionId: string, id: string, progress: string, items?: { label: string; status: "todo" | "in_progress" | "done" | "failed" }[]) => void;
+
+  /** Set ACP connection status for a session (ISS-187). */
+  setConnectionStatus: (sessionId: string, status: ConnectionStatus, error?: string | null) => void;
 }
 
 // Streaming throttle buffers (module-level for persistence across renders)
@@ -197,6 +207,8 @@ export const useSessionStore = create<SessionState>()(
   queuedPrompts: {},
   isStreaming: false,
   streaming: {},
+	  connectionStatus: {},
+	  connectionError: {},
 
   setActiveSession: (id) => set({ activeSessionId: id }),
 
@@ -665,6 +677,15 @@ export const useSessionStore = create<SessionState>()(
         [sessionId]: (state.subagents[sessionId] || []).map((s) =>
           s.id === id ? { ...s, progress, progressItems: items ?? s.progressItems } : s
         ),
+      },
+    })),
+
+  setConnectionStatus: (sessionId, status, error) =>
+    set((state) => ({
+      connectionStatus: { ...state.connectionStatus, [sessionId]: status },
+      connectionError: {
+        ...state.connectionError,
+        [sessionId]: error !== undefined ? error : (state.connectionError[sessionId] ?? null),
       },
     })),
 
