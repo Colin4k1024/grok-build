@@ -124,3 +124,144 @@ export function pruneOrphans(): string[] {
 export function worktreeCount(): number {
   return readRegistry().worktrees.length;
 }
+
+/** Clear the in-memory cache — for tests that change GROK_HOME between cases. */
+export function clearRegistryCache(): void {
+  _cache = null;
+}
+
+/**
+ * Handoff a worktree from one session to another (R3-05).
+ *
+ * Transfers ownership atomically: the previous owner loses it, the new owner
+ * gains it. Idempotent — handing off to the same session is a no-op. If the
+ * worktree is orphaned (no owner), the new session claims it.
+ *
+ * Returns the updated worktree, or null if the path is not registered.
+ */
+export function handoffWorktree(wtPath: string, fromSessionId: string | null, toSessionId: string): ManagedWorktree | null {
+  const reg = readRegistry();
+  const wt = reg.worktrees.find((w) => w.path === wtPath);
+  if (!wt) return null;
+  // Idempotent: if the new owner already owns it, no-op.
+  if (wt.ownerSessionId === toSessionId) {
+    wt.lastAccessedAt = Date.now();
+    writeRegistry(reg);
+    return wt;
+  }
+  // If fromSessionId is specified and doesn't match, it's a stolen handoff —
+  // we still allow it (the caller asserts authority) but log the mismatch.
+  if (fromSessionId && wt.ownerSessionId && wt.ownerSessionId !== fromSessionId) {
+    console.warn(`[worktree] handoff from ${fromSessionId} but owner is ${wt.ownerSessionId} — proceeding`);
+  }
+  wt.ownerSessionId = toSessionId;
+  wt.lastAccessedAt = Date.now();
+  writeRegistry(reg);
+  return wt;
+}
+
+/**
+ * Snapshot the dirty state of a worktree (uncommitted changes) using
+ * `git stash create` (R3-05). The snapshot is a dangling commit SHA — it
+ * does not touch any file or move any ref. The caller can restore it with
+ * `restoreSnapshot` after a handoff or crash.
+ *
+ * Returns null if the tree is clean (nothing to snapshot).
+ */
+export async function snapshotWorktree(wtPath: string): Promise<string | null> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  try {
+    const { stdout } = await execFileAsync("git", ["stash", "create"], {
+      cwd: wtPath,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const sha = stdout.trim();
+    // Register the snapshot in the worktree's notes.
+    const reg = readRegistry();
+    const wt = reg.worktrees.find((w) => w.path === wtPath);
+    if (wt) {
+      wt.notes = `snapshot:${sha}`;
+      wt.lastAccessedAt = Date.now();
+      writeRegistry(reg);
+    }
+    return sha || null;
+  } catch {
+    return null; // not a repo / git missing — degrade gracefully
+  }
+}
+
+/**
+ * Restore a snapshot (dangling commit from git stash create) into a worktree
+ * (R3-05). This applies the snapshot's changes WITHOUT creating a stash entry.
+ * Uses `git stash apply <sha>` which is non-destructive — the dangling commit
+ * persists until GC, so the restore is retry-safe.
+ *
+ * Returns true if the restore succeeded, false if the snapshot is empty/invalid.
+ */
+export async function restoreSnapshot(wtPath: string, sha: string): Promise<boolean> {
+  if (!sha) return false;
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  try {
+    await execFileAsync("git", ["stash", "apply", sha], {
+      cwd: wtPath,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return true;
+  } catch {
+    return false; // snapshot vanished or conflicts — caller handles
+  }
+}
+
+/**
+ * Rebuild the registry from `git worktree list` (R3-05 crash recovery).
+ * Scans the actual git worktree state and reconciles with the registry:
+ *   - worktrees in git but not in registry → adopted (ownerSessionId=null)
+ *   - worktrees in registry but not in git → pruned (removed from registry)
+ *
+ * Returns the reconciled registry.
+ */
+export async function reconcileFromGit(repoRoot: string): Promise<WorktreeRegistry> {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  const reg = readRegistry();
+  let gitPaths: string[] = [];
+  try {
+    const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd: repoRoot,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    gitPaths = stdout
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => l.slice("worktree ".length).trim())
+      .filter(Boolean);
+  } catch {
+    // not a repo — return as-is
+    return reg;
+  }
+  // Prune registry entries whose paths are no longer in git.
+  reg.worktrees = reg.worktrees.filter((w) => gitPaths.includes(w.path));
+  // Adopt worktrees in git but not in registry (orphans from crash).
+  // Skip the first entry — it's the main repo, not a managed worktree.
+  for (let i = 1; i < gitPaths.length; i++) {
+    const p = gitPaths[i];
+    if (!reg.worktrees.find((w) => w.path === p)) {
+      reg.worktrees.push({
+        path: p,
+        branch: "",
+        repo: repoRoot,
+        createdAt: Date.now(),
+        lastAccessedAt: Date.now(),
+        ownerSessionId: null, // orphaned — needs claiming
+        notes: "adopted-from-git-reconcile",
+      });
+    }
+  }
+  writeRegistry(reg);
+  return reg;
+}
