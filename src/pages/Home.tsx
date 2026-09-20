@@ -3,6 +3,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import { listHistorySessions, pickDirectory, type HistorySession, type ConfigSnapshot } from "../lib/tauri";
 import { PromptInput } from "../components/chat/PromptInput";
 import type { ApprovalMode } from "../stores/sessionStore";
+import { getSandboxMode } from "../components/layout/SandboxToggle";
 
 export type ComposerMode = "chat" | "agent";
 
@@ -38,7 +39,9 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
   const [projectCwd, setProjectCwd] = useState(".");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState<"none" | "minimal" | "low" | "medium" | "high" | "xhigh">("medium");
-  const [approval, setApproval] = useState<ApprovalMode>("ask");
+  const [approval, setApproval] = useState<ApprovalMode>(
+    getSandboxMode() === "sandbox" ? "ask" : "full-access"
+  );
 
   useEffect(() => {
     if (!model && config?.models.length) {

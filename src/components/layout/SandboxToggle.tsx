@@ -1,17 +1,28 @@
 import { useState, useRef, useEffect } from "react";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { useSessionStore } from "../../stores/sessionStore";
+
+const SANDBOX_KEY = "gb-sandbox-mode";
 
 export type SandboxMode = "sandbox" | "full";
 
+export function getSandboxMode(): SandboxMode {
+  return (localStorage.getItem(SANDBOX_KEY) as SandboxMode) || "sandbox";
+}
+
+export function setSandboxMode(mode: SandboxMode) {
+  localStorage.setItem(SANDBOX_KEY, mode);
+}
+
 /** Compact sandbox/full-access toggle for the TitleBar.
  *
- *  R3-01 / R3-11: reads/writes through the centralized settingsStore
- *  ("gb-settings" key). Syncs every open tab's approvalMode:
- *  "sandbox" → "ask", "full" → "full-access". */
+ *  R3-01 fix: the toggle used to write gb-sandbox-mode to localStorage
+ *  without any backend consumption. Now it syncs every open tab's
+ *  approvalMode in the session store: "sandbox" → "ask" (must approve),
+ *  "full" → "full-access" (auto-allow). New sessions pick up the current
+ *  sandbox preference through the Home page composer which reads
+ *  getSandboxMode(). */
 export function SandboxToggle() {
-  const sandboxMode = useSettingsStore((s) => s.sandboxMode);
-  const setSandboxModeStore = useSettingsStore((s) => s.setSandboxMode);
+  const [mode, setMode] = useState<SandboxMode>(getSandboxMode());
   const [showTooltip, setShowTooltip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -19,11 +30,13 @@ export function SandboxToggle() {
   const setTabApprovalMode = useSessionStore((s) => s.setTabApprovalMode);
 
   useEffect(() => {
-    const approval: "ask" | "full-access" = sandboxMode === "sandbox" ? "ask" : "full-access";
+    setSandboxMode(mode);
+    // Sync every open tab — the toggle is a global switch, not per-tab.
+    const approval: "ask" | "full-access" = mode === "sandbox" ? "ask" : "full-access";
     for (const tab of tabs) {
       setTabApprovalMode(tab.id, approval);
     }
-  }, [sandboxMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showTooltip) return;
@@ -34,12 +47,12 @@ export function SandboxToggle() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showTooltip]);
 
-  const isSandbox = sandboxMode === "sandbox";
+  const isSandbox = mode === "sandbox";
 
   return (
     <div ref={ref} className="relative" data-no-drag>
       <button
-        onClick={() => setSandboxModeStore(isSandbox ? "full" : "sandbox")}
+        onClick={() => setMode(isSandbox ? "full" : "sandbox")}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
         className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
@@ -48,7 +61,7 @@ export function SandboxToggle() {
             : "bg-gb-yellow/10 text-gb-yellow hover:bg-gb-yellow/15"
         }`}
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        aria-label={`沙箱模式: ${sandboxMode}. Click to toggle.`}
+        aria-label={`沙箱模式: ${mode}. Click to toggle.`}
       >
         <span>{isSandbox ? "🔒" : "⚡"}</span>
         <span>{isSandbox ? "Sandbox" : "完全访问"}</span>
@@ -76,16 +89,4 @@ export function SandboxToggle() {
       )}
     </div>
   );
-}
-
-/** Standalone getter for non-React call-sites (e.g. session creation). */
-export function getSandboxMode(): SandboxMode {
-  try {
-    const raw = localStorage.getItem("gb-settings");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return parsed?.state?.sandboxMode === "full" ? "full" : "sandbox";
-    }
-  } catch {}
-  return "sandbox";
 }

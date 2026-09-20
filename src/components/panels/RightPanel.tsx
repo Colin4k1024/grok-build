@@ -618,9 +618,13 @@ function SideChatPanel({ cwd }: { cwd: string }) {
           return [...prev, { role: "assistant", content: event.delta! }];
         });
       } else if (event.type === "PermissionRequest" && event.request_id) {
-        // Side chat is read-only Q&A — auto-allow to keep it friction-free.
-        const allow = (event.options ?? []).find((o) => o.kind.toLowerCase().startsWith("allow"));
-        if (allow) respondPermission(session.id, event.request_id, allow.id, false).catch(() => {});
+        // Side chat is read-only — auto-deny any tool call to keep it a pure
+        // Q&A surface. Finding the allow option was the old (wrong) behavior
+        // that silently granted tool access to the side-session agent (R3-01).
+        const deny = (event.options ?? []).find(
+          (o) => o.kind.toLowerCase().startsWith("reject") || o.kind.toLowerCase().includes("cancel")
+        );
+        if (deny) respondPermission(session.id, event.request_id, deny.id, false).catch(() => {});
       }
     });
     return () => {
