@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_TRANSFER_BYTES,
   readTransferFile,
@@ -35,9 +35,20 @@ describe("settings transfer file helpers (R4-06 #239)", () => {
     expect(() => validateTransferContent("x".repeat(MAX_TRANSFER_BYTES + 1))).toThrow(/exceeds/);
   });
 
-  it("writes atomically (tmp+rename) and reads back", () => {
+  it("writes atomically (unique tmp + rename)", () => {
     const file = path.join(dir, "out.json");
-    writeTransferFile(file, '{"a":1}');
+    const renameSpy = vi.spyOn(fs, "renameSync");
+    try {
+      writeTransferFile(file, '{"a":1}');
+      expect(renameSpy).toHaveBeenCalledOnce();
+      const [tmp, dest] = renameSpy.mock.calls[0];
+      expect(dest).toBe(file);
+      expect(String(tmp)).toContain(file); // sibling tmp
+      expect(String(tmp)).toMatch(/\.tmp$/);
+      expect(String(tmp)).not.toBe(`${file}.tmp`); // unique, not the fixed name
+    } finally {
+      renameSpy.mockRestore();
+    }
     expect(readFileSync(file, "utf-8")).toBe('{"a":1}');
     expect(readTransferFile(file)).toBe('{"a":1}');
   });

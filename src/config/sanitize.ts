@@ -25,16 +25,20 @@ export function sanitizePersistedState(state: Record<string, unknown>): Record<s
     if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
   }
 
-  // projectOverrides: object of objects with validated entries
+/** Keys that must never be assigned via [] — they would swap prototypes. */
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/** projectOverrides: object of objects with validated entries */
   const raw = out.projectOverrides;
-  const cleaned: Record<string, Record<string, unknown>> = {};
+  const cleaned: Record<string, Record<string, unknown>> = Object.create(null);
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
+      if (RESERVED_KEYS.has(projectId)) continue;
       if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
-      const kept: Record<string, unknown> = {};
+      const kept: Record<string, unknown> = Object.create(null);
       for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
         const def = getSetting(settingId);
-        if (def && def.scopes.includes("project") && def.validate(value)) kept[settingId] = value;
+        if (def && def.scopes.includes("project") && def.validate(value) && !RESERVED_KEYS.has(settingId)) kept[settingId] = value;
       }
       if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
     }
@@ -44,16 +48,17 @@ export function sanitizePersistedState(state: Record<string, unknown>): Record<s
   // userPresets: per-entry cleaning — invalid entries are dropped, valid
   // siblings survive (never drop a whole preset over one bad value).
   const rawPresets = out.userPresets;
-  const cleanPresets: Record<string, { label: string; values: Record<string, unknown> }> = {};
+  const cleanPresets: Record<string, { label: string; values: Record<string, unknown> }> = Object.create(null);
   if (rawPresets && typeof rawPresets === "object" && !Array.isArray(rawPresets)) {
     for (const [id, preset] of Object.entries(rawPresets as Record<string, unknown>)) {
+      if (RESERVED_KEYS.has(id)) continue;
       if (!preset || typeof preset !== "object") continue;
       const p = preset as { label?: unknown; values?: unknown };
       if (typeof p.label !== "string" || !p.values || typeof p.values !== "object" || Array.isArray(p.values)) continue;
-      const keptValues: Record<string, unknown> = {};
+      const keptValues: Record<string, unknown> = Object.create(null);
       for (const [settingId, value] of Object.entries(p.values as Record<string, unknown>)) {
         const def = getSetting(settingId);
-        if (!def || def.sensitive || !def.validate(value)) continue; // drop just this entry
+        if (!def || def.sensitive || !def.validate(value) || RESERVED_KEYS.has(settingId)) continue;
         keptValues[settingId] = value;
       }
       if (Object.keys(keptValues).length > 0) cleanPresets[id] = { label: p.label, values: keptValues };

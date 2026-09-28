@@ -337,6 +337,9 @@ export const useSettingsStore = create<SettingsState>()(
       // ---- User presets (R4-06 #239) — validated at save time ----
       saveUserPreset: (id, label, values) => {
         if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new Error(`invalid preset id: ${id}`);
+        if (["__proto__", "constructor", "prototype"].includes(id)) {
+          throw new Error(`invalid preset id: ${id}`);
+        }
         if (!label.trim()) throw new Error("preset label must not be empty");
         // Builtin ids are reserved — a user preset must not shadow them.
         if (getPreset(id)) throw new Error(`preset id "${id}" is reserved by a builtin preset`);
@@ -378,10 +381,18 @@ export const useSettingsStore = create<SettingsState>()(
         if (!r.ok) {
           console.error(`[settings] migration failed: ${r.error}`);
           try {
+            // Quarantine the foreign payload, keeping only the newest 3
+            // backups (no unbounded accumulation).
             localStorage.setItem(
               `gb-settings.backup-${Date.now()}`,
               JSON.stringify({ state: persistedState, version }),
             );
+            const keys = Object.keys(localStorage)
+              .filter((k) => k.startsWith("gb-settings.backup-"))
+              .sort();
+            for (const k of keys.slice(0, Math.max(0, keys.length - 3))) {
+              localStorage.removeItem(k);
+            }
           } catch {
             /* storage unavailable */
           }

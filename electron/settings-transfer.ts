@@ -26,20 +26,35 @@ export function validateTransferContent(content: unknown): string {
   return content;
 }
 
-/** Atomic write (tmp + rename) — no half-written export files. */
+/** Atomic write (unique tmp + rename) — no half-written export files and
+ *  no clobbering of an unrelated `<file>.tmp` left by another process. */
 export function writeTransferFile(filePath: string, content: string): void {
-  const tmp = `${filePath}.tmp`;
+  const tmp = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   fs.writeFileSync(tmp, content, "utf-8");
   fs.renameSync(tmp, filePath);
 }
 
-/** Read-then-bound (no stat/TOCTOU race); unreadable → null, not a throw. */
+/** Bounded read via fd — at most MAX+1 bytes are ever buffered (no
+ *  whole-file read, no stat TOCTOU). Over-limit or unreadable → null. */
 export function readTransferFile(filePath: string): string | null {
+  let fd: number;
   try {
-    const buf = fs.readFileSync(filePath);
-    if (buf.byteLength > MAX_TRANSFER_BYTES) return null;
-    return buf.toString("utf-8");
+    fd = fs.openSync(filePath, "r");
   } catch {
     return null;
+  }
+  try {
+    const buf = Buffer.alloc(MAX_TRANSFER_BYTES + 1);
+    const bytesRead = fs.readSync(fd, buf, 0, MAX_TRANSFER_BYTES + 1, 0);
+    if (bytesRead > MAX_TRANSFER_BYTES) return null;
+    return buf.subarray(0, bytesRead).toString("utf-8");
+  } catch {
+    return null;
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* already closed */
+    }
   }
 }

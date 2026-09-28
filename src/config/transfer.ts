@@ -16,7 +16,8 @@ export interface SettingsExportDoc {
   settingsVersion: number;
   exportedAt: string;
   global: Record<string, unknown>;
-  projects: Record<string, Record<string, unknown>>;
+  /** Optional — older/simpler exports may omit project overrides entirely. */
+  projects?: Record<string, Record<string, unknown>>;
 }
 
 /** Settings marked sensitive never leave the app. */
@@ -253,18 +254,22 @@ export function applyImport(
     });
   };
   for (const [id, value] of Object.entries(doc.global)) pushWrite(id, value, "global");
-  for (const [pid, entries] of Object.entries(doc.projects)) {
+  for (const [pid, entries] of Object.entries(doc.projects ?? {})) {
     for (const [id, value] of Object.entries(entries)) pushWrite(id, value, "project", pid);
   }
   // Replace mode resets the GLOBAL layer only — project layers are
   // merge-only (resetting projects you can't see would be a trap).
+  // The reset list is RECOMPUTED at apply time (state may have moved
+  // since preview).
   if (mode === "replace") {
-    for (const id of preview.reset) {
-      const def = getSetting(id);
-      if (!def?.storeKey) continue;
+    for (const def of listSettings()) {
+      if (!def.storeKey || def.sensitive) continue;
+      if (def.id in doc.global) continue;
+      const cur = resolveFromStore(def.id);
+      if (!cur.overridden) continue;
       writes.push(() => {
-        setScopedValue(id, def.defaultValue, "global");
-        return `${id}（重置）`;
+        setScopedValue(def.id, def.defaultValue, "global");
+        return `${def.id}（重置）`;
       });
     }
   }

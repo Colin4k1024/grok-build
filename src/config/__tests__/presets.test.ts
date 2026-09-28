@@ -106,6 +106,13 @@ describe("configuration presets (R4-06 #239)", () => {
     expect(r.failed.length).toBeGreaterThan(0);
     expect(r.failed[0]).toMatch(/fontSize|scope/i);
   });
+
+  it("no-op preset applications are not counted as applied", () => {
+    // defaults already match 'safe' (sandbox + not autonomous + code)
+    const r = applyPreset("safe", "global");
+    expect(r.failed).toEqual([]);
+    expect(r.applied).toEqual([]);
+  });
 });
 
 describe("registry coverage", () => {

@@ -53,10 +53,10 @@ describe("settings transfer (R4-06 #239)", () => {
     useSettingsStore.getState().setProjectOverride("/p", "appearance.theme", "light");
     // default: excluded (project ids are absolute paths — privacy)
     const doc = exportSettings();
-    expect(doc.projects["/p"]).toBeUndefined();
+    expect(doc.projects?.["/p"]).toBeUndefined();
     // explicit opt-in includes them
     const full = exportSettings({ includeProjects: true });
-    expect(full.projects["/p"]["appearance.theme"]).toBe("light");
+    expect(full.projects?.["/p"]?.["appearance.theme"]).toBe("light");
   });
 
   it("preview reports added/changed/reset/ignored WITHOUT mutating state", () => {
@@ -253,6 +253,56 @@ describe("settings transfer (R4-06 #239)", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it("a document WITHOUT a projects key applies cleanly (parity: preview tolerates it)", () => {
+    const doc = {
+      kind: "gb-settings-export",
+      settingsVersion: CURRENT_SETTINGS_VERSION,
+      exportedAt: "",
+      global: { "appearance.theme": "auto" },
+      // no projects key at all
+    };
+    const p = previewImport(JSON.stringify(doc));
+    expect(p.ok).toBe(true);
+    const r = applyImport(p); // must return a result, never throw
+    expect(r.ok).toBe(true);
+    expect(useSettingsStore.getState().theme).toBe("auto");
+  });
+
+  it("no-op writes are not counted as applied", () => {
+    useSettingsStore.getState().setTheme("auto"); // already the doc's value
+    const doc: SettingsExportDoc = {
+      kind: "gb-settings-export",
+      settingsVersion: CURRENT_SETTINGS_VERSION,
+      exportedAt: "",
+      global: { "appearance.theme": "auto" },
+      projects: {},
+    };
+    const p = previewImport(JSON.stringify(doc));
+    expect(p.ok).toBe(true);
+    const r = applyImport(p);
+    expect(r.ok).toBe(true);
+    expect(r.applied).toEqual([]); // value identical → not counted
+  });
+
+  it("applyImport with a hand-built doc lacking projects does not throw", () => {
+    const r = applyImport({
+      ok: true,
+      errors: [],
+      added: [],
+      changed: [],
+      reset: [],
+      ignored: [],
+      doc: {
+        kind: "gb-settings-export",
+        settingsVersion: CURRENT_SETTINGS_VERSION,
+        exportedAt: "",
+        global: { "appearance.theme": "light" },
+      } as SettingsExportDoc,
+    });
+    expect(r.ok).toBe(true);
+    expect(useSettingsStore.getState().theme).toBe("light");
   });
 
   it("round-trips: export (opt-in projects) → preview → apply preserves values", () => {

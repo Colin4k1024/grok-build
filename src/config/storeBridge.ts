@@ -141,6 +141,9 @@ export function applyPreset(
   const failed: string[] = [];
   for (const [settingId, value] of Object.entries(values)) {
     try {
+      // No-op writes are not "applied" (consistent with applyImport).
+      const cur = resolveFromStore(settingId, projectId);
+      if (JSON.stringify(cur.value) === JSON.stringify(value)) continue;
       setScopedValue(settingId, value, scope, projectId);
       applied.push(settingId);
     } catch (e) {
