@@ -4,6 +4,25 @@ export default {
   theme: {
     extend: {
       colors: {
+        /* ---- R4 semantic tokens (source of truth: src/styles.css) ---- */
+        "gb-canvas": "rgb(var(--gb-canvas) / <alpha-value>)",
+        "gb-sidebar": "rgb(var(--gb-sidebar) / <alpha-value>)",
+        "gb-surface-1": "rgb(var(--gb-surface-1) / <alpha-value>)",
+        "gb-surface-2": "rgb(var(--gb-surface-2) / <alpha-value>)",
+        "gb-hover": "rgb(var(--gb-surface-hover) / <alpha-value>)",
+        "gb-text-primary": "rgb(var(--gb-text-primary) / <alpha-value>)",
+        "gb-text-muted": "rgb(var(--gb-text-muted) / <alpha-value>)",
+        "gb-text-disabled": "rgb(var(--gb-text-disabled) / <alpha-value>)",
+        "gb-accent-fg": "rgb(var(--gb-accent-fg) / <alpha-value>)",
+        "gb-focus": "rgb(var(--gb-focus) / <alpha-value>)",
+        "gb-success": "rgb(var(--gb-success) / <alpha-value>)",
+        "gb-warning": "rgb(var(--gb-warning) / <alpha-value>)",
+        "gb-danger": "rgb(var(--gb-danger) / <alpha-value>)",
+        "gb-info": "rgb(var(--gb-info) / <alpha-value>)",
+        "gb-border-hairline": "rgb(var(--gb-border-hairline) / <alpha-value>)",
+        "gb-border-control": "rgb(var(--gb-border-control) / <alpha-value>)",
+        "gb-border-emphasized": "rgb(var(--gb-border-emphasized) / <alpha-value>)",
+        /* ---- Legacy aliases (kept; resolve through CSS var chains) ---- */
         "gb-bg": "rgb(var(--gb-bg) / <alpha-value>)",
         "gb-bg-secondary": "rgb(var(--gb-bg-secondary) / <alpha-value>)",
         "gb-surface": "rgb(var(--gb-surface) / <alpha-value>)",
@@ -22,6 +41,30 @@ export default {
         "gb-activitybar-fg": "rgb(var(--gb-activitybar-fg) / <alpha-value>)",
         "gb-statusbar": "rgb(var(--gb-statusbar) / <alpha-value>)",
         "gb-tab-inactive": "rgb(var(--gb-tab-inactive) / <alpha-value>)",
+      },
+      borderRadius: {
+        "gb-sm": "var(--gb-radius-sm)",
+        "gb-md": "var(--gb-radius-md)",
+        "gb-lg": "var(--gb-radius-lg)",
+      },
+      boxShadow: {
+        "gb-low": "var(--gb-elevation-low)",
+        "gb-medium": "var(--gb-elevation-medium)",
+        "gb-modal": "var(--gb-elevation-modal)",
+      },
+      transitionDuration: {
+        "gb-fast": "140ms",
+        "gb-normal": "220ms",
+        "gb-deliberate": "320ms",
+      },
+      transitionTimingFunction: {
+        gb: "cubic-bezier(0.2, 0, 0, 1)",
+      },
+      fontSize: {
+        "gb-xs": ["var(--gb-text-xs)", { lineHeight: "1.4" }],
+        "gb-sm": ["var(--gb-text-sm)", { lineHeight: "1.4" }],
+        "gb-md": ["var(--gb-text-md)", { lineHeight: "1.45" }],
+        "gb-lg": ["var(--gb-text-lg)", { lineHeight: "1.35" }],
       },
     },
   },

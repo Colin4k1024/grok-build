@@ -9,46 +9,112 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Codex palette — neutral dark, flat, no gradients.
-     Mapping follows codex-rs/tui/styles.md:
-       selection / status / input hints -> cyan
-       success & additions               -> green
-       errors & deletions                -> red
-       Codex brand mark                  -> magenta
-     Background/foreground follow the Codex TUI dark default (#212121). */
-  /* Codex desktop palette — neutral, flat, no gradients */
-  --gb-bg: 33 33 33;           /* #212121 — main background */
-  --gb-bg-secondary: 24 24 24; /* #181818 — sidebar */
-  --gb-surface: 47 47 47;      /* #2f2f2f — elevated surface */
-  --gb-surface-hover: 56 56 56;/* #383838 — hover state */
-  --gb-surface-solid: 38 38 38;/* #262626 — solid panel */
-  --gb-border: 255 255 255;    /* used with alpha → hairline borders */
-  --gb-text: 236 236 236;      /* #ececec — primary text */
-  --gb-text-secondary: 175 175 175; /* #afafaf */
-  --gb-muted: 150 150 150;     /* #969696 */
-  --gb-accent: 236 236 236;    /* near-white accent (Codex dark) */
-  --gb-brand: 236 236 236;
-  --gb-green: 63 185 130;
-  --gb-yellow: 250 191 36;
-  --gb-red: 248 113 113;       /* #f48771 */
+  /* ================================================================
+     R4 semantic design tokens — the source of truth (R4-01 #234).
+     Dark theme is the default; `.light` overrides the same tokens.
+     New code must consume semantic names; the legacy `--gb-*` names
+     at the bottom of this block are compatibility aliases only.
+     ================================================================ */
+
+  /* Surfaces — layered graphite, flat, no gradients */
+  --gb-canvas: 33 33 33;          /* app background (#212121) */
+  --gb-sidebar: 24 24 24;         /* primary rail / contextual sidebar */
+  --gb-surface-1: 38 38 38;       /* solid panel */
+  --gb-surface-2: 47 47 47;       /* elevated surface (cards, popovers) */
+  --gb-surface-hover: 56 56 56;   /* hover surface */
+
+  /* Text */
+  --gb-text-primary: 236 236 236;
+  --gb-text-secondary: 175 175 175;
+  --gb-text-muted: 150 150 150;
+  --gb-text-disabled: 110 110 110;
+
+  /* Accent & semantic status. The cool indigo accent is reserved for
+     focus, selection, progress and primary actions (Codex × Linear). */
+  --gb-accent: 124 126 234;       /* #7c7eea */
+  --gb-accent-fg: 255 255 255;    /* text placed on accent fills */
+  --gb-focus: var(--gb-accent);
+  --gb-success: 63 185 130;
+  --gb-warning: 250 191 36;
+  --gb-danger: 248 113 113;
+  --gb-info: 96 165 250;
+
+  /* Borders — RGB triplets, always consumed with an alpha value */
+  --gb-border-hairline: 255 255 255;
+  --gb-border-control: 255 255 255;
+  --gb-border-emphasized: 255 255 255;
+
+  /* Radii */
+  --gb-radius-sm: 4px;
+  --gb-radius-md: 6px;
+  --gb-radius-lg: 10px;
+
+  /* Elevation */
+  --gb-elevation-low: 0 1px 2px rgb(0 0 0 / 0.3);
+  --gb-elevation-medium: 0 4px 12px rgb(0 0 0 / 0.35);
+  --gb-elevation-modal: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  /* Motion — mirrors src/lib/motion.ts. Page-level motion only ever
+     animates transform/opacity; the reduced-motion block at the end
+     of this file zeroes these durations. */
+  --gb-motion-fast: 140ms;
+  --gb-motion-normal: 220ms;
+  --gb-motion-deliberate: 320ms;
+  --gb-motion-easing: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Interface type steps (spacing stays on Tailwind's 4px scale) */
+  --gb-text-xs: 12px;
+  --gb-text-sm: 13px;
+  --gb-text-md: 15px;
+  --gb-text-lg: 20px;
+
+  /* ---- Legacy aliases (compat only; migration target is above) ---- */
+  --gb-bg: var(--gb-canvas);
+  --gb-bg-secondary: var(--gb-sidebar);
+  --gb-surface: var(--gb-surface-2);
+  --gb-surface-solid: var(--gb-surface-1);
+  --gb-border: var(--gb-border-hairline);
+  --gb-text: var(--gb-text-primary);
+  --gb-muted: var(--gb-text-muted);
+  --gb-brand: var(--gb-accent);
+  --gb-green: var(--gb-success);
+  --gb-yellow: var(--gb-warning);
+  --gb-red: var(--gb-danger);
+  /* Referenced by tailwind.config + layout components but never
+     defined before R4-01; mapped onto semantic tokens here. */
+  --gb-activitybar: var(--gb-sidebar);
+  --gb-activitybar-fg: var(--gb-text-secondary);
+  --gb-statusbar: var(--gb-sidebar);
+  --gb-tab-inactive: var(--gb-surface-1);
 }
 
 .light {
   /* Codex desktop light — clean, warm-neutral */
-  --gb-bg: 255 255 255;
-  --gb-bg-secondary: 247 247 245; /* #f7f7f5 sidebar */
-  --gb-surface: 255 255 255;
-  --gb-surface-hover: 242 242 240; /* #f2f2f0 */
-  --gb-surface-solid: 255 255 255;
-  --gb-border: 230 230 227;    /* #e6e6e3 */
-  --gb-text: 13 13 13;         /* #0d0d0d */
-  --gb-text-secondary: 74 74 74;  /* #4a4a4a — 9.0:1 on white */
-  --gb-muted: 110 110 110;     /* #6e6e6e — 4.6:1 AA on white */
-  --gb-accent: 13 13 13;       /* near-black accent */
-  --gb-brand: 13 13 13;
-  --gb-green: 26 127 55;
-  --gb-yellow: 154 103 0;
-  --gb-red: 207 34 46;
+  --gb-canvas: 255 255 255;
+  --gb-sidebar: 247 247 245;
+  --gb-surface-1: 255 255 255;
+  --gb-surface-2: 255 255 255;
+  --gb-surface-hover: 242 242 240;
+
+  --gb-text-primary: 13 13 13;
+  --gb-text-secondary: 74 74 74;  /* 9.0:1 on white */
+  --gb-text-muted: 110 110 110;   /* 4.6:1 AA on white */
+  --gb-text-disabled: 160 160 160;
+
+  --gb-accent: 94 106 210;        /* #5e6ad2 */
+  --gb-accent-fg: 255 255 255;
+  --gb-success: 26 127 55;
+  --gb-warning: 154 103 0;
+  --gb-danger: 207 34 46;
+  --gb-info: 37 99 235;
+
+  --gb-border-hairline: 230 230 227;
+  --gb-border-control: 212 212 208;
+  --gb-border-emphasized: 190 190 186;
+
+  --gb-elevation-low: 0 1px 2px rgb(0 0 0 / 0.08);
+  --gb-elevation-medium: 0 4px 12px rgb(0 0 0 / 0.1);
+  --gb-elevation-modal: 0 12px 32px rgb(0 0 0 / 0.16);
 }
 
 html, body, #root {
@@ -94,12 +160,61 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 .app-drag input,
 .app-drag [data-no-drag] { -webkit-app-region: no-drag; }
 
-/* Minimal animations */
+/* ============ Motion utilities (R4-01; policy: transform/opacity only) ============ */
+/* Legacy entrance helpers — kept for existing pages */
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-fade-in { animation: fade-in var(--gb-motion-normal) ease-out; }
 
 @keyframes slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.animate-slide-up { animation: slide-up 0.25s ease-out; }
+.animate-slide-up { animation: slide-up var(--gb-motion-normal) ease-out; }
+
+/* Page entry: opacity + 6px rise over the normal duration (220ms) */
+@keyframes gb-page-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.gb-motion-page-enter { animation: gb-page-enter var(--gb-motion-normal) var(--gb-motion-easing) both; }
+
+/* Panel/sheet entry: deliberate slide from the leading edge */
+@keyframes gb-panel-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+.gb-motion-panel-enter { animation: gb-panel-enter var(--gb-motion-deliberate) var(--gb-motion-easing) both; }
+
+/* Press feedback: scale to 0.98 on the fast duration */
+.gb-motion-press { transition: transform var(--gb-motion-fast) var(--gb-motion-easing); }
+.gb-motion-press:active { transform: scale(0.98); }
+
+/* Visible keyboard focus, shared by every interactive control */
+.gb-focus-ring:focus-visible {
+  outline: 2px solid rgb(var(--gb-focus) / 0.9);
+  outline-offset: 1px;
+}
+
+/* Skeleton loading: opacity pulse only (never spatial motion) */
+@keyframes gb-skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.gb-skeleton {
+  background: rgb(var(--gb-surface-2));
+  border-radius: var(--gb-radius-sm);
+  animation: gb-skeleton-pulse 1.6s var(--gb-motion-easing) infinite;
+}
+
+/* Toast entry: subtle rise, exits handled by JS at ~65% of entry duration */
+@keyframes gb-toast-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.gb-motion-toast-enter { animation: gb-toast-enter var(--gb-motion-normal) var(--gb-motion-easing) both; }
+
+/* Reduced motion: zero the token durations and collapse legacy animations
+   to an instant state change. Spatial translation and scaling are removed;
+   components still get immediate opacity/state feedback. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --gb-motion-fast: 0ms;
+    --gb-motion-normal: 0ms;
+    --gb-motion-deliberate: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .gb-motion-press:active { transform: none; }
+}
 
 /* Selection */
 ::selection { background: rgba(128, 128, 128, 0.3); }
