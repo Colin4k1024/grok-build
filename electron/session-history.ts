@@ -7,6 +7,7 @@
  */
 
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { readJournal } from "./journal";
@@ -59,21 +60,74 @@ function readJson(file: string): Record<string, unknown> | null {
   return null;
 }
 
-export function listHistorySessions(): HistorySession[] {
-  if (!fs.existsSync(sessionsRoot())) return [];
+/** Async sibling of `readJson`. A missing file is the normal case (a session
+ *  dir with no summary yet), so only genuine parse/IO errors are logged. */
+async function readJsonAsync(file: string): Promise<Record<string, unknown> | null> {
+  let raw: string;
+  try {
+    raw = await fsp.readFile(file, "utf-8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      console.error(`[history] failed to read ${file}:`, e);
+    }
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error(`[history] failed to parse ${file}:`, e);
+    return null;
+  }
+}
 
-  const out: HistorySession[] = [];
-  for (const cwdEntry of fs.readdirSync(sessionsRoot(), { withFileTypes: true })) {
-    if (!cwdEntry.isDirectory()) continue;
-    const cwdPath = path.join(sessionsRoot(), cwdEntry.name);
-    for (const sessEntry of fs.readdirSync(cwdPath, { withFileTypes: true })) {
-      if (!sessEntry.isDirectory()) continue;
-      const raw = readJson(path.join(cwdPath, sessEntry.name, "summary.json"));
-      if (!raw) continue;
+async function readDirSafe(dir: string): Promise<import("node:fs").Dirent[]> {
+  try {
+    return await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return []; // missing root / unreadable dir == "no sessions here"
+  }
+}
+
+/** Bounded concurrent map — a large history must not open thousands of file
+ *  descriptors at once. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/**
+ * List every persisted thread.
+ *
+ * Async on purpose: this walks <sessions>/<cwd>/<session>/summary.json for the
+ * whole history and the renderer refreshes it on every thread-tree change. The
+ * previous nested sync loop blocked the Electron main process — and therefore
+ * every other IPC call — for the full duration of the walk.
+ */
+export async function listHistorySessions(): Promise<HistorySession[]> {
+  const root = sessionsRoot();
+  const cwdDirs = (await readDirSafe(root))
+    .filter((e) => e.isDirectory())
+    .map((e) => path.join(root, e.name));
+
+  const perCwd = await mapLimit(cwdDirs, 16, async (cwdPath) => {
+    const sessDirs = (await readDirSafe(cwdPath))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    const rows = await mapLimit(sessDirs, 16, async (name) => {
+      const raw = await readJsonAsync(path.join(cwdPath, name, "summary.json"));
+      if (!raw) return null;
       const s = raw as SummaryJson;
-      const id = s.info?.id ?? sessEntry.name;
+      const id = s.info?.id ?? name;
       const lastActive = s.last_active_at ?? s.updated_at ?? "";
-      out.push({
+      return {
         id,
         session_id: id,
         title: s.generated_title || s.session_summary || "Untitled",
@@ -82,10 +136,12 @@ export function listHistorySessions(): HistorySession[] {
         last_active_at: lastActive,
         model: s.current_model_id ?? "",
         num_messages: s.num_messages ?? 0,
-      });
-    }
-  }
+      } satisfies HistorySession;
+    });
+    return rows.filter((r): r is HistorySession => r !== null);
+  });
 
+  const out = perCwd.flat();
   out.sort((a, b) => b.updated_at - a.updated_at);
   return out;
 }

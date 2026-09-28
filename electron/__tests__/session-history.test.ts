@@ -65,19 +65,19 @@ function summaryJson(overrides: Record<string, unknown> = {}): string {
 }
 
 describe("listHistorySessions", () => {
-  it("returns [] when the sessions root does not exist", () => {
-    expect(listHistorySessions()).toEqual([]);
+  it("returns [] when the sessions root does not exist", async () => {
+    expect(await listHistorySessions()).toEqual([]);
   });
 
-  it("returns [] for an empty sessions directory", () => {
+  it("returns [] for an empty sessions directory", async () => {
     fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
-    expect(listHistorySessions()).toEqual([]);
+    expect(await listHistorySessions()).toEqual([]);
   });
 
-  it("parses summary.json with title/model/message defaults", () => {
+  it("parses summary.json with title/model/message defaults", async () => {
     writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
 
-    const [s] = listHistorySessions();
+    const [s] = await listHistorySessions();
     expect(s).toMatchObject({
       id: "sid-1",
       session_id: "sid-1",
@@ -89,7 +89,7 @@ describe("listHistorySessions", () => {
     expect(s.updated_at).toBe(Date.parse("2026-09-18T10:00:00Z"));
   });
 
-  it("falls back: session_summary → 'Untitled', info.id → dir name, updated_at → last_active", () => {
+  it("falls back: session_summary → 'Untitled', info.id → dir name, updated_at → last_active", async () => {
     writeSession(encodeURIComponent("/w/alpha"), "dir-id", {
       "summary.json": JSON.stringify({
         info: { cwd: "/w/alpha" },
@@ -98,18 +98,18 @@ describe("listHistorySessions", () => {
       }),
     });
 
-    const [s] = listHistorySessions();
+    const [s] = await listHistorySessions();
     expect(s).toMatchObject({ id: "dir-id", title: "the summary" });
 
     writeSession(encodeURIComponent("/w/beta"), "bare", {
       "summary.json": JSON.stringify({ generated_title: "t" }),
     });
 
-    const [, bare] = listHistorySessions();
+    const [, bare] = await listHistorySessions();
     expect(bare).toMatchObject({ title: "t", cwd: "", model: "", num_messages: 0, updated_at: 0 });
   });
 
-  it("skips directories without a parseable summary.json", () => {
+  it("skips directories without a parseable summary.json", async () => {
     writeSession(encodeURIComponent("/w/alpha"), "ok", { "summary.json": summaryJson() });
     writeSession(encodeURIComponent("/w/alpha"), "broken", { "summary.json": "{not json" });
     writeSession(encodeURIComponent("/w/alpha"), "empty-dir", {});
@@ -117,13 +117,13 @@ describe("listHistorySessions", () => {
     // Non-directory entries in the root are ignored too
     fs.writeFileSync(path.join(tmp, "sessions", "stray.txt"), "x");
 
-    const list = listHistorySessions();
+    const list = await listHistorySessions();
     // summary.json's info.id wins over the directory name; broken and
     // summary-less dirs are skipped entirely
     expect(list.map((s) => s.id)).toEqual(["sid-1"]);
   });
 
-  it("sorts by recency, most recent first", () => {
+  it("sorts by recency, most recent first", async () => {
     writeSession(encodeURIComponent("/w/a"), "old", {
       "summary.json": summaryJson({ info: { id: "old", cwd: "/w/a" }, last_active_at: "2026-09-01T00:00:00Z" }),
     });
@@ -131,7 +131,7 @@ describe("listHistorySessions", () => {
       "summary.json": summaryJson({ info: { id: "new", cwd: "/w/b" }, last_active_at: "2026-09-17T00:00:00Z" }),
     });
 
-    expect(listHistorySessions().map((s) => s.id)).toEqual(["new", "old"]);
+    expect((await listHistorySessions()).map((s) => s.id)).toEqual(["new", "old"]);
   });
 });
 

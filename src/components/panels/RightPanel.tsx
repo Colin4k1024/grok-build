@@ -1,8 +1,9 @@
+import { lazy, Suspense } from "react";
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { SubagentPanel } from "./SubagentPanel";
 import { TodoPanel } from "./TodoPanel";
 import { ThreadSummaryPanel } from "./ThreadSummaryPanel";
-import { DiffViewer } from "../chat/DiffViewer";
+import { LazyDiffViewer as DiffViewer } from "../chat/LazyDiffViewer";
 import { useSessionStore } from "../../stores/sessionStore";
 import {
   getMcpServers, gitStatus, gitDiff, gitDiffStaged, gitResetFile, gitRestoreFile,
@@ -14,7 +15,13 @@ import {
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
   type PtySession,
 } from "../../lib/tauri";
-import { InteractiveTerminal } from "./InteractiveTerminal";
+// xterm (~282 KB) is only needed once the Terminal tab actually has a live
+// PTY. RightPanel itself must stay eagerly mounted — it owns the
+// gb-open-terminal / gb-open-review listeners that ⌘J and the triage queue
+// dispatch into — so the split happens here, at the heavy leaf.
+const InteractiveTerminal = lazy(() =>
+  import("./InteractiveTerminal").then((m) => ({ default: m.InteractiveTerminal }))
+);
 import { next as reviewNext, ViewVersion, type ReviewState } from "../../lib/reviewMachine";
 
 interface RightPanelProps {
@@ -60,8 +67,21 @@ function FilesPanel({ cwd }: { cwd: string }) {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
+    // `git status` is an IPC round-trip into a spawned git process. Polling it
+    // every 5 s while the window is hidden burned CPU for a panel nobody could
+    // see; skip hidden ticks and refresh immediately on return.
+    const onVisible = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      refresh();
+    }, 5000);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -497,13 +517,21 @@ function TerminalPanel({ cwd }: { cwd: string }) {
     return (
       <div className="flex h-full flex-col bg-[#1c1c1c]">
         <div className="min-h-0 flex-1">
-          <InteractiveTerminal
-            key={session.id}
-            session={session}
-            onClosed={() => {
-              /* banner handled inside InteractiveTerminal */
-            }}
-          />
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-[10px] text-gb-muted">
+                加载终端…
+              </div>
+            }
+          >
+            <InteractiveTerminal
+              key={session.id}
+              session={session}
+              onClosed={() => {
+                /* banner handled inside InteractiveTerminal */
+              }}
+            />
+          </Suspense>
         </div>
         <div className="flex items-center justify-between border-t border-gb-border/8 px-2 py-1">
           <span className="font-mono text-[10px] text-gb-muted">

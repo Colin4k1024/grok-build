@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo } from "react";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
 import {
   listProjects, removeProject, listHistorySessions, deleteHistorySession,
@@ -66,6 +66,98 @@ function relTime(ts: number): string {
   if (days < 30) return `${days}d`;
   return new Date(ts).toLocaleDateString();
 }
+
+interface ThreadRowProps {
+  entry: ThreadEntry;
+  isActive: boolean;
+  running: boolean;
+  waiting: boolean;
+  isPinned: boolean;
+  /** Non-null only for the row currently being inline-renamed. */
+  renameValue: string | null;
+  onOpen: (e: ThreadEntry) => void;
+  onMenu: (e: ThreadEntry, x: number, y: number) => void;
+  onRenameChange: (key: string, value: string) => void;
+  onRenameCommit: (e: ThreadEntry) => void;
+  onRenameCancel: () => void;
+}
+
+/** Memoized sidebar row.
+ *
+ *  The tree used to be re-rendered in full — every project header, every row,
+ *  every hover button — whenever ANY session's streaming or approval state
+ *  moved. With a memoized row and primitive props, a background thread starting
+ *  to stream now re-renders exactly one row. */
+const ThreadRow = memo(function ThreadRow({
+  entry,
+  isActive,
+  running,
+  waiting,
+  isPinned,
+  renameValue,
+  onOpen,
+  onMenu,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+}: ThreadRowProps) {
+  const e = entry;
+  if (renameValue !== null) {
+    return (
+      <input
+        autoFocus
+        value={renameValue}
+        onChange={(ev) => onRenameChange(e.key, ev.target.value)}
+        onBlur={() => onRenameCommit(e)}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter") onRenameCommit(e);
+          else if (ev.key === "Escape") onRenameCancel();
+        }}
+        className="mb-0.5 w-full rounded border border-gb-accent/40 bg-gb-bg px-2 py-1 text-xs text-gb-text outline-none"
+      />
+    );
+  }
+  return (
+    <div
+      onClick={() => onOpen(e)}
+      onContextMenu={(ev) => {
+        ev.preventDefault();
+        onMenu(e, ev.clientX, ev.clientY);
+      }}
+      className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+        waiting
+          ? "bg-gb-yellow/10 text-gb-text hover:bg-gb-yellow/15"
+          : isActive
+            ? "bg-gb-accent/15 text-gb-text"
+            : "text-gb-text-secondary hover:bg-gb-surface-hover"
+      }`}
+      title={`${e.title}\n${e.cwd}${e.numMessages !== undefined ? `\n${e.numMessages} messages` : ""}${waiting ? "\nWaiting for approval" : ""}`}
+    >
+      {running ? (
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="运行中" />
+      ) : waiting ? (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-yellow" title="等待审批" />
+      ) : (
+        <span className="h-1.5 w-1.5 shrink-0" />
+      )}
+      <span className="min-w-0 flex-1 truncate">{e.title}</span>
+      {isPinned && <span className="shrink-0 text-[9px] text-gb-accent">•</span>}
+      <span className="hidden shrink-0 group-hover:block">
+        <button
+          className="rounded p-0.5 text-[9px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onMenu(e, ev.clientX, ev.clientY);
+          }}
+          title="会话操作"
+        >
+          …
+        </button>
+      </span>
+      <span className="w-6 shrink-0 text-right text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
+    </div>
+  );
+});
 
 /** Codex-style sidebar tree: Pinned / Projects (bookmarked folders and the
  *  threads that live in them, open or persisted) / Chats (everything else). */
@@ -302,104 +394,87 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
     }
   };
 
-  const renderEntry = (e: ThreadEntry) => {
-    const isActive = e.tabId && e.tabId === activeSessionId;
-    // Three-state indicator (codex sidebar): running / waiting for approval /
-    // idle. Background threads keep their running flag via per-session state.
-    const running = !!e.tabId && streaming[e.tabId];
-    const waiting = !!e.tabId && (pendingPermissions[e.tabId]?.length ?? 0) > 0;
-    return renaming?.key === e.key ? (
-      <input
+  const handleOpenMenu = useCallback(
+    (e: ThreadEntry, x: number, y: number) => setMenu({ x, y, entry: e }),
+    []
+  );
+  const handleRenameChange = useCallback(
+    (key: string, value: string) => setRenaming({ key, value }),
+    []
+  );
+  const handleRenameCancel = useCallback(() => setRenaming(null), []);
+
+  /** Row props are derived once per render and handed to a memoized row, so a
+   *  state change on one thread can't re-render the other N rows. */
+  const renderEntry = useCallback(
+    (e: ThreadEntry) => (
+      <ThreadRow
         key={e.key}
-        autoFocus
-        value={renaming.value}
-        onChange={(ev) => setRenaming({ key: e.key, value: ev.target.value })}
-        onBlur={() => commitEntryRename(e)}
-        onKeyDown={(ev) => {
-          if (ev.key === "Enter") commitEntryRename(e);
-          else if (ev.key === "Escape") setRenaming(null);
-        }}
-        className="mb-0.5 w-full rounded border border-gb-accent/40 bg-gb-bg px-2 py-1 text-xs text-gb-text outline-none"
+        entry={e}
+        isActive={!!e.tabId && e.tabId === activeSessionId}
+        // Three-state indicator (codex sidebar): running / waiting for
+        // approval / idle. Background threads keep their running flag via
+        // per-session state.
+        running={!!e.tabId && !!streaming[e.tabId]}
+        waiting={!!e.tabId && (pendingPermissions[e.tabId]?.length ?? 0) > 0}
+        isPinned={pinned.has(e.key)}
+        renameValue={renaming?.key === e.key ? renaming.value : null}
+        onOpen={openEntry}
+        onMenu={handleOpenMenu}
+        onRenameChange={handleRenameChange}
+        onRenameCommit={commitEntryRename}
+        onRenameCancel={handleRenameCancel}
       />
-    ) : (
-      <div
-        key={e.key}
-        onClick={() => openEntry(e)}
-        onContextMenu={(ev) => {
-          ev.preventDefault();
-          setMenu({ x: ev.clientX, y: ev.clientY, entry: e });
-        }}
-        className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
-          waiting
-            ? "bg-gb-yellow/10 text-gb-text hover:bg-gb-yellow/15"
-            : isActive
-              ? "bg-gb-accent/15 text-gb-text"
-              : "text-gb-text-secondary hover:bg-gb-surface-hover"
-        }`}
-        title={`${e.title}\n${e.cwd}${e.numMessages !== undefined ? `\n${e.numMessages} messages` : ""}${waiting ? "\nWaiting for approval" : ""}`}
-      >
-        {running ? (
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-gb-accent" title="运行中" />
-        ) : waiting ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-yellow" title="等待审批" />
-        ) : (
-          <span className="h-1.5 w-1.5 shrink-0" />
-        )}
-        <span className="min-w-0 flex-1 truncate">{e.title}</span>
-        {pinned.has(e.key) && <span className="shrink-0 text-[9px] text-gb-accent">•</span>}
-        <span className="hidden shrink-0 group-hover:block">
-          <button
-            className="rounded p-0.5 text-[9px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
-            onClick={(ev) => {
-              ev.stopPropagation();
-              setMenu({ x: ev.clientX, y: ev.clientY, entry: e });
-            }}
-            title="会话操作"
-          >
-            …
-          </button>
-        </span>
-        <span className="w-6 shrink-0 text-right text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
-      </div>
-    );
-  };
+    ),
+    // commitEntryRename is redefined per render on purpose (it closes over the
+    // live `renaming` draft); it is cheap and keeps rename behaviour exact.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSessionId, streaming, pendingPermissions, pinned, renaming, openEntry, handleOpenMenu, handleRenameChange, handleRenameCancel]
+  );
+
+  // Worktree threads awaiting review (codex review queue). Hoisted out of the
+  // JSX so the filter/sort isn't rebuilt on every render of the tree.
+  const triage = useMemo(
+    () => entries.filter((e) => /-wt-/.test(e.cwd) && !streaming[e.tabId ?? ""]),
+    [entries, streaming]
+  );
+  const triageUnread = useMemo(
+    () => triage.filter((e) => !triageRead.has(e.cwd)),
+    [triage, triageRead]
+  );
 
   const sectionLabel = "flex w-full items-center gap-1 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gb-muted";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-2">
       {/* Triage — worktree threads awaiting review (codex review queue) */}
-      {(() => {
-        const triage = entries.filter((e) => /-wt-/.test(e.cwd) && !streaming[e.tabId ?? ""]);
-        if (triage.length === 0) return null;
-        return (
-          <div className="mb-2">
-            <div className={sectionLabel}>
-              Triage
-              {triage.filter((e) => !triageRead.has(e.cwd)).length > 0 && (
-                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="有未读发现" />
-              )}
-            </div>
-            {triage.map((e) => {
-              const unread = !triageRead.has(e.cwd);
-              return (
-                <div
-                  key={`triage-${e.key}`}
-                  onClick={() => openEntry(e)}
-                  className={`mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
-                    unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
-                  }`}
-                  title={`${e.title}\n${e.cwd}\nReview the worktree diff`}
-                >
-                  {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-red" />}
-                  <span className="min-w-0 flex-1 truncate">Review: {e.title}</span>
-                  <span className="shrink-0 text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
-                </div>
-              );
-            })}
+      {triage.length > 0 && (
+        <div className="mb-2">
+          <div className={sectionLabel}>
+            Triage
+            {triageUnread.length > 0 && (
+              <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="有未读发现" />
+            )}
           </div>
-        );
-      })()}
+          {triage.map((e) => {
+            const unread = !triageRead.has(e.cwd);
+            return (
+              <div
+                key={`triage-${e.key}`}
+                onClick={() => openEntry(e)}
+                className={`mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
+                  unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
+                }`}
+                title={`${e.title}\n${e.cwd}\nReview the worktree diff`}
+              >
+                {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-red" />}
+                <span className="min-w-0 flex-1 truncate">Review: {e.title}</span>
+                <span className="shrink-0 text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {pinnedEntries.length > 0 && (
         <div className="mb-2">

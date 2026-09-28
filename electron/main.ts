@@ -521,7 +521,10 @@ async function startSessionRecord(cwd: string, resumeAcpId?: string) {
         const rec = sessions.get(event.session_id as string);
         if (rec?.acp_session_id) {
           if (event.type === "TextDelta" && typeof event.delta === "string" && event.delta) {
-            appendJournal(rec.acp_session_id, "assistant", event.delta);
+            // Hot path: one delta per token. Coalesced into a single async
+            // append per flush tick — a sync write here stalled the main
+            // process (and every renderer IPC behind it) for whole turns.
+            queueJournal(rec.acp_session_id, "assistant", event.delta);
           } else if (event.type === "TurnComplete") {
             appendJournal(rec.acp_session_id, "turn_end", "");
           }
@@ -629,7 +632,8 @@ ipcMain.handle("session_send", (e, args: { session_id: string; message: string; 
 
 ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
-  const session = id ? sessions.get(id) : undefined;
+  if (!id) return ok(null);
+  const session = sessions.get(id);
   if (!session) return ok(null);
   if (session.usesTransport) {
     // R3-02 (#187): cancel one session — does not affect others on the
@@ -642,7 +646,8 @@ ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: s
 });
 ipcMain.handle("session_compact", async (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
-  const session = id ? sessions.get(id) : undefined;
+  if (!id) throw new Error("Session id is required");
+  const session = sessions.get(id);
   if (!session) throw new Error(`Session ${id} not found`);
   if (session.usesTransport) {
     // /compact is just a prompt — route through the transport.
@@ -675,7 +680,7 @@ ipcMain.handle("session_close", (_e, args: { sessionId?: string; session_id?: st
 
 // --- Session history (reads the agent's on-disk session store) ---
 
-ipcMain.handle("session_list_history", () => ok(listHistorySessions()));
+ipcMain.handle("session_list_history", async () => ok(await listHistorySessions()));
 
 ipcMain.handle("session_get_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string }) => {
   const sessionId = args?.sessionId ?? args?.session_id;
@@ -876,7 +881,7 @@ import {
   unmarkClaudeImported,
 } from "./claude-import";
 import { persistTranscript } from "./transcript-store";
-import { appendJournal } from "./journal";
+import { appendJournal, queueJournal, flushAllJournalsSync } from "./journal";
 import {
   registerWorktree, unregisterWorktree, touchWorktree,
   listOrphans, pruneOrphans, worktreeCount, readRegistry,
@@ -1064,6 +1069,12 @@ ipcMain.handle("disable_autostart", () => {
   return ok(null);
 });
 
+// Fire-and-forget trace channel (preload uses `send` so tracing never adds a
+// round-trip to the call it traces). The `handle` below stays for any caller
+// still awaiting a reply.
+ipcMain.on("log_frontend", (_e, args: { level: string; message: string }) => {
+  console.log(`[FE ${String(args?.level ?? "info").toUpperCase()}]`, args?.message);
+});
 ipcMain.handle("log_frontend", (_e, args: { level: string; message: string }) => {
   console.log(`[FE ${args.level.toUpperCase()}]`, args.message);
   return ok(null);
@@ -1547,6 +1558,9 @@ app.on("will-quit", () => {
 });
 
 app.on("before-quit", () => {
+  // Buffered deltas must reach disk before the process goes away, or the last
+  // partial turn of every live thread is lost from its journal.
+  flushAllJournalsSync();
   for (const rec of sessions.values()) {
     rec.agent?.dispose();
   }

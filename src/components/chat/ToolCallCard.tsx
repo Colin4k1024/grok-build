@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { TerminalView } from "./TerminalView";
+import { useState, useMemo, memo, useCallback } from "react";
+import { LazyTerminalView as TerminalView } from "./LazyTerminalView";
 import type { ChatMessage } from "../../stores/sessionStore";
 
 interface Props { message: ChatMessage; }
@@ -29,14 +29,25 @@ function formatDuration(ms: number): string {
 }
 
 /** Remember collapse state per tool so a user who always expands "bash" doesn't
- *  have to click it for every call in the thread. Persisted to localStorage. */
+ *  have to click it for every call in the thread. Persisted to localStorage.
+ *
+ *  The map is cached at module scope: reading + JSON.parsing localStorage in
+ *  every card's useState initializer meant one synchronous storage read per
+ *  tool call in the transcript (a thread with 200 bash calls did 200 reads
+ *  while mounting). */
 const COLLAPSE_KEY = "gb-tool-card-collapsed";
+let collapsedCache: Record<string, boolean> | null = null;
+
 function loadCollapsedMap(): Record<string, boolean> {
+  if (collapsedCache) return collapsedCache;
+  let parsed: Record<string, boolean>;
   try {
-    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
+    parsed = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
   } catch {
-    return {};
+    parsed = {};
   }
+  collapsedCache = parsed;
+  return parsed;
 }
 function saveCollapsed(toolName: string, collapsed: boolean) {
   const map = loadCollapsedMap();
@@ -48,7 +59,14 @@ function saveCollapsed(toolName: string, collapsed: boolean) {
   }
 }
 
-export function ToolCallCard({ message }: Props) {
+/** Test-only: drop the module-level collapse cache. */
+export function __resetCollapsedCache(): void {
+  collapsedCache = null;
+}
+
+/** Memoized: tool cards sit inside the streaming message list, so every flush
+ *  used to re-render all of them (and re-read localStorage) for no change. */
+export const ToolCallCard = memo(function ToolCallCard({ message }: Props) {
   const toolName = message.toolName || "tool";
   const [expanded, setExpanded] = useState(() => {
     const map = loadCollapsedMap();
@@ -76,18 +94,21 @@ export function ToolCallCard({ message }: Props) {
         ? "text-gb-red"
         : "text-gb-muted";
 
-  const toggleExpanded = () => {
-    const next = !expanded;
-    setExpanded(next);
-    saveCollapsed(toolName, !next);
-  };
+  const toggleExpanded = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev;
+      saveCollapsed(toolName, !next);
+      return next;
+    });
+  }, [toolName]);
+
+  const lowerName = toolName.toLowerCase();
+  const isScreenshot = lowerName.includes("screenshot") || lowerName.includes("capture");
 
   return (
     <div
       className={`my-1 overflow-hidden rounded-md border transition-colors ${
-        toolName.toLowerCase().includes("screenshot") || toolName.toLowerCase().includes("capture")
-          ? "gb-screenshot-capture"
-          : ""
+        isScreenshot ? "gb-screenshot-capture" : ""
       } ${
         message.toolSuccess === true
           ? "border-gb-green/20"
@@ -153,4 +174,4 @@ export function ToolCallCard({ message }: Props) {
       )}
     </div>
   );
-}
+});

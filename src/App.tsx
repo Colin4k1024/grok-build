@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useNotifications } from "./hooks/useNotifications";
@@ -9,21 +9,53 @@ import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBa
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
 import { Sidebar } from "./components/layout/Sidebar";
-import { GlobalSearch } from "./components/layout/GlobalSearch";
 import { RightPanel } from "./components/panels/RightPanel";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { QuestionCard } from "./components/chat/QuestionCard";
-import { SessionPicker } from "./components/session/SessionPicker";import { Settings } from "./pages/Settings";
-import { Dashboard } from "./pages/Dashboard";
 import { Home } from "./pages/Home";
-import { AuthHandoff } from "./pages/AuthHandoff";
-import { WorkspaceAgentsPage } from "./pages/WorkspaceAgentsPage";
-import { AutomationsPage } from "./pages/AutomationsPage";
 import { onAutomationRun } from "./lib/automation";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
+
+// Surfaces that are never part of the first paint. Splitting them out keeps the
+// entry chunk (and therefore app-launch parse time) down; in a packaged
+// Electron app these resolve from disk, so the swap is effectively instant.
+// `Login` stays eager — it IS the first paint for a signed-out launch.
+const GlobalSearch = lazy(() =>
+  import("./components/layout/GlobalSearch").then((m) => ({ default: m.GlobalSearch }))
+);
+const SessionPicker = lazy(() =>
+  import("./components/session/SessionPicker").then((m) => ({ default: m.SessionPicker }))
+);
+const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
+const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const AuthHandoff = lazy(() =>
+  import("./pages/AuthHandoff").then((m) => ({ default: m.AuthHandoff }))
+);
+const WorkspaceAgentsPage = lazy(() =>
+  import("./pages/WorkspaceAgentsPage").then((m) => ({ default: m.WorkspaceAgentsPage }))
+);
+const AutomationsPage = lazy(() =>
+  import("./pages/AutomationsPage").then((m) => ({ default: m.AutomationsPage }))
+);
+const UsagePanel = lazy(() =>
+  import("./components/panels/UsagePanel").then((m) => ({ default: m.UsagePanel }))
+);
+const ImportPanel = lazy(() =>
+  import("./components/panels/ImportPanel").then((m) => ({ default: m.ImportPanel }))
+);
+
+/** Full-viewport spinner for the lazily loaded full-page surfaces. */
+function PageFallback() {
+  return (
+    <div className="flex h-full items-center justify-center bg-gb-bg">
+      <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
+    </div>
+  );
+}
+
 import { useAutoReconnect } from "./hooks/useAutoReconnect";
 import { useAutoSave } from "./hooks/useAutoSave";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -42,8 +74,6 @@ import { executeSlashCommand } from "./lib/slashExec";
 import { forkSnapshot } from "./lib/threadOps";
 import { openHistoryThread } from "./lib/threadResume";
 import type { PendingPermission, PendingQuestion } from "./stores/sessionStore";
-import { UsagePanel } from "./components/panels/UsagePanel";
-import { ImportPanel } from "./components/panels/ImportPanel";
 import { formatRetry } from "./lib/usage";
 import type { Command } from "./components/layout/CommandPalette";
 
@@ -86,6 +116,13 @@ export default function App() {
     (s) =>
       Object.values(s.pendingPermissions).reduce((sum, arr) => sum + arr.length, 0) +
       Object.values(s.pendingQuestions).reduce((sum, arr) => sum + arr.length, 0)
+  );
+  // Rate-limit banner for the active thread. This used to be a
+  // `useSessionStore.getState()` read inside the render body, which is NOT a
+  // subscription: the banner only appeared if some unrelated state happened to
+  // re-render App, so hitting a rate limit often showed nothing at all.
+  const activeRateLimit = useSessionStore((s) =>
+    s.activeSessionId ? s.rateLimits[s.activeSessionId] : undefined
   );
   const clearMessages = useSessionStore((s) => s.clearMessages);
   const setTabCwd = useSessionStore((s) => s.setTabCwd);
@@ -891,7 +928,7 @@ export default function App() {
   }, [tabs, activeSessionId, config, setActiveSession]);
 
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
-  if (isAuthHandoff) return <AuthHandoff />;
+  if (isAuthHandoff) return <Suspense fallback={<PageFallback />}><AuthHandoff /></Suspense>;
   if (!auth) {
     return (
       <div className="flex h-full items-center justify-center bg-gb-bg">
@@ -933,32 +970,44 @@ export default function App() {
   }
 
   if (showAutomations) {
-    return <AutomationsPage onClose={() => setShowAutomations(false)} />;
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <AutomationsPage onClose={() => setShowAutomations(false)} />
+      </Suspense>
+    );
   }
 
   if (showAgentsPage) {
     return (
-      <WorkspaceAgentsPage
-        onClose={() => setShowAgentsPage(false)}
-        onOpenSession={(id) => {
-          setActiveSession(id);
-          setShowAgentsPage(false);
-        }}
-      />
+      <Suspense fallback={<PageFallback />}>
+        <WorkspaceAgentsPage
+          onClose={() => setShowAgentsPage(false)}
+          onOpenSession={(id) => {
+            setActiveSession(id);
+            setShowAgentsPage(false);
+          }}
+        />
+      </Suspense>
     );
   }
 
   if (showDashboard) {
     return (
-      <Dashboard
-        onClose={() => setShowDashboard(false)}
-        onOpenSession={() => setShowDashboard(false)}
-      />
+      <Suspense fallback={<PageFallback />}>
+        <Dashboard
+          onClose={() => setShowDashboard(false)}
+          onOpenSession={() => setShowDashboard(false)}
+        />
+      </Suspense>
     );
   }
 
   if (showSettings) {
-    return <Settings onClose={() => { setShowSettings(false); setSettingsTab(undefined); }} initialTab={settingsTab} />;
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <Settings onClose={() => { setShowSettings(false); setSettingsTab(undefined); }} initialTab={settingsTab} />
+      </Suspense>
+    );
   }
 
   return (
@@ -1001,21 +1050,17 @@ export default function App() {
               <button className="text-gb-yellow/60 hover:text-gb-yellow" onClick={() => setCrashNotice(null)}>✕</button>
             </div>
           )}
-          {(() => {
-            const activeLimit = activeSessionId ? useSessionStore.getState().rateLimits[activeSessionId] : undefined;
-            if (!activeLimit || activeLimit.until <= Date.now()) return null;
-            return (
-              <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/10 px-4 py-1.5 text-xs text-gb-yellow">
-                <span className="flex-1">⏳ 限流中 — {formatRetry(activeLimit.until)}：{activeLimit.message.slice(0, 120)}</span>
-                <button
-                  className="text-gb-yellow/70 hover:text-gb-yellow"
-                  onClick={() => useSessionStore.getState().setRateLimit(activeSessionId!, null)}
-                >
-                  ✕
-                </button>
-              </div>
-            );
-          })()}
+          {activeRateLimit && activeRateLimit.until > Date.now() && (
+            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/10 px-4 py-1.5 text-xs text-gb-yellow">
+              <span className="flex-1">⏳ 限流中 — {formatRetry(activeRateLimit.until)}：{activeRateLimit.message.slice(0, 120)}</span>
+              <button
+                className="text-gb-yellow/70 hover:text-gb-yellow"
+                onClick={() => activeSessionId && useSessionStore.getState().setRateLimit(activeSessionId, null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {slashNotice && (
             <div
               className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-gb-border/40 bg-gb-surface-solid px-4 py-2 text-xs text-gb-text shadow-xl"
@@ -1086,15 +1131,19 @@ export default function App() {
         <RightPanel collapsed={responsiveRightCollapsed} />
 
       {showPicker && (
-        <SessionPicker onClose={() => setShowPicker(false)} />
+        <Suspense fallback={null}>
+          <SessionPicker onClose={() => setShowPicker(false)} />
+        </Suspense>
       )}
 
       {showSearch && (
-        <GlobalSearch
-          onClose={() => setShowSearch(false)}
-          onOpenTab={(id) => { setActiveSession(id); setShowHome(false); }}
-          onResumeThread={handleResumeThread}
-        />
+        <Suspense fallback={null}>
+          <GlobalSearch
+            onClose={() => setShowSearch(false)}
+            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); }}
+            onResumeThread={handleResumeThread}
+          />
+        </Suspense>
       )}
 
       {confirmClose && (
@@ -1132,12 +1181,18 @@ export default function App() {
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
         onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}
       />
-      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} />}
+      {showUsage && (
+        <Suspense fallback={null}>
+          <UsagePanel onClose={() => setShowUsage(false)} />
+        </Suspense>
+      )}
       {showImport && (
-        <ImportPanel
-          onClose={() => setShowImport(false)}
-          projectRoot={useSessionStore.getState().tabs.find((t) => t.id === useSessionStore.getState().activeSessionId)?.cwd}
-        />
+        <Suspense fallback={null}>
+          <ImportPanel
+            onClose={() => setShowImport(false)}
+            projectRoot={useSessionStore.getState().tabs.find((t) => t.id === useSessionStore.getState().activeSessionId)?.cwd}
+          />
+        </Suspense>
       )}
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />

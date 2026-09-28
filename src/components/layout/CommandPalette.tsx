@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 export interface Command {
   id: string;
@@ -34,17 +34,22 @@ export function CommandPalette({
   const [selectedIdx, setSelectedIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Build default command list
-  const defaultCommands: Command[] = [
-    { id: "new-session", title: "新建会话", category: "会话", shortcut: "⌘T", action: onNewSession },
-    { id: "close-session", title: "关闭当前会话", category: "会话", shortcut: "⌘W", action: onCloseSession },
-    { id: "compact", title: "压缩上下文", category: "会话", action: onCompact },
-    { id: "settings", title: "打开设置", category: "导航", action: onOpenSettings },
-    { id: "dashboard", title: "打开仪表盘", category: "导航", action: onOpenDashboard },
-    { id: "toggle-sidebar", title: "切换侧边栏", category: "视图", action: onToggleSidebar },
-    { id: "toggle-right-panel", title: "切换右侧面板", category: "视图", action: onToggleRightPanel },
-    ...commands,
-  ];
+  // Build default command list. Memoized: the palette stays mounted while
+  // closed, so this array of closures (plus the filter + category Set below)
+  // used to be rebuilt and thrown away on every single App re-render.
+  const defaultCommands = useMemo<Command[]>(
+    () => [
+      { id: "new-session", title: "新建会话", category: "会话", shortcut: "⌘T", action: onNewSession },
+      { id: "close-session", title: "关闭当前会话", category: "会话", shortcut: "⌘W", action: onCloseSession },
+      { id: "compact", title: "压缩上下文", category: "会话", action: onCompact },
+      { id: "settings", title: "打开设置", category: "导航", action: onOpenSettings },
+      { id: "dashboard", title: "打开仪表盘", category: "导航", action: onOpenDashboard },
+      { id: "toggle-sidebar", title: "切换侧边栏", category: "视图", action: onToggleSidebar },
+      { id: "toggle-right-panel", title: "切换右侧面板", category: "视图", action: onToggleRightPanel },
+      ...commands,
+    ],
+    [commands, onNewSession, onCloseSession, onCompact, onOpenSettings, onOpenDashboard, onToggleSidebar, onToggleRightPanel]
+  );
 
   // Keyboard listener for Cmd+Shift+P / Cmd+K
   useEffect(() => {
@@ -73,13 +78,19 @@ export function CommandPalette({
   }, [open]);
 
   // Filter commands
-  const filtered = defaultCommands.filter((cmd) => {
-    const q = query.toLowerCase();
-    return cmd.title.toLowerCase().includes(q) || cmd.category.toLowerCase().includes(q);
-  });
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return defaultCommands;
+    return defaultCommands.filter(
+      (cmd) => cmd.title.toLowerCase().includes(q) || cmd.category.toLowerCase().includes(q)
+    );
+  }, [defaultCommands, query]);
 
   // Group by category
-  const categories = [...new Set(filtered.map((c) => c.category))];
+  const categories = useMemo(
+    () => [...new Set(filtered.map((c) => c.category))],
+    [filtered]
+  );
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

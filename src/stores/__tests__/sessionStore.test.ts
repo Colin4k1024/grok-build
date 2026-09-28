@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   useSessionStore,
+  flushPersistedShell,
   type SessionTab,
   type ChatMessage,
 } from "../sessionStore";
@@ -451,6 +452,10 @@ describe("persistence boundary", () => {
     store.addUserMessage("p1", "secret transcript");
     store.enqueueQueuedPrompt("p1", "queued secret");
 
+    // Writes are debounced (a streaming turn used to trigger one synchronous
+    // localStorage write per state change); flush to assert the content boundary.
+    flushPersistedShell();
+
     const raw = localStorage.getItem("gb-session-tabs");
     expect(raw).toBeTruthy();
     const persisted = JSON.parse(raw!).state;
@@ -458,6 +463,55 @@ describe("persistence boundary", () => {
     expect(persisted.activeSessionId).toBe("p1");
     expect(persisted.messages).toBeUndefined();
     expect(persisted.queuedPrompts).toBeUndefined();
+  });
+
+  it("does not write to localStorage for message/streaming churn", () => {
+    const store = useSessionStore.getState();
+    store.addTab(makeTab({ id: "hot" }));
+    flushPersistedShell();
+
+    // Spy on the write that the throttled shell writer performs.
+    const writes: string[] = [];
+    const realSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = (k: string, v: string) => {
+      writes.push(k);
+      return realSetItem(k, v);
+    };
+    try {
+      // The 20-100 Hz path: deltas, streaming flags, usage ticks.
+      for (let i = 0; i < 50; i++) {
+        store.appendAssistantText("hot", `tok${i} `);
+        store.setSessionStreaming("hot", true);
+        store.setStreaming(true);
+        store.setTokenUsage("hot", 100 + i, 1000);
+        flushPersistedShell();
+      }
+    } finally {
+      localStorage.setItem = realSetItem;
+    }
+
+    // Nothing persisted — the shell snapshot is byte-identical, so the
+    // change-detector skips every write.
+    expect(writes).toEqual([]);
+  });
+
+  it("skips the write when the serialized shell is unchanged", () => {
+    useSessionStore.getState().addTab(makeTab({ id: "idem" }));
+    flushPersistedShell();
+
+    const writes: string[] = [];
+    const realSetItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = (k: string, v: string) => {
+      writes.push(k);
+      return realSetItem(k, v);
+    };
+    try {
+      flushPersistedShell();
+      flushPersistedShell();
+    } finally {
+      localStorage.setItem = realSetItem;
+    }
+    expect(writes).toEqual([]);
   });
 });
 

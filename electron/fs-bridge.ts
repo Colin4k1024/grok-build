@@ -144,7 +144,7 @@ export interface WriteParams extends ReadParams {
 export interface AuditRecord {
   ts: string;
   sessionId: string;
-  op: "read" | "write";
+  op: "read" | "write" | "command";
   path: string;
   bytes: number | null;
   outcome: "allowed" | "denied" | "error";
