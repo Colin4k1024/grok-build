@@ -98,7 +98,7 @@ export function ArtifactViewer({ content, mimeType, fileName, onClose }: Artifac
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-black/85" onClick={onClose}>
+    <div className="fixed inset-0 z-gb-viewer flex flex-col bg-black/85" onClick={onClose}>
       {/* Header */}
       <div className="flex shrink-0 items-center gap-2 border-b border-gb-border/20 px-4 py-2">
         <span className="text-xs font-medium text-gb-text">{fileName ?? "Artifact"}</span>

@@ -31,7 +31,9 @@ const THEME_PAIRED_TOKENS = [
   "--gb-accent",
   "--gb-accent-fg",
   "--gb-accent-text",
+  "--gb-accent-hover",
   "--gb-focus",
+  "--gb-control-track",
   "--gb-success",
   "--gb-success-text",
   "--gb-warning",
@@ -127,6 +129,24 @@ describe("semantic design tokens", () => {
   it("has no hardcoded accent companion colors left in mention/highlight rules", () => {
     expect(stylesCss).not.toContain("rgba(34, 211, 238");
     expect(stylesCss).not.toContain("rgba(52, 211, 153");
+  });
+
+  it("the error-border utility is cascade-proof in every theme state", () => {
+    // The invalid border uses double-class specificity so Tailwind's
+    // variant utilities (emitted later) and the (0,2,0) hover tier cannot
+    // override it; theme-scoped and focused variants exist for both axes.
+    expect(stylesCss).toContain(".gb-border-danger.gb-border-danger {");
+    expect(stylesCss).toContain(".light .gb-border-danger.gb-border-danger {");
+    expect(stylesCss).toContain(".gb-border-danger.gb-border-danger:focus");
+    expect(stylesCss).toContain(".light .gb-border-danger.gb-border-danger:focus");
+  });
+
+  it("an invalid Input never combines the danger border with hover/focus border classes", () => {
+    // Structural guarantee: error fields render ONLY the danger treatment,
+    // so no cascade fight is possible. (Chromium-measured regression, R4-02.)
+    const inputSrc = readFileSync("src/components/ui/Input.tsx", "utf-8");
+    expect(inputSrc).toContain("error ? INVALID_BORDER_CLASSES : VALID_BORDER_CLASSES");
+    expect(inputSrc).toMatch(/INVALID_BORDER_CLASSES = "gb-border-danger"/);
   });
 });
 

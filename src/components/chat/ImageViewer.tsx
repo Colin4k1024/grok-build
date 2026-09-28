@@ -42,7 +42,7 @@ export function ImageViewer({ src, alt, onClose }: ImageViewerProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-gb-viewer flex items-center justify-center bg-black/80"
       onClick={onClose}
       onWheel={handleWheel}
     >
