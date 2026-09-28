@@ -652,9 +652,18 @@ describe("computeMenuPlacement", () => {
   });
 
   it("right-aligns via viewport-relative right offset", () => {
-    const p = computeMenuPlacement(trigger, size, viewport, "right");
+    // narrow menu that fits without clamping
+    const p = computeMenuPlacement(trigger, { width: 100, height: 160 }, viewport, "right");
     expect(p.right).toBe(1280 - 120);
     expect(p.left).toBeUndefined();
+  });
+
+  it("clamps right alignment so the menu never overflows the left edge", () => {
+    const farLeft = { top: 100, bottom: 132, left: 10, right: 40 };
+    const p = computeMenuPlacement(farLeft, { width: 300, height: 160 }, viewport, "right");
+    // left = vw - right - width must stay >= 8
+    const left = viewport.width - (p.right ?? 0) - 300;
+    expect(left).toBeGreaterThanOrEqual(8);
   });
 });
 
@@ -753,6 +762,18 @@ describe("Dialog hidden-attribute exclusion", () => {
     );
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "可见" })),
+    );
+  });
+
+  it("skips class-hidden (Tailwind .hidden) elements", async () => {
+    render(
+      <Dialog open onClose={() => {}} title="类隐藏">
+        <button className="hidden">类藏</button>
+        <button>可见二</button>
+      </Dialog>,
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "可见二" })),
     );
   });
 });

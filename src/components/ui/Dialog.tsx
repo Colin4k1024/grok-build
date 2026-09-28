@@ -12,10 +12,12 @@ const FOCUSABLE =
 /**
  * Visible-focusable filter that also works in jsdom (no layout there, so
  * offsetParent is useless). Excludes hidden attributes, hidden inputs,
- * inline display/visibility hiding and inert subtrees.
+ * inline display/visibility hiding, Tailwind's hidden/invisible classes,
+ * and inert subtrees.
  */
 function isActuallyFocusable(el: HTMLElement): boolean {
-  if (el.closest("[hidden], [inert]")) return false;
+  if (el.closest("[hidden], [inert], .hidden")) return false;
+  if (el.classList.contains("invisible")) return false;
   if (el.getAttribute("type") === "hidden") return false;
   if (el.style.display === "none" || el.style.visibility === "hidden") return false;
   return true;

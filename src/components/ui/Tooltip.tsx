@@ -57,12 +57,15 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   const show = () => {
     const box = anchorRef.current?.getBoundingClientRect();
     if (box) {
-      // Flip below the trigger when there is no room above (titlebar row).
+      // Flip below the trigger when there is no room above it.
+      // 34 = approx tip height (26) + gap (6) + a small safety margin.
       const flipBelow = box.top < 34;
+      // Clamp the center horizontally so a long tip never leaves the viewport.
+      const center = Math.min(Math.max(box.left + box.width / 2, 80), window.innerWidth - 80);
       setPlacement(
         flipBelow
-          ? { left: box.left + box.width / 2, top: box.bottom + 6 }
-          : { left: box.left + box.width / 2, bottom: window.innerHeight - box.top + 6 },
+          ? { left: center, top: box.bottom + 6 }
+          : { left: center, bottom: window.innerHeight - box.top + 6 },
       );
     }
     setVisible(true);
@@ -80,12 +83,16 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
     setVisible(false);
   };
 
-  // A tooltip is transient context — hide on scroll instead of floating
-  // detached from its anchor.
+  // A tooltip is transient context — hide on scroll/resize instead of
+  // floating detached from its anchor.
   useEffect(() => {
     if (!visible) return;
     window.addEventListener("scroll", hide, true);
-    return () => window.removeEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
   }, [visible]);
 
   if (!isValidElement(children)) return children;

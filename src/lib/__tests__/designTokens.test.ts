@@ -131,21 +131,22 @@ describe("semantic design tokens", () => {
     expect(stylesCss).not.toContain("rgba(52, 211, 153");
   });
 
-  it("the error-border utility beats tier/hover/focus rules in every theme state", () => {
-    // Cascade contract: .gb-border-danger must come AFTER the control/hover
-    // tier rules, and have theme-scoped + focused variants so light theme
-    // and :focus cannot override the invalid state (verified by source order
-    // since jsdom has no real cascade).
-    const dangerIdx = stylesCss.indexOf(".gb-border-danger {");
-    const controlIdx = stylesCss.indexOf(".gb-border-control {");
-    const hoverIdx = stylesCss.indexOf(".gb-hover-border-control:hover");
-    expect(dangerIdx).toBeGreaterThan(-1);
-    expect(controlIdx).toBeGreaterThan(-1);
-    expect(dangerIdx).toBeGreaterThan(controlIdx);
-    expect(dangerIdx).toBeGreaterThan(hoverIdx);
-    expect(stylesCss).toContain(".light .gb-border-danger");
-    expect(stylesCss).toContain(".gb-border-danger:focus");
-    expect(stylesCss).toContain(".light .gb-border-danger:focus");
+  it("the error-border utility is cascade-proof in every theme state", () => {
+    // The invalid border uses double-class specificity so Tailwind's
+    // variant utilities (emitted later) and the (0,2,0) hover tier cannot
+    // override it; theme-scoped and focused variants exist for both axes.
+    expect(stylesCss).toContain(".gb-border-danger.gb-border-danger {");
+    expect(stylesCss).toContain(".light .gb-border-danger.gb-border-danger {");
+    expect(stylesCss).toContain(".gb-border-danger.gb-border-danger:focus");
+    expect(stylesCss).toContain(".light .gb-border-danger.gb-border-danger:focus");
+  });
+
+  it("an invalid Input never combines the danger border with hover/focus border classes", () => {
+    // Structural guarantee: error fields render ONLY the danger treatment,
+    // so no cascade fight is possible. (Chromium-measured regression, R4-02.)
+    const inputSrc = readFileSync("src/components/ui/Input.tsx", "utf-8");
+    expect(inputSrc).toContain("error ? INVALID_BORDER_CLASSES : VALID_BORDER_CLASSES");
+    expect(inputSrc).toMatch(/INVALID_BORDER_CLASSES = "gb-border-danger"/);
   });
 });
 

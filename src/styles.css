@@ -37,7 +37,7 @@
   --gb-accent-fg: 255 255 255;
   --gb-accent-text: 165 168 245;  /* #a5a8f5 — 5.9:1 on accent/15 over surface-1 */
   --gb-accent-hover: 80 84 190;   /* darker for hover — white on it: 6.2:1 */
-  --gb-focus: 165 168 245;        /* 7.4:1 on canvas — WCAG 1.4.11 */
+  --gb-focus: 165 168 245;        /* 7.3:1 on canvas — WCAG 1.4.11 */
   --gb-control-track: 128 128 128;/* switch off-track — 3.4:1 vs surface-2 */
   --gb-success: 63 185 130;
   --gb-success-text: 63 185 130;
@@ -157,14 +157,13 @@
 .gb-hover-border-control:hover { border-color: rgb(var(--gb-border-control) / 0.35); }
 .light .gb-hover-border-control:hover { border-color: rgb(var(--gb-border-emphasized)); }
 
-/* Field-level error border. Defined AFTER the tier/hover utilities with
-   theme-scoped and focused variants so the invalid state stays visible in
-   every combination (light theme and :focus would otherwise win the
-   equal-specificity cascade). */
-.gb-border-danger { border-color: rgb(var(--gb-danger) / 0.6); }
-.light .gb-border-danger { border-color: rgb(var(--gb-danger) / 0.75); }
-.gb-border-danger:focus, .gb-border-danger:focus-visible { border-color: rgb(var(--gb-danger) / 0.85); }
-.light .gb-border-danger:focus, .light .gb-border-danger:focus-visible { border-color: rgb(var(--gb-danger)); }
+/* Field-level error border. Double-class specificity + theme/focus variants
+   so no tier/hover/focus rule can override the invalid state in any theme
+   (verified against the compiled CSS cascade, R4-02 review). */
+.gb-border-danger.gb-border-danger { border-color: rgb(var(--gb-danger) / 0.85); }
+.light .gb-border-danger.gb-border-danger { border-color: rgb(var(--gb-danger) / 0.75); }
+.gb-border-danger.gb-border-danger:focus, .gb-border-danger.gb-border-danger:focus-visible { border-color: rgb(var(--gb-danger)); }
+.light .gb-border-danger.gb-border-danger:focus, .light .gb-border-danger.gb-border-danger:focus-visible { border-color: rgb(var(--gb-danger)); }
 
 html, body, #root {
   height: 100%;

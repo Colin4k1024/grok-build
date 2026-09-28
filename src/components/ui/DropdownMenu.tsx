@@ -29,13 +29,18 @@ export function computeMenuPlacement(
   const flipped =
     below + menuSize.height > viewport.height - 8 && trigger.top - gap - menuSize.height > 0;
   const unclampedLeft = align === "left" ? trigger.left : undefined;
+  const unclampedRight = align === "right" ? viewport.width - trigger.right : undefined;
   return {
     top: flipped ? Math.max(8, trigger.top - gap - menuSize.height) : below,
     left:
       unclampedLeft === undefined
         ? undefined
         : Math.max(8, Math.min(unclampedLeft, viewport.width - menuSize.width - 8)),
-    right: align === "right" ? Math.max(8, viewport.width - trigger.right) : undefined,
+    right:
+      unclampedRight === undefined
+        ? undefined
+        // keep left = vw - right - width >= 8
+        : Math.max(8, Math.min(unclampedRight, viewport.width - menuSize.width - 8)),
     flipped,
   };
 }
@@ -105,7 +110,7 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open, align, items.length]);
+  }, [open, align, items]);
 
   // Focus discipline: when the menu opens, focus moves to the first enabled
   // item; if the item set changes while open (async load, shrink) and the

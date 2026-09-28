@@ -14,8 +14,13 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
-const FIELD_CLASSES =
-  "w-full rounded-gb-md border gb-border-control gb-hover-border-control bg-gb-canvas px-3 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb placeholder:text-gb-text-muted focus:border-gb-accent disabled:cursor-not-allowed disabled:opacity-50";
+const BASE_CLASSES =
+  "w-full rounded-gb-md border bg-gb-canvas px-3 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb placeholder:text-gb-text-muted disabled:cursor-not-allowed disabled:opacity-50";
+/** Border treatment for a VALID field — control tier + hover + focus accent. */
+const VALID_BORDER_CLASSES = "gb-border-control gb-hover-border-control focus:border-gb-accent";
+/** Invalid fields get ONLY the danger treatment, so no hover/focus rule can
+ *  ever cascade-override the error state (measured in Chromium, R4-02 review). */
+const INVALID_BORDER_CLASSES = "gb-border-danger";
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, description, error, id, className, ...rest },
@@ -37,7 +42,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       <input
         ref={ref}
         id={fieldId}
-        className={[FIELD_CLASSES, error ? "gb-border-danger" : "", className]
+        className={[BASE_CLASSES, error ? INVALID_BORDER_CLASSES : VALID_BORDER_CLASSES, className]
           .filter(Boolean)
           .join(" ")}
         aria-invalid={error ? true : undefined}
@@ -89,7 +94,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
         ref={ref}
         id={fieldId}
         type="search"
-        className={[FIELD_CLASSES, "pl-8"].join(" ")}
+        className={[BASE_CLASSES, VALID_BORDER_CLASSES, "pl-8"].join(" ")}
         {...rest}
       />
     </div>

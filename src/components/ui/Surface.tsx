@@ -48,7 +48,11 @@ export function Panel({
     >
       {title || actions ? (
         <header className="flex items-center justify-between border-b gb-border-hairline px-3 py-2">
-          <h3 className="text-gb-xs font-semibold text-gb-text-secondary">{title}</h3>
+          {title ? (
+            <h3 className="text-gb-xs font-semibold text-gb-text-secondary">{title}</h3>
+          ) : (
+            <span />
+          )}
           {actions}
         </header>
       ) : null}

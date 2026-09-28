@@ -99,14 +99,19 @@ git commit -m "feat(ui): add semantic tokens and motion system"
 
 ### Task 2: Build accessible reusable UI primitives
 
-**Files:**
-- Create: `src/components/ui/Button.tsx`
-- Create: `src/components/ui/IconButton.tsx`
-- Create: `src/components/ui/FormControls.tsx`
-- Create: `src/components/ui/Feedback.tsx`
-- Create: `src/components/ui/Surface.tsx`
+**Files (as shipped by PR #246 — superset of the issue #235 list):**
+- Create: `src/components/ui/Button.tsx` (Button + IconButton)
+- Create: `src/components/ui/Input.tsx` (Input + SearchField)
+- Create: `src/components/ui/FormControls.tsx` (Switch + Select + SegmentedControl)
+- Create: `src/components/ui/Dialog.tsx` (Dialog + Sheet)
+- Create: `src/components/ui/DropdownMenu.tsx`
+- Create: `src/components/ui/Tooltip.tsx`
+- Create: `src/components/ui/Toast.tsx` (toast API + ToastViewport)
+- Create: `src/components/ui/Feedback.tsx` (InlineNotice + EmptyState + Skeleton)
+- Create: `src/components/ui/Surface.tsx` (Card + Panel)
 - Create: `src/components/ui/index.ts`
 - Create: `src/components/ui/__tests__/primitives.test.tsx`
+- Create: `src/components/ui/__tests__/tokenCompliance.test.ts`
 
 **Step 1: Write failing primitive interaction tests**
 
