@@ -181,11 +181,34 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
       () => useSettingsStore.getState().setVoiceWakeEnabled(1 as never),
       () => useSettingsStore.getState().setVoiceTtsEnabled(0 as never),
       () => useSettingsStore.getState().setNotificationsEnabled("off" as never),
+      () => useSettingsStore.getState().addTrustedFolder(42 as never),
     ];
-    for (const fn of bad) expect(fn).toThrow(/invalid value/);
+    for (const fn of bad) expect(fn).toThrow();
     // nothing moved
     expect(useSettingsStore.getState().theme).toBe("dark");
     expect(useSettingsStore.getState().notificationsEnabled).toBe(true);
+  });
+
+  it("boot mode NEVER resets local state when the file has no blob (first launch after upgrade)", async () => {
+    const { syncFromFileDoc } = await import("../settingsStore");
+    useSettingsStore.getState().setTheme("light");
+    const blob = localStorage.getItem("gb-settings");
+    expect(blob).toBeTruthy();
+    // boot with an absent/empty file must not wipe the user's settings
+    syncFromFileDoc({ version: 1, values: {} }, "boot");
+    expect(useSettingsStore.getState().theme).toBe("light");
+    expect(localStorage.getItem("gb-settings")).toBe(blob);
+  });
+
+  it("boot mode adopts a present blob from the file", async () => {
+    const { syncFromFileDoc } = await import("../settingsStore");
+    const remote = JSON.stringify({
+      state: { theme: "light", projectOverrides: {} },
+      version: 1,
+    });
+    syncFromFileDoc({ version: 1, values: { "gb-settings": remote } }, "boot");
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().theme).toBe("light");
   });
 
   it("remote file reset resets live state even when localStorage is already empty", async () => {

@@ -366,27 +366,48 @@ export const useSettingsStore = create<SettingsState>()(
 // Multi-window sync + boot read-repair: the durable file is canonical.
 // Content-compare guards against any echo loop (main broadcasts only to
 // non-sender windows, but belt and braces).
-/** Apply a remote settings document: adopt a present blob, or reset local
- *  state to registry defaults when the file no longer carries one. */
-export function syncFromFileDoc(doc: { version?: number; values: Record<string, unknown> }): void {
+/**
+ * Apply a remote settings document.
+ *
+ * mode "boot": the file may simply not exist yet (first launch after
+ *   upgrade) — absence of the blob means "no file data", NEVER a reset.
+ *   We adopt a present blob, or seed the file from localStorage so the
+ *   mirror converges without touching local state.
+ * mode "event": fired only by explicit set/delete/reset mutations — a
+ *   missing blob there is a real reset, so live state resets to registry
+ *   defaults (unconditionally: another window may have cleared the shared
+ *   localStorage first while this window's state is still stale).
+ */
+export function syncFromFileDoc(
+  doc: { version?: number; values: Record<string, unknown> },
+  mode: "boot" | "event" = "event",
+): void {
   try {
     const remote = doc.values["gb-settings"];
     if (typeof remote === "string") {
       if (localStorage.getItem("gb-settings") === remote) return;
       localStorage.setItem("gb-settings", remote);
       useSettingsStore.persist.rehydrate();
-    } else if (remote === undefined) {
-      // The canonical file was reset — reset live state too. Always apply:
-      // localStorage may already be empty (another window cleared it first)
-      // while this window's Zustand state is still stale. The persist layer
-      // re-mirrors the defaults, so all windows converge.
-      localStorage.removeItem("gb-settings");
-      const defaults: Record<string, unknown> = { projectOverrides: {} };
-      for (const def of listSettings()) {
-        if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
-      }
-      useSettingsStore.setState(defaults);
+      return;
     }
+    if (remote !== undefined) return; // unexpected type — ignore
+    if (mode === "boot") {
+      // Seed the durable file from existing local state (upgrade path).
+      const local = localStorage.getItem("gb-settings");
+      if (local) {
+        getSettingsBridge()
+          ?.set("gb-settings", local)
+          .catch(() => {});
+      }
+      return;
+    }
+    // event mode: real reset
+    localStorage.removeItem("gb-settings");
+    const defaults: Record<string, unknown> = { projectOverrides: {} };
+    for (const def of listSettings()) {
+      if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
+    }
+    useSettingsStore.setState(defaults);
   } catch {
     /* storage unavailable */
   }
@@ -397,8 +418,8 @@ if (typeof window !== "undefined") {
   if (bridge) {
     bridge
       .getAll()
-      .then((doc) => syncFromFileDoc(doc))
+      .then((doc) => syncFromFileDoc(doc, "boot"))
       .catch(() => {});
-    bridge.onChanged((doc) => syncFromFileDoc(doc));
+    bridge.onChanged((doc) => syncFromFileDoc(doc, "event"));
   }
 }

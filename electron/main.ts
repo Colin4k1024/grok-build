@@ -318,7 +318,11 @@ ipcMain.handle("get_config", () => ok(toConfigSnapshot(readModelsDoc())));
   });
   ipcMain.handle("settings_file_reset", (e) => {
     const doc = resetSettingsFile(dir());
-    broadcast(e.sender, doc);
+    // Reset goes to ALL windows including the caller — the invoker's live
+    // state must reset too (syncFromFileDoc "event" path handles it).
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.webContents.send("settings_file_changed", doc);
+    }
     return ok(doc);
   });
 }
