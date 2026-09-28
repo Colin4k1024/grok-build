@@ -29,6 +29,9 @@ const KEY_PATTERN = /^[a-zA-Z0-9._-]{1,128}$/;
 /** Settings are never credentials — refuse credential-shaped keys outright
  *  (defense in depth; the renderer registry never declares them either). */
 const SECRET_PATTERN = /api[-_]?key|token|secret|password|credential/i;
+/** Envelope keys this channel actually serves. Today the renderer persists
+ *  exactly one document (the zustand persist blob); extend deliberately. */
+const ALLOWED_KEYS = new Set(["gb-settings"]);
 const MAX_VALUE_BYTES = 16 * 1024;
 
 function filePath(dir: string): string {
@@ -41,6 +44,9 @@ function assertKey(key: unknown): asserts key is string {
   }
   if (SECRET_PATTERN.test(key)) {
     throw new SettingsStoreError("invalid_key", "credential-shaped keys are not settings");
+  }
+  if (!ALLOWED_KEYS.has(key)) {
+    throw new SettingsStoreError("invalid_key", `unknown settings envelope key: ${key}`);
   }
 }
 

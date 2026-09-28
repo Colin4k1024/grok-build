@@ -54,6 +54,22 @@ export type FontSizeId = "small" | "medium" | "large" | "xlarge";
 export type AgentMode = "code" | "architect" | "debug";
 export type VoiceLanguage = "auto" | "zh-CN" | "en-US";
 
+/** Flat data keys that may hydrate from the persisted blob — an allowlist
+ *  so a corrupt/hostile blob can never overwrite store actions or inject
+ *  unknown state (R4-05 review). */
+const HYDRATABLE_KEYS = new Set([
+  "theme", "fontSize", "zoom", "sandboxMode", "agentMode", "agentAutonomous",
+  "voiceLanguage", "voiceWakeEnabled", "voiceTtsEnabled", "notificationsEnabled",
+  "trustedFolders", "projectOverrides",
+]);
+
+/** Registry default for a store key (the schema is the only place defaults
+ *  are declared — even this store's fallbacks come from it). */
+function registryDefault(storeKey: string): unknown {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  return def?.defaultValue;
+}
+
 export interface SettingsState {
   // Appearance
   theme: ThemeMode;
@@ -135,18 +151,19 @@ const dualWriteStorage: StateStorage = {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
-      // Defaults with legacy fallback on first load
-      theme: legacyString(LEGACY_THEME, "dark") as ThemeMode,
-      fontSize: legacyString(LEGACY_FONT_SIZE, "medium") as FontSizeId,
-      zoom: Number(legacyString(LEGACY_ZOOM, "1.0")),
-      sandboxMode: legacyString(LEGACY_SANDBOX, "sandbox") as "sandbox" | "full",
-      agentMode: legacyString(LEGACY_AGENT_MODE, "code") as AgentMode,
-      agentAutonomous: legacyBool(LEGACY_AGENT_AUTONOMOUS, false),
-      voiceLanguage: legacyString(LEGACY_VOICE_LANG, "auto") as VoiceLanguage,
-      voiceWakeEnabled: false,
-      voiceTtsEnabled: false,
-      notificationsEnabled: legacyBool(LEGACY_NOTIFICATIONS, true),
-      trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, []),
+      // Defaults: the registry schema is the ONLY declaration site; legacy
+      // keys are still honored as one-time migration reads.
+      theme: legacyString(LEGACY_THEME, registryDefault("theme") as string) as ThemeMode,
+      fontSize: legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string) as FontSizeId,
+      zoom: Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0))),
+      sandboxMode: legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string) as "sandbox" | "full",
+      agentMode: legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string) as AgentMode,
+      agentAutonomous: legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false),
+      voiceLanguage: legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string) as VoiceLanguage,
+      voiceWakeEnabled: (registryDefault("voiceWakeEnabled") as boolean) ?? false,
+      voiceTtsEnabled: (registryDefault("voiceTtsEnabled") as boolean) ?? false,
+      notificationsEnabled: legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true),
+      trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? []),
       projectOverrides: {},
 
       setTheme: (theme) => {
@@ -207,22 +224,25 @@ export const useSettingsStore = create<SettingsState>()(
           throw new Error(`invalid value for ${def.id}: ${JSON.stringify(value)}`);
         }
         const s = get();
-        switch (storeKey) {
-          case "theme": return s.setTheme(value as ThemeMode);
-          case "fontSize": return s.setFontSize(value as FontSizeId);
-          case "zoom": return s.setZoom(value as number);
-          case "sandboxMode": return s.setSandboxMode(value as "sandbox" | "full");
-          case "agentMode": return s.setAgentMode(value as AgentMode);
-          case "agentAutonomous": return s.setAgentAutonomous(value as boolean);
-          case "voiceLanguage": return s.setVoiceLanguage(value as VoiceLanguage);
-          case "voiceWakeEnabled": return s.setVoiceWakeEnabled(value as boolean);
-          case "voiceTtsEnabled": return s.setVoiceTtsEnabled(value as boolean);
-          case "notificationsEnabled": return s.setNotificationsEnabled(value as boolean);
-          case "trustedFolders":
-            return set({ trustedFolders: value as string[] });
-          default:
-            throw new Error(`unbound settings store key: ${storeKey}`);
-        }
+        // One dispatch table, co-located with validation. If schema's
+        // storeKey drifts from this table the round-trip test in
+        // configBridge.test.ts fails ("unbound … key").
+        const setters: Record<string, () => void> = {
+          theme: () => s.setTheme(value as ThemeMode),
+          fontSize: () => s.setFontSize(value as FontSizeId),
+          zoom: () => s.setZoom(value as number),
+          sandboxMode: () => s.setSandboxMode(value as "sandbox" | "full"),
+          agentMode: () => s.setAgentMode(value as AgentMode),
+          agentAutonomous: () => s.setAgentAutonomous(value as boolean),
+          voiceLanguage: () => s.setVoiceLanguage(value as VoiceLanguage),
+          voiceWakeEnabled: () => s.setVoiceWakeEnabled(value as boolean),
+          voiceTtsEnabled: () => s.setVoiceTtsEnabled(value as boolean),
+          notificationsEnabled: () => s.setNotificationsEnabled(value as boolean),
+          trustedFolders: () => set({ trustedFolders: value as string[] }),
+        };
+        const run = setters[storeKey];
+        if (!run) throw new Error(`unbound settings store key: ${storeKey}`);
+        run();
       },
       setProjectOverride: (projectId, settingId, value) => {
         const def = getSetting(settingId);
@@ -262,27 +282,32 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => dualWriteStorage),
       version: 1,
       // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
-      // only on version bumps: any persisted value failing its registry
-      // validator falls back to the default instead of poisoning the app.
+      // only on version bumps. Two layers of defense:
+      //   1. allowlist — only known DATA keys may hydrate (a blob can never
+      //      overwrite store actions or inject unknown state);
+      //   2. per-field registry validation — invalid values fall back to
+      //      the schema default; invalid override entries are dropped.
       merge: (persisted, current) => {
         const state = persisted as Record<string, unknown> | undefined;
         if (!state || typeof state !== "object") return current;
-        const byStoreKey = new Map(
-          listSettings()
-            .filter((d) => d.storeKey)
-            .map((d) => [d.storeKey as string, d]),
-        );
-        const out: Record<string, unknown> = { ...state };
-        for (const [key, def] of byStoreKey) {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(state)) {
+          if (HYDRATABLE_KEYS.has(key)) out[key] = state[key];
+        }
+        for (const def of listSettings()) {
+          if (!def.storeKey) continue;
+          const key = def.storeKey;
           if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
         }
-        if (out.projectOverrides && typeof out.projectOverrides === "object") {
-          const overrides = out.projectOverrides as Record<string, Record<string, unknown>>;
-          const cleaned: Record<string, Record<string, unknown>> = {};
-          for (const [projectId, entries] of Object.entries(overrides)) {
-            if (!entries || typeof entries !== "object") continue;
+        // Normalize projectOverrides: always an object of objects with
+        // validated entries (never null / array / garbage).
+        const raw = out.projectOverrides;
+        const cleaned: Record<string, Record<string, unknown>> = {};
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
+            if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
             const kept: Record<string, unknown> = {};
-            for (const [settingId, value] of Object.entries(entries)) {
+            for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
               const def = getSetting(settingId);
               if (def && def.scopes.includes("project") && def.validate(value)) {
                 kept[settingId] = value;
@@ -290,8 +315,8 @@ export const useSettingsStore = create<SettingsState>()(
             }
             if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
           }
-          out.projectOverrides = cleaned;
         }
+        out.projectOverrides = cleaned;
         return { ...current, ...out };
       },
     }
@@ -300,13 +325,21 @@ export const useSettingsStore = create<SettingsState>()(
 
 // Multi-window sync + boot read-repair: the durable file is canonical.
 // Content-compare guards against any echo loop (main broadcasts only to
-// non-sender windows, but belt and braces).
+// non-sender windows, but belt and braces). A document WITHOUT the blob key
+// means the file was reset — local state resets to defaults too.
 if (typeof window !== "undefined") {
-  const applyRemoteBlob = (blob: string) => {
+  const applyRemoteDoc = (doc: { values: Record<string, unknown> }) => {
     try {
-      if (localStorage.getItem("gb-settings") === blob) return;
-      localStorage.setItem("gb-settings", blob);
-      useSettingsStore.persist.rehydrate();
+      const remote = doc.values["gb-settings"];
+      if (typeof remote === "string") {
+        if (localStorage.getItem("gb-settings") === remote) return;
+        localStorage.setItem("gb-settings", remote);
+        useSettingsStore.persist.rehydrate();
+      } else if (remote === undefined) {
+        if (localStorage.getItem("gb-settings") === null) return;
+        localStorage.removeItem("gb-settings");
+        useSettingsStore.persist.rehydrate();
+      }
     } catch {
       /* storage unavailable */
     }
@@ -315,14 +348,8 @@ if (typeof window !== "undefined") {
   if (bridge) {
     bridge
       .getAll()
-      .then((doc) => {
-        const remote = doc.values["gb-settings"];
-        if (typeof remote === "string") applyRemoteBlob(remote);
-      })
+      .then((doc) => applyRemoteDoc(doc))
       .catch(() => {});
-    bridge.onChanged((doc) => {
-      const remote = doc.values["gb-settings"];
-      if (typeof remote === "string") applyRemoteBlob(remote);
-    });
+    bridge.onChanged((doc) => applyRemoteDoc(doc));
   }
 }

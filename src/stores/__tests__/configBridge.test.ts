@@ -45,6 +45,15 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     }
   });
 
+  it("every binding round-trips through setGlobalByKey (no dispatch-table drift)", () => {
+    for (const [settingId, storeKey] of Object.entries(listStoreBindings())) {
+      const def = listSettings().find((d) => d.id === settingId)!;
+      // write the default back through the typed path — must not throw
+      useSettingsStore.getState().setGlobalByKey(storeKey, def.defaultValue);
+      expect(resolveFromStore(settingId).value).toEqual(def.defaultValue);
+    }
+  });
+
   it("provenance: a project override equal to the default still reports project", () => {
     setScopedValue("appearance.theme", "light", "global");
     // project deliberately pins "dark" — equal to the product default but

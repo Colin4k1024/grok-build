@@ -24,22 +24,20 @@ describe("settings file store (R4-05 #238)", () => {
     expect(readSettingsFile(dir)).toEqual({ version: 1, values: {} });
   });
 
-  it("writes and reads back values", () => {
-    writeSettingsValue(dir, "appearance.theme", "light");
-    writeSettingsValue(dir, "appearance.zoom", 1.25);
+  it("writes and reads back the settings envelope", () => {
+    writeSettingsValue(dir, "gb-settings", '{"state":{"theme":"light"}}');
     const doc = readSettingsFile(dir);
-    expect(doc.values["appearance.theme"]).toBe("light");
-    expect(doc.values["appearance.zoom"]).toBe(1.25);
+    expect(doc.values["gb-settings"]).toBe('{"state":{"theme":"light"}}');
   });
 
   it("deletes values", () => {
-    writeSettingsValue(dir, "appearance.theme", "light");
-    deleteSettingsValue(dir, "appearance.theme");
-    expect(readSettingsFile(dir).values["appearance.theme"]).toBeUndefined();
+    writeSettingsValue(dir, "gb-settings", "blob");
+    deleteSettingsValue(dir, "gb-settings");
+    expect(readSettingsFile(dir).values["gb-settings"]).toBeUndefined();
   });
 
   it("reset clears all values", () => {
-    writeSettingsValue(dir, "a.b", 1);
+    writeSettingsValue(dir, "gb-settings", "blob");
     resetSettingsFile(dir);
     expect(readSettingsFile(dir).values).toEqual({});
   });
@@ -51,12 +49,17 @@ describe("settings file store (R4-05 #238)", () => {
     }
   });
 
+  it("rejects keys outside the served envelope set", () => {
+    expect(() => writeSettingsValue(dir, "appearance.theme", "light")).toThrow(/invalid_key/);
+    expect(() => writeSettingsValue(dir, "anything.valid", 1)).toThrow(/invalid_key/);
+  });
+
   it("rejects non-JSON-serializable and oversized values", () => {
-    expect(() => writeSettingsValue(dir, "a.b", undefined)).toThrow(/invalid_value/);
-    expect(() => writeSettingsValue(dir, "a.b", () => {})).toThrow(/invalid_value/);
-    expect(() => writeSettingsValue(dir, "a.b", "x".repeat(20 * 1024))).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", undefined)).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", () => {})).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", "x".repeat(20 * 1024))).toThrow(/invalid_value/);
     // multi-byte text must count BYTES, not UTF-16 units
-    expect(() => writeSettingsValue(dir, "a.b", "汉".repeat(6000))).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", "汉".repeat(6000))).toThrow(/invalid_value/);
   });
 
   it("rejects credential-shaped keys (defense in depth)", () => {
@@ -71,8 +74,8 @@ describe("settings file store (R4-05 #238)", () => {
     expect(readSettingsFile(dir).values).toEqual({});
     expect(readdirSync(dir).some((f) => f.includes("corrupt-"))).toBe(true);
     // and a subsequent write must not crash on the quarantined shape
-    writeSettingsValue(dir, "a.b", 1);
-    expect(readSettingsFile(dir).values["a.b"]).toBe(1);
+    writeSettingsValue(dir, "gb-settings", "blob");
+    expect(readSettingsFile(dir).values["gb-settings"]).toBe("blob");
   });
 
   it("repeated corruption produces distinct quarantine files", () => {
