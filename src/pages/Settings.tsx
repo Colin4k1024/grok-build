@@ -48,7 +48,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   about: ["about", "version", "info"],
 };
 
-export function Settings({ onClose: _onClose, initialTab }: { onClose: () => void; initialTab?: string }) {
+export function Settings({ initialTab }: { initialTab?: string }) {
   const [tab, setTab] = useState<SettingsTab>(
     (initialTab as SettingsTab | undefined) && initialTab! in TAB_LABELS
       ? (initialTab as SettingsTab)

@@ -398,10 +398,29 @@ export function PromptInput({
       )}
 
       <div
-        className="rounded-2xl border border-gb-border bg-gb-surface px-3.5 py-2.5 shadow-gb-medium focus-within:border-gb-muted/60"
+        className="gb-focusable-surface rounded-2xl border gb-border-control bg-gb-surface-1 px-3.5 py-2.5 shadow-gb-medium focus-within:border-gb-accent/60"
         title={tokenUsage ? `上下文：${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
       >
-        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
+        {/* R4-04: explicit composer status — never a bare spinner. A polite
+           live region; reduced-motion keeps the text (status is content,
+           not decoration). */}
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="composer-status"
+          className="mb-1 flex min-h-4 items-center px-0.5 text-gb-xs text-gb-text-muted"
+        >
+          {isRecording
+            ? "聆听中 — 再次点击麦克风或 Ctrl+M 结束"
+            : isStreaming
+              ? queuedCount > 0
+                ? `运行中 · ${queuedCount} 条排队 — Enter 追问 · Esc 停止`
+                : "运行中 — Enter 插入追问 · Tab 排队 · Esc 停止"
+              : disabled
+                ? "暂不可用 — 会话恢复中"
+                : ""}
+        </div>
+        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text-primary outline-none placeholder:text-gb-text-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
           <ComposerControls

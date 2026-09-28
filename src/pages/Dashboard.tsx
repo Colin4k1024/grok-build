@@ -1,8 +1,6 @@
 import { useSessionStore } from "../stores/sessionStore";
 
 interface Props {
-  /** Retained for API compatibility — navigation back is via the rail. */
-  onClose: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 

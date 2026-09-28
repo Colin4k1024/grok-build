@@ -1155,16 +1155,15 @@ export default function App() {
             <div key={destination} className="gb-motion-page-enter flex min-h-0 flex-1 flex-col overflow-hidden">
               {destination === "dashboard" ? (
                 <Suspense fallback={<PageFallback />}>
-                  <Dashboard onClose={goConversations} onOpenSession={goConversations} />
+                  <Dashboard onOpenSession={goConversations} />
                 </Suspense>
               ) : destination === "automations" ? (
                 <Suspense fallback={<PageFallback />}>
-                  <AutomationsPage onClose={goConversations} />
+                  <AutomationsPage />
                 </Suspense>
               ) : destination === "agents" ? (
                 <Suspense fallback={<PageFallback />}>
                   <WorkspaceAgentsPage
-                    onClose={goConversations}
                     onOpenSession={(id) => {
                       setActiveSession(id);
                       goConversations();
@@ -1173,7 +1172,7 @@ export default function App() {
                 </Suspense>
               ) : (
                 <Suspense fallback={<PageFallback />}>
-                  <Settings onClose={goConversations} initialTab={settingsTab} />
+                  <Settings initialTab={settingsTab} />
                 </Suspense>
               )}
             </div>
@@ -1229,8 +1228,8 @@ export default function App() {
         onNewSession={handleNewSession}
         onOpenSettings={() => openSettings()}
         onOpenDashboard={() => setDestination("dashboard")}
-        onToggleSidebar={toggleSidebar}
-        onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+        onToggleSidebar={toggleSidebarGated}
+        onToggleRightPanel={toggleRightPanelGated}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
         onCompact={() => { if (activeSessionId) compactSession(activeSessionId).catch(console.error); }}
       />

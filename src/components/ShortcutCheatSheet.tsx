@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 
 const SHORTCUTS = [
-  { keys: "⌘T", action: "新建会话标签页" },
+  { keys: "⌘N", action: "新建会话" },
   { keys: "⌘W", action: "关闭当前标签页" },
   { keys: "⌘1-9", action: "切换到第 N 个标签页" },
   { keys: "⌘⇧P", action: "命令面板" },

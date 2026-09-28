@@ -132,6 +132,23 @@ export function MessageList({ sessionId, resuming }: Props = {}) {
     measureOverflow();
   }, [totalItems, measureOverflow]);
 
+  // R4-03/#237: the conversation subtree is kept mounted but display:none
+  // while another destination is active — measurements read 0 there and go
+  // stale. Re-measure when the list becomes visible again.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        measureOverflow();
+        // re-pin to the bottom if we were following when hidden
+        if (followRef.current) el.scrollTop = el.scrollHeight;
+      }
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [measureOverflow]);
+
   useEffect(() => {
     setVisibleCount(RENDER_WINDOW);
     // A freshly opened thread starts pinned to the bottom.
