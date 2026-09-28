@@ -18,7 +18,7 @@ import {
  * page reloads. The renderer syncs its list via `automations_sync` and
  * receives run events on the `automation_run` IPC channel.
  */
-export function AutomationsPage({ onClose: _onClose }: { onClose: () => void }) {
+export function AutomationsPage() {
   const [items, setItems] = useState<Automation[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");

@@ -2,8 +2,6 @@ import { useMemo, useState } from "react";
 import { useSessionStore, type Subagent } from "../stores/sessionStore";
 
 interface WorkspaceAgentsPageProps {
-  /** Retained for API compatibility — navigation back is via the rail. */
-  onClose: () => void;
   onOpenSession: (id: string) => void;
 }
 
@@ -11,7 +9,7 @@ interface WorkspaceAgentsPageProps {
  * Workspace-wide agent overview — lists every subagent across every open
  * session, with detail drill-down. Codex parity: `workspace-agents-page`.
  */
-export function WorkspaceAgentsPage({ onClose: _onClose, onOpenSession }: WorkspaceAgentsPageProps) {
+export function WorkspaceAgentsPage({ onOpenSession }: WorkspaceAgentsPageProps) {
   const tabs = useSessionStore((s) => s.tabs);
   const subagents = useSessionStore((s) => s.subagents);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);

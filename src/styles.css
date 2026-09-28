@@ -315,6 +315,15 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 .gb-mention-project { background: rgb(var(--gb-success) / 0.16); color: rgb(var(--gb-success-text)); }
 .gb-mention-skill { background: rgb(var(--gb-warning) / 0.16); color: rgb(var(--gb-warning-text)); }
 
+/* Focus ring for composite surfaces (e.g. the composer box) whose inner
+   editor carries outline:none — the ring is COMPOSED with the surface's
+   elevation shadow, never replacing it. */
+.gb-focusable-surface:focus-within {
+  box-shadow:
+    var(--gb-elevation-medium),
+    0 0 0 2px rgb(var(--gb-focus) / 0.35);
+}
+
 /* Jump-to-message highlight (ISS-009) */
 @keyframes gb-jump-flash {
   0% { background: rgb(var(--gb-accent) / 0.18); }

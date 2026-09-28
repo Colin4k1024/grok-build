@@ -5,7 +5,7 @@
 // conversations-only, ⌘B is gated, deep-linked settings tabs reset, and
 // session actions navigate back to conversations.
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useSessionStore } from "../stores/sessionStore";
 
@@ -109,27 +109,39 @@ describe("App navigation shell (R4-03)", () => {
   it("⌘B does not mutate sidebar state on non-conversation destinations", async () => {
     render(<App />);
     await screen.findByRole("navigation", { name: "主导航" });
+    // sidebar visible on conversations (wide window)
+    expect(screen.getByRole("complementary", { name: "会话侧栏" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^仪表盘/ }));
     await screen.findByTestId("dashboard-page");
     await userEvent.keyboard("{Meta>}b{/Meta}");
-    // still on dashboard; no sidebar appeared
     expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
-    expect(screen.queryByRole("complementary", { name: "会话侧栏" })).not.toBeInTheDocument();
+    // back to conversations — sidebar must NOT have flipped
+    await userEvent.click(screen.getByRole("button", { name: /^会话/ }));
+    await screen.findByTestId("home-page");
+    expect(screen.getByRole("complementary", { name: "会话侧栏" })).toBeInTheDocument();
+    // and on conversations, ⌘B DOES toggle
+    await userEvent.keyboard("{Meta>}b{/Meta}");
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "会话侧栏" })).not.toBeInTheDocument(),
+    );
   });
 
   it("settings deep-link tab resets after leaving the destination", async () => {
     render(<App />);
     await screen.findByRole("navigation", { name: "主导航" });
-    // deep-link via palette command is covered by openSettings; emulate by
-    // opening settings via rail twice, first with nothing to prove default
-    await userEvent.click(screen.getByRole("button", { name: /^设置/ }));
-    const first = await screen.findByTestId("settings-page");
-    expect(first.dataset.initialTab).toBe("none");
+    // deep-link via the palette: ⌘K → "Settings: Plugins" → Enter
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    const paletteInput = await screen.findByPlaceholderText(/搜索|输入/);
+    await userEvent.type(paletteInput, "Plugins");
+    await userEvent.keyboard("{Enter}");
+    const linked = await screen.findByTestId("settings-page");
+    expect(linked.dataset.initialTab).toBe("plugins");
+    // leave and return via the rail — the deep link must NOT stick
     await userEvent.click(screen.getByRole("button", { name: /^会话/ }));
     await screen.findByTestId("home-page");
     await userEvent.click(screen.getByRole("button", { name: /^设置/ }));
-    const second = await screen.findByTestId("settings-page");
-    expect(second.dataset.initialTab).toBe("none");
+    const plain = await screen.findByTestId("settings-page");
+    expect(plain.dataset.initialTab).toBe("none");
   });
 
   it("every destination page is one rail click away (<= 2 operations)", async () => {

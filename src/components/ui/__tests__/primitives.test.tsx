@@ -446,6 +446,32 @@ describe("DropdownMenu", () => {
 });
 
 describe("Tooltip", () => {
+  it("does NOT double-announce when content equals the child's accessible name", async () => {
+    render(
+      <Tooltip content="设置">
+        <button aria-label="设置">⚙</button>
+      </Tooltip>,
+    );
+    const trigger = screen.getByRole("button", { name: "设置" });
+    trigger.focus();
+    await waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument());
+    // identical label + tooltip → no aria-describedby (screen readers would
+    // otherwise read it twice)
+    expect(trigger).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("adds aria-describedby when the tooltip adds information beyond the label", async () => {
+    render(
+      <Tooltip content="快捷键 ⌘,">
+        <button aria-label="设置">⚙</button>
+      </Tooltip>,
+    );
+    const trigger = screen.getByRole("button", { name: "设置" });
+    trigger.focus();
+    await waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument());
+    expect(trigger).toHaveAttribute("aria-describedby");
+  });
+
   it("shows on keyboard focus and hides on blur", async () => {
     render(
       <Tooltip content="复制到剪贴板">

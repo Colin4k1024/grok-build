@@ -98,6 +98,10 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   if (!isValidElement(children)) return children;
 
   const childProps = (children as ReactElement<ChildHandlers>).props;
+  // When the child already has an identical accessible name, the tooltip is
+  // purely visual — don't double-announce via aria-describedby.
+  const childLabel = (children as ReactElement<Record<string, unknown>>).props["aria-label"];
+  const redundant = typeof childLabel === "string" && childLabel === content;
   const compose =
     (ours: () => void, theirs?: (e: unknown) => void) =>
     (e: unknown) => {
@@ -118,9 +122,10 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
         hide();
       }
     },
-    "aria-describedby": [childProps["aria-describedby"], visible ? tooltipId : null]
-      .filter(Boolean)
-      .join(" ") || undefined,
+    "aria-describedby": redundant
+      ? childProps["aria-describedby"]
+      : [childProps["aria-describedby"], visible ? tooltipId : null].filter(Boolean).join(" ") ||
+        undefined,
   });
 
   return (

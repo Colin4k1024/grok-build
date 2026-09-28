@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, memo, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, memo, KeyboardEvent } from "react";
 import { SlashComplete } from "./SlashComplete";
 import type { SlashCommand } from "../../data/slashCommands";
 import { useVoiceInput } from "../../hooks/useVoiceInput";
@@ -14,9 +14,13 @@ import { saveDraft, loadDraft, clearDraft } from "../../lib/composerDraft";
 
 interface Props {
   onSend: (message: string, images: { data: string; mime_type: string }[]) => void;
-  onCancel: () => void;
+  /** Cancel the running turn. May return a promise — the composer shows a
+   *  "停止中…" state until it resolves (R4-04). */
+  onCancel: () => void | Promise<unknown>;
   isStreaming: boolean;
   disabled?: boolean;
+  /** Why the composer is disabled — announced in the status line. */
+  disabledReason?: string;
   cwd?: string;
   onSwitchProject?: (newCwd: string) => void;
   config?: ConfigSnapshot | null;
@@ -128,10 +132,11 @@ interface Trigger {
 }
 
 export function PromptInput({
-  onSend, onCancel, isStreaming, disabled, cwd, onSwitchProject,
+  onSend, onCancel, isStreaming, disabled, disabledReason, cwd, onSwitchProject,
   config, onModelEffortChange, onWorkModeChange, onQueue, home,
 }: Props) {
   const [text, setText] = useState("");
+  const [cancelling, setCancelling] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [showSlash, setShowSlash] = useState(false);
@@ -295,6 +300,12 @@ export function PromptInput({
     setTrigger(null);
   };
 
+  const handleCancel = useCallback(() => {
+    if (cancelling) return;
+    setCancelling(true);
+    Promise.resolve(onCancel()).finally(() => setCancelling(false));
+  }, [onCancel, cancelling]);
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (trigger && triggerMatches.length > 0 && ["ArrowUp","ArrowDown","Enter","Escape","Tab"].includes(e.key)) {
       e.preventDefault();
@@ -308,7 +319,7 @@ export function PromptInput({
     if (e.key === "Tab" && isStreaming && text.trim()) { e.preventDefault(); handleQueue(); return; }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleSend(); }
     else if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) { e.preventDefault(); handleSend(); }
-    else if (e.key === "Escape" && isStreaming) { onCancel(); }
+    else if (e.key === "Escape" && isStreaming) { handleCancel(); }
     else if (e.key === "ArrowUp" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!history.length) return; const i = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1); setHistoryIdx(i); setText(history[i]); }
     else if (e.key === "ArrowDown" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (historyIdx === -1) return; const i = historyIdx + 1; if (i >= history.length) { setHistoryIdx(-1); setText(""); } else { setHistoryIdx(i); setText(history[i]); } }
   };
@@ -398,10 +409,31 @@ export function PromptInput({
       )}
 
       <div
-        className="rounded-2xl border border-gb-border bg-gb-surface px-3.5 py-2.5 shadow-gb-medium focus-within:border-gb-muted/60"
+        className="gb-focusable-surface rounded-2xl border gb-border-control bg-gb-surface-1 px-3.5 py-2.5 shadow-gb-medium focus-within:border-gb-accent/60"
         title={tokenUsage ? `上下文：${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
       >
-        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
+        {/* R4-04: explicit composer status — never a bare spinner. A polite
+           live region; reduced-motion keeps the text (status is content,
+           not decoration). */}
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="composer-status"
+          className="mb-1 flex min-h-4 items-center px-0.5 text-gb-xs text-gb-text-muted"
+        >
+          {isRecording
+            ? "聆听中 — 再次点击麦克风或 Ctrl+M 结束"
+            : cancelling
+              ? "停止中…"
+              : disabled
+                ? (disabledReason ?? "暂不可用")
+                : isStreaming
+                  ? queuedCount > 0
+                    ? `运行中 · ${queuedCount} 条排队 — Enter 追问 · Esc 停止`
+                    : "运行中 — Enter 插入追问 · Tab 排队 · Esc 停止"
+                  : ""}
+        </div>
+        <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text-primary outline-none placeholder:text-gb-text-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
 
         <div className="mt-1 flex items-center gap-1" data-no-drag>
           <ComposerControls
@@ -433,7 +465,15 @@ export function PromptInput({
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2a2 2 0 00-2 2v3a2 2 0 004 0V4a2 2 0 00-2-2z" fill="currentColor" /><path d="M4 7a4 4 0 008 0M8 11v3" stroke="currentColor" strokeWidth="1.2" /></svg>
           </button>
           {isStreaming ? (
-            <button className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gb-red text-white hover:opacity-85" onClick={onCancel} title="停止 (Esc)"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="8" height="8" rx="1.5" /></svg></button>
+            <button
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gb-danger text-gb-canvas transition-opacity duration-gb-fast ease-gb hover:opacity-85 disabled:opacity-40"
+              onClick={handleCancel}
+              disabled={cancelling}
+              title="停止 (Esc)"
+              aria-label="停止"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="8" height="8" rx="1.5" /></svg>
+            </button>
           ) : (
             <button className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gb-text text-gb-bg hover:opacity-80 disabled:opacity-20" onClick={handleSend} disabled={(!text.trim() && images.length === 0) || disabled} title="发送 (Enter)">
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 12V2M3 6l4-4 4 4" /></svg>

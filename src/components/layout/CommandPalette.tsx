@@ -39,7 +39,7 @@ export function CommandPalette({
   // used to be rebuilt and thrown away on every single App re-render.
   const defaultCommands = useMemo<Command[]>(
     () => [
-      { id: "new-session", title: "新建会话", category: "会话", shortcut: "⌘T", action: onNewSession },
+      { id: "new-session", title: "新建会话", category: "会话", shortcut: "⌘N", action: onNewSession },
       { id: "close-session", title: "关闭当前会话", category: "会话", shortcut: "⌘W", action: onCloseSession },
       { id: "compact", title: "压缩上下文", category: "会话", action: onCompact },
       { id: "settings", title: "打开设置", category: "导航", action: onOpenSettings },
