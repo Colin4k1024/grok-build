@@ -89,7 +89,7 @@ function FilesPanel({ cwd }: { cwd: string }) {
     else setDiff("");
   }, [cwd, selected]);
 
-  if (error) return <p className="px-3 py-8 text-center text-xs text-gb-red">{error}</p>;
+  if (error) return <p className="px-3 py-8 text-center text-xs text-gb-danger-text">{error}</p>;
   if (entries.length === 0)
     return <p className="py-8 text-center text-xs text-gb-muted">此项目暂无文件变更。</p>;
 
@@ -106,7 +106,7 @@ function FilesPanel({ cwd }: { cwd: string }) {
             title={e.file}
           >
             <span className={`w-6 shrink-0 rounded px-1 text-center font-mono text-[9px] ${
-              e.status.includes("D") ? "bg-gb-red/15 text-gb-red" : e.status.includes("?") ? "bg-gb-yellow/15 text-gb-yellow" : "bg-gb-green/15 text-gb-green"
+              e.status.includes("D") ? "bg-gb-red/15 text-gb-danger-text" : e.status.includes("?") ? "bg-gb-yellow/15 text-gb-warning-text" : "bg-gb-green/15 text-gb-success-text"
             }`}>
               {e.status || "M"}
             </span>
@@ -349,9 +349,9 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         <div className="border-b border-gb-border/8 p-1.5">
           {action === "none" ? (
             <div className="flex gap-1">
-              <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-green hover:bg-gb-green/25" title="暂存全部并提交">批准</button>
+              <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-success-text hover:bg-gb-green/25" title="暂存全部并提交">批准</button>
               <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent-text hover:bg-gb-accent/25" title="将修改意见发回会话">打回修改</button>
-              <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-red hover:bg-gb-red/25" title="丢弃该 worktree">拒绝</button>
+              <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-danger-text hover:bg-gb-red/25" title="丢弃该 worktree">拒绝</button>
             </div>
           ) : (
             <div className="space-y-1">
@@ -375,7 +375,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         </div>
       )}
       {conflicts.length > 0 && (
-        <div className="border-b border-gb-red/30 bg-gb-red/10 px-2 py-1 text-[10px] text-gb-red">
+        <div className="border-b border-gb-red/30 bg-gb-red/10 px-2 py-1 text-[10px] text-gb-danger-text">
           合并冲突 — 以下文件未解决：{conflicts.join("、")}
         </div>
       )}
@@ -420,7 +420,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
           {files.slice(0, 30).map((e) => (
             <div key={e.file} className="flex items-center gap-1 px-1 py-0.5 text-[10px] text-gb-text-secondary hover:bg-gb-surface-hover rounded">
               <span className={`w-5 shrink-0 rounded px-0.5 text-center font-mono text-[8px] ${
-                e.status.includes("D") ? "bg-gb-red/15 text-gb-red" : e.status.includes("?") ? "bg-gb-yellow/15 text-gb-yellow" : "bg-gb-green/15 text-gb-green"
+                e.status.includes("D") ? "bg-gb-red/15 text-gb-danger-text" : e.status.includes("?") ? "bg-gb-yellow/15 text-gb-warning-text" : "bg-gb-green/15 text-gb-success-text"
               }`}>
                 {e.status || "M"}
               </span>
@@ -428,7 +428,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
               {e.status[0] !== "?" && (e.status.includes("M") || e.status.includes("D")) && (
                 <button
                   onClick={() => handleRevertFile(e.file, false)}
-                  className="shrink-0 rounded px-1 py-0 text-gb-red/60 hover:bg-gb-red/10 hover:text-gb-red"
+                  className="shrink-0 rounded px-1 py-0 text-gb-danger-text/60 hover:bg-gb-red/10 hover:text-gb-danger-text"
                   title="放弃此文件的修改"
                 >
                   还原
@@ -753,7 +753,7 @@ function McpPanel() {
   }, []);
 
   if (loading) return <p className="py-8 text-center text-xs text-gb-muted">加载 MCP 服务器中…</p>;
-  if (error) return <p className="py-8 px-3 text-center text-xs text-gb-red">{error}</p>;
+  if (error) return <p className="py-8 px-3 text-center text-xs text-gb-danger-text">{error}</p>;
   if (servers.length === 0)
     return (
       <p className="py-8 px-3 text-center text-xs text-gb-muted">
@@ -768,7 +768,7 @@ function McpPanel() {
         <div key={s.name} className="rounded-md border border-gb-border/10 bg-gb-surface px-2.5 py-2">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-gb-text">{s.name}</span>
-            <span className={`rounded px-1 text-[9px] ${s.enabled ? "bg-gb-green/15 text-gb-green" : "bg-gb-border text-gb-muted"}`}>
+            <span className={`rounded px-1 text-[9px] ${s.enabled ? "bg-gb-green/15 text-gb-success-text" : "bg-gb-border text-gb-muted"}`}>
               {s.enabled ? "on" : "off"}
             </span>
             <span className="ml-auto rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{s.transport_type}</span>

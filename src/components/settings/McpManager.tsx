@@ -55,7 +55,7 @@ export function McpManager() {
       </div>
 
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-red">
+        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-danger-text">
           {error}
         </div>
       )}
@@ -91,7 +91,7 @@ export function McpManager() {
                   <span className="text-xs font-medium text-gb-text">{server.name}</span>
                   <span className={`rounded px-1.5 py-0.5 text-[9px] ${
                     server.enabled
-                      ? "bg-gb-green/10 text-gb-green"
+                      ? "bg-gb-green/10 text-gb-success-text"
                       : "bg-gb-border text-gb-muted"
                   }`}>
                     {server.enabled ? "ENABLED" : "DISABLED"}
@@ -113,7 +113,7 @@ export function McpManager() {
                   </button>
                   <button
                     onClick={() => handleDelete(server.name)}
-                    className="text-[10px] text-gb-red hover:underline"
+                    className="text-[10px] text-gb-danger-text hover:underline"
                   >
                     Delete
                   </button>

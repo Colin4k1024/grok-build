@@ -23,7 +23,7 @@ export function CompactionMarkerItem({ marker }: Props) {
   return (
     <div className="my-2 flex items-center gap-2">
       <div className="h-px flex-1 bg-gb-border" />
-      <div className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] ${marker.rolledBack ? "border-gb-yellow bg-gb-yellow/10 text-gb-yellow" : "border-gb-green bg-gb-green/10 text-gb-green"}`}>
+      <div className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] ${marker.rolledBack ? "border-gb-yellow bg-gb-yellow/10 text-gb-warning-text" : "border-gb-green bg-gb-green/10 text-gb-success-text"}`}>
         <span>{marker.rolledBack ? "↩ Compaction rolled back" : "✦ Context compacted"}</span>
         {reduction !== null && reduction > 0 && !marker.rolledBack && (
           <span className="tabular-nums">

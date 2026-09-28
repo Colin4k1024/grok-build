@@ -612,7 +612,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
             </button>
             <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => archiveEntry(menu.entry)}>归档</button>
             <div className="my-1 border-t border-gb-border" />
-            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>删除…</button>
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-danger-text hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>删除…</button>
           </div>
         </>
       )}
@@ -628,7 +628,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
               New thread here
             </button>
             <button
-              className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10"
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-danger-text hover:bg-gb-red/10"
               onClick={async () => {
                 try { await removeProject(projectMenu.path); refreshProjects(); } catch (e) { console.error(e); }
                 setProjectMenu(null);

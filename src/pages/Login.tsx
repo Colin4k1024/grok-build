@@ -85,7 +85,7 @@ export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         </p>
 
         {error && (
-          <div className="mb-4 rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-red">
+          <div className="mb-4 rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-danger-text">
             {error}
           </div>
         )}

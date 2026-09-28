@@ -35,8 +35,8 @@ export function PermissionsManager() {
       <span
         className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
           rule.decision === "allow"
-            ? "bg-gb-green/15 text-gb-green"
-            : "bg-gb-red/15 text-gb-red"
+            ? "bg-gb-green/15 text-gb-success-text"
+            : "bg-gb-red/15 text-gb-danger-text"
         }`}
       >
         {rule.decision}
@@ -52,7 +52,7 @@ export function PermissionsManager() {
       </span>
       <button
         onClick={() => removeRule(rules.indexOf(rule))}
-        className="shrink-0 rounded p-1 text-gb-muted hover:bg-gb-red/10 hover:text-gb-red"
+        className="shrink-0 rounded p-1 text-gb-muted hover:bg-gb-red/10 hover:text-gb-danger-text"
         aria-label="删除规则"
       >
         ✕
@@ -68,7 +68,7 @@ export function PermissionsManager() {
           {rules.length > 0 && (
             <button
               onClick={() => setConfirmClearAll(true)}
-              className="rounded border border-gb-red/30 px-2 py-1 text-[11px] text-gb-red hover:bg-gb-red/10"
+              className="rounded border border-gb-red/30 px-2 py-1 text-[11px] text-gb-danger-text hover:bg-gb-red/10"
             >
               全部清除
             </button>

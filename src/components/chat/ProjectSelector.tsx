@@ -130,7 +130,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
           </div>
           <div className="max-h-60 overflow-y-auto py-1">
             {loading && <p className="px-2.5 py-2 text-[11px] text-gb-muted">加载中…</p>}
-            {error && <p className="px-2.5 py-2 text-[11px] text-gb-red">{error}</p>}
+            {error && <p className="px-2.5 py-2 text-[11px] text-gb-danger-text">{error}</p>}
             {!loading && !error && worktrees.length === 0 && (
               <p className="px-2.5 py-2 text-[11px] text-gb-muted">
                 未找到 worktree。在 git 仓库中打开目录后，这里会显示其 worktree。

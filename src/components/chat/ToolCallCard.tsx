@@ -89,9 +89,9 @@ export const ToolCallCard = memo(function ToolCallCard({ message }: Props) {
 
   const statusColor =
     message.toolSuccess === true
-      ? "text-gb-green"
+      ? "text-gb-success-text"
       : message.toolSuccess === false
-        ? "text-gb-red"
+        ? "text-gb-danger-text"
         : "text-gb-muted";
 
   const toggleExpanded = useCallback(() => {

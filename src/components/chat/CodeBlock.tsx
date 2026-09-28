@@ -101,9 +101,9 @@ export const CodeBlock = memo(function CodeBlock({ code, language, onApply }: Co
               onClick={handleApply}
               className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                 applyState === "applied"
-                  ? "text-gb-green"
+                  ? "text-gb-success-text"
                   : applyState === "failed"
-                    ? "text-gb-red"
+                    ? "text-gb-danger-text"
                     : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
               }`}
             >

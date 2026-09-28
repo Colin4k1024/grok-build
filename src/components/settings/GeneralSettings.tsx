@@ -81,7 +81,7 @@ export function GeneralSettings() {
               </button>
             </div>
           ) : updater.installed ? (
-            <p className="text-xs text-gb-green">更新已安装，正在重启…</p>
+            <p className="text-xs text-gb-success-text">更新已安装，正在重启…</p>
           ) : (
             <div className="flex items-center justify-between">
               <div>

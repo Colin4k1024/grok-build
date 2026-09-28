@@ -81,7 +81,7 @@ export function AuthHandoff() {
         {status === "success" && (
           <>
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gb-green/15">
-              <svg className="h-6 w-6 text-gb-green" viewBox="0 0 24 24" fill="none">
+              <svg className="h-6 w-6 text-gb-success-text" viewBox="0 0 24 24" fill="none">
                 <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
@@ -101,7 +101,7 @@ export function AuthHandoff() {
         {status === "failed" && (
           <>
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gb-red/15">
-              <span className="text-xl text-gb-red">✗</span>
+              <span className="text-xl text-gb-danger-text">✗</span>
             </div>
             <h1 className="mb-1 text-lg font-semibold text-gb-text">登录超时</h1>
             <p className="mb-4 text-[13px] text-gb-muted">

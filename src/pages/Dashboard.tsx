@@ -122,8 +122,8 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
                     <div key={agent.id} className="flex items-start gap-2 rounded px-2 py-1 text-[10px] hover:bg-gb-bg">
                       <span className={
                         agent.status === "running" ? "text-gb-blue" :
-                        agent.status === "done" ? "text-gb-green" :
-                        agent.status === "failed" ? "text-gb-red" :
+                        agent.status === "done" ? "text-gb-success-text" :
+                        agent.status === "failed" ? "text-gb-danger-text" :
                         "text-gb-muted"
                       }>
                         {agent.status === "running" ? "●" : agent.status === "done" ? "✓" : agent.status === "failed" ? "✗" : "○"}

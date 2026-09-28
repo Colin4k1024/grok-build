@@ -35,7 +35,8 @@
      backgrounds; `--gb-accent-fg` is text placed on solid accent fills. */
   --gb-accent: 95 99 214;         /* #5f63d6 — white text on it: 4.95:1 */
   --gb-accent-fg: 255 255 255;
-  --gb-accent-text: 165 168 245;  /* #a5a8f5 — 7.2:1 on accent/15 tint */
+  --gb-accent-text: 165 168 245;  /* #a5a8f5 — 6.3:1 on accent/15 tint */
+  --gb-focus: 165 168 245;        /* 7.4:1 on canvas — WCAG 1.4.11 */
   --gb-success: 63 185 130;
   --gb-success-text: 63 185 130;
   --gb-warning: 250 191 36;
@@ -95,6 +96,7 @@
   --gb-accent: 94 106 210;        /* #5e6ad2 — white text on it: 4.70:1 */
   --gb-accent-fg: 255 255 255;
   --gb-accent-text: 63 71 160;    /* #3f47a0 — 6.4:1 on accent/15 tint */
+  --gb-focus: 94 106 210;         /* 4.70:1 on canvas — WCAG 1.4.11 */
   --gb-success: 26 127 55;
   --gb-success-text: 20 108 46;
   --gb-warning: 154 103 0;
@@ -117,8 +119,6 @@
    only :root) so they re-resolve against the nearest theme root — a
    nested `.light`/`.dark` subtree must not inherit stale values (R4-01). */
 :root, .light {
-  --gb-focus: var(--gb-accent);
-
   /* ---- Legacy aliases (compat only; migration target is above) ---- */
   --gb-bg: var(--gb-canvas);
   --gb-bg-secondary: var(--gb-sidebar);
@@ -127,7 +127,7 @@
   --gb-border: var(--gb-border-hairline);
   --gb-text: var(--gb-text-primary);
   --gb-muted: var(--gb-text-muted);
-  --gb-brand: var(--gb-accent);
+  --gb-brand: var(--gb-accent-text);
   --gb-green: var(--gb-success);
   --gb-yellow: var(--gb-warning);
   --gb-red: var(--gb-danger);
@@ -211,16 +211,23 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 .gb-motion-press { transition: transform var(--gb-motion-press) var(--gb-motion-easing); }
 .gb-motion-press:active { transform: scale(0.98); }
 
-/* Visible keyboard focus, shared by every interactive control */
+/* Visible keyboard focus. A global guarantee: every focusable element gets
+   a >=3:1 indicator ring (WCAG 1.4.11) even when a component only changes
+   border color on focus. Components may also opt into .gb-focus-ring. */
+:focus-visible {
+  outline: 2px solid rgb(var(--gb-focus));
+  outline-offset: 1px;
+}
 .gb-focus-ring:focus-visible {
-  outline: 2px solid rgb(var(--gb-focus) / 0.9);
+  outline: 2px solid rgb(var(--gb-focus));
   outline-offset: 1px;
 }
 
-/* Skeleton loading: opacity pulse only (never spatial motion) */
+/* Skeleton loading: opacity pulse only (never spatial motion); tinted
+   from the text color so it stays visible on both themes. */
 @keyframes gb-skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 .gb-skeleton {
-  background: rgb(var(--gb-surface-2));
+  background: rgb(var(--gb-text-primary) / 0.08);
   border-radius: var(--gb-radius-sm);
   animation: gb-skeleton-pulse 1.6s var(--gb-motion-easing) infinite;
 }

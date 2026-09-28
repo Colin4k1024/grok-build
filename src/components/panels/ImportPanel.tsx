@@ -198,7 +198,7 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
         {report.length > 0 && (
           <div className="mt-3 max-h-40 space-y-0.5 overflow-y-auto rounded border border-gb-border/10 bg-gb-bg p-2 text-[10px] text-gb-muted">
             {report.map((l, i) => (
-              <div key={i} className={l.startsWith("✗") ? "text-gb-red" : undefined}>{l}</div>
+              <div key={i} className={l.startsWith("✗") ? "text-gb-danger-text" : undefined}>{l}</div>
             ))}
           </div>
         )}

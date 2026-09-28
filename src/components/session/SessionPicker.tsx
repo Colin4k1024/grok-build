@@ -151,7 +151,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
             <p className="py-8 text-center text-xs text-gb-muted">加载会话中…</p>
           )}
           {error && (
-            <p className="py-4 text-center text-xs text-gb-red">{error}</p>
+            <p className="py-4 text-center text-xs text-gb-danger-text">{error}</p>
           )}
           {!loading && filtered.length === 0 && (
             <p className="py-8 text-center text-xs text-gb-muted">
@@ -176,7 +176,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-[10px] text-gb-muted">{formatTime(session.last_active_at)}</span>
                       <button
-                        className="rounded p-0.5 text-gb-muted opacity-0 transition-opacity hover:text-gb-red focus:opacity-100 group-hover:opacity-100"
+                        className="rounded p-0.5 text-gb-muted opacity-0 transition-opacity hover:text-gb-danger-text focus:opacity-100 group-hover:opacity-100"
                         onClick={(e) => { e.stopPropagation(); handleDelete(session); }}
                         aria-label={`Delete ${session.title}`}
                         title="删除会话"

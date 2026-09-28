@@ -110,7 +110,7 @@ export function TitleBar({
               <div className="border-b border-gb-border/8 px-2.5 py-2">
                 <p className="text-[12px] font-medium text-gb-text">{auth.username || "User"}</p>
               </div>
-              <button className="w-full px-2.5 py-1.5 text-left text-[12px] text-gb-red hover:bg-gb-surface-hover"
+              <button className="w-full px-2.5 py-1.5 text-left text-[12px] text-gb-danger-text hover:bg-gb-surface-hover"
                 onClick={() => { setMenuOpen(false); onLogout(); }}>退出登录</button>
             </div>
           )}

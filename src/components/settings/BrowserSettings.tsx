@@ -32,8 +32,8 @@ export function BrowserSettings() {
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 caps.browserAvailable
-                  ? "bg-gb-green/15 text-gb-green"
-                  : "bg-gb-yellow/15 text-gb-yellow"
+                  ? "bg-gb-green/15 text-gb-success-text"
+                  : "bg-gb-yellow/15 text-gb-warning-text"
               }`}
             >
               {caps.browserAvailable ? "已就绪" : "未配置"}
@@ -51,8 +51,8 @@ export function BrowserSettings() {
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 caps.computerAvailable
-                  ? "bg-gb-green/15 text-gb-green"
-                  : "bg-gb-yellow/15 text-gb-yellow"
+                  ? "bg-gb-green/15 text-gb-success-text"
+                  : "bg-gb-yellow/15 text-gb-warning-text"
               }`}
             >
               {caps.computerAvailable ? "已就绪" : "未配置"}
@@ -61,7 +61,7 @@ export function BrowserSettings() {
         </div>
 
         {caps.reason && (
-          <div className="mt-3 rounded-md border border-gb-yellow/30 bg-gb-yellow/5 px-3 py-2 text-[11px] text-gb-yellow">
+          <div className="mt-3 rounded-md border border-gb-yellow/30 bg-gb-yellow/5 px-3 py-2 text-[11px] text-gb-warning-text">
             ⚠️ {caps.reason}
           </div>
         )}

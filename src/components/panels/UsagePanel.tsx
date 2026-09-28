@@ -82,7 +82,7 @@ export function UsagePanel({ onClose }: UsagePanelProps) {
                   )}
                 </div>
                 {limit && limit.until > Date.now() && (
-                  <p className="mt-1 text-[10px] text-gb-red">
+                  <p className="mt-1 text-[10px] text-gb-danger-text">
                     ⏳ 限流中 — {formatRetry(limit.until)}（{limit.message.slice(0, 80)}）
                   </p>
                 )}

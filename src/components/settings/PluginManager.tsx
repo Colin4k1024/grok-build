@@ -207,7 +207,7 @@ export function PluginManager() {
       </div>
 
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-red">{error}</div>
+        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-danger-text">{error}</div>
       )}
 
       {view === "marketplace" ? (
@@ -261,7 +261,7 @@ export function PluginManager() {
                       </div>
                     </div>
                     {installed ? (
-                      <span className="rounded bg-gb-green/10 px-1.5 py-0.5 text-[9px] text-gb-green">已安装</span>
+                      <span className="rounded bg-gb-green/10 px-1.5 py-0.5 text-[9px] text-gb-success-text">已安装</span>
                     ) : (
                       <button
                         onClick={(e) => {
@@ -277,7 +277,7 @@ export function PluginManager() {
                   </div>
                   <p className="mt-2 text-[10px] text-gb-muted">{entry.description}</p>
                   {entry.envKeys.length > 0 && (
-                    <p className="mt-1 text-[9px] text-gb-yellow">Requires: {entry.envKeys.join(", ")}</p>
+                    <p className="mt-1 text-[9px] text-gb-warning-text">Requires: {entry.envKeys.join(", ")}</p>
                   )}
                 </div>
               );
@@ -296,7 +296,7 @@ export function PluginManager() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium text-gb-text">{server.name}</span>
                     <span className={`rounded px-1.5 py-0.5 text-[9px] ${
-                      server.enabled ? "bg-gb-green/10 text-gb-green" : "bg-gb-border text-gb-muted"
+                      server.enabled ? "bg-gb-green/10 text-gb-success-text" : "bg-gb-border text-gb-muted"
                     }`}>
                       {server.enabled ? "ENABLED" : "DISABLED"}
                     </span>
@@ -314,7 +314,7 @@ export function PluginManager() {
                         server.enabled ? "translate-x-3" : "translate-x-0.5"
                       }`} />
                     </button>
-                    <button onClick={() => handleUninstall(server.name)} className="text-[10px] text-gb-red hover:underline">
+                    <button onClick={() => handleUninstall(server.name)} className="text-[10px] text-gb-danger-text hover:underline">
                       Uninstall
                     </button>
                   </div>
@@ -420,7 +420,7 @@ function PluginDetailModal({
           {entry.envKeys.length > 0 && (
             <div>
               <p className="text-gb-muted">必需的环境变量</p>
-              <ul className="list-disc pl-5 text-gb-yellow">
+              <ul className="list-disc pl-5 text-gb-warning-text">
                 {entry.envKeys.map((k) => (
                   <li key={k}>
                     <code>{k}</code>
@@ -448,7 +448,7 @@ function PluginDetailModal({
             </button>
           )}
           {installed && (
-            <span className="rounded bg-gb-green/15 px-3 py-1.5 text-[12px] font-medium text-gb-green">
+            <span className="rounded bg-gb-green/15 px-3 py-1.5 text-[12px] font-medium text-gb-success-text">
               Installed
             </span>
           )}

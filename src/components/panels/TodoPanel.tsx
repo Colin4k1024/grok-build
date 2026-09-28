@@ -29,7 +29,7 @@ export function TodoPanel() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case "Completed": return "text-gb-green";
+      case "Completed": return "text-gb-success-text";
       case "InProgress": return "text-gb-accent-text";
       default: return "text-gb-muted";
     }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MOTION_DURATIONS,
   MOTION_EASING,
+  buildTransition,
   exitDuration,
   pageMotion,
   panelMotion,
@@ -79,16 +80,33 @@ describe("exitDuration", () => {
   });
 });
 
-describe("transitionFor", () => {
+describe("transitionFor / buildTransition", () => {
   it("builds a transition declaration from allowed properties only", () => {
     expect(transitionFor(["opacity", "transform"], 220)).toBe(
       `opacity 220ms ${MOTION_EASING}, transform 220ms ${MOTION_EASING}`,
     );
   });
 
-  it("rejects layout-affecting properties", () => {
+  it("throws on layout-affecting properties in strict (dev/test) mode", () => {
     expect(() => transitionFor(["width" as never], 220)).toThrow(/transform.*opacity/i);
-    expect(() => transitionFor(["top" as never], 220)).toThrow();
+    expect(() => buildTransition(["top" as never], 220, MOTION_EASING, true)).toThrow();
+  });
+
+  it("drops invalid properties with a warning in non-strict (production) mode", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const out = buildTransition(["width" as never, "opacity"], 220, MOTION_EASING, false);
+      expect(out).toBe(`opacity 220ms ${MOTION_EASING}`);
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0][0]).toMatch(/width/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("never reassigns or mutates its input", () => {
+    const props = Object.freeze(["opacity"] as const);
+    expect(() => buildTransition(props, 100)).not.toThrow();
   });
 });
 

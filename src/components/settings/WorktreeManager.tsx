@@ -100,7 +100,7 @@ export function WorktreeManager() {
       </div>
 
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-red">{error}</div>
+        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-danger-text">{error}</div>
       )}
 
       {showForm && (
@@ -157,7 +157,7 @@ export function WorktreeManager() {
                 {!wt.is_main && (
                   <button
                     onClick={() => handleRemove(wt.path, wt.is_main)}
-                    className="text-[10px] text-gb-red hover:underline"
+                    className="text-[10px] text-gb-danger-text hover:underline"
                   >
                     Remove
                   </button>

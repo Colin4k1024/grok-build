@@ -84,7 +84,7 @@ export function ApiKeyManager() {
   return (
     <div className="flex flex-col gap-4 p-4">
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-red">
+        <div className="rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-danger-text">
           {error}
         </div>
       )}
@@ -128,7 +128,7 @@ export function ApiKeyManager() {
                   </button>
                   {isSet && (
                     <button
-                      className="rounded px-2 py-1 text-[10px] text-gb-red hover:bg-gb-red/10"
+                      className="rounded px-2 py-1 text-[10px] text-gb-danger-text hover:bg-gb-red/10"
                       onClick={() => handleDelete(key)}
                     >
                       Delete

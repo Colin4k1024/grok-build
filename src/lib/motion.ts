@@ -91,32 +91,39 @@ export function exitDuration(entryMs: number): number {
 
 /**
  * Build a `transition` declaration restricted to transform/opacity.
- * In development/test a policy violation throws so it surfaces immediately;
- * in production builds the invalid properties are dropped with a warning
- * instead of crashing the render.
+ * `strict` (dev/test) throws on a policy violation so it surfaces
+ * immediately; non-strict (production) drops the invalid properties with
+ * a warning instead of crashing the render.
  */
+export function buildTransition(
+  properties: readonly MotionProperty[],
+  durationMs: number,
+  easing: string = MOTION_EASING,
+  strict: boolean = true,
+): string {
+  const valid = properties.filter((p) =>
+    (MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
+  );
+  if (valid.length !== properties.length) {
+    const invalid = properties.filter(
+      (p) => !(MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
+    );
+    const msg = `Motion policy: only ${MOTION_ALLOWED_PROPERTIES.join(" and ")} may be animated (got ${invalid
+      .map((p) => `"${p}"`)
+      .join(", ")})`;
+    if (strict) throw new Error(msg);
+    console.warn(msg);
+  }
+  return valid.map((p) => `${p} ${durationMs}ms ${easing}`).join(", ");
+}
+
+/** App-facing helper: strict in dev/test, forgiving in production. */
 export function transitionFor(
   properties: readonly MotionProperty[],
   durationMs: number,
   easing: string = MOTION_EASING,
 ): string {
-  const invalid = properties.filter(
-    (p) => !(MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
-  );
-  if (invalid.length > 0) {
-    const msg = `Motion policy: only ${MOTION_ALLOWED_PROPERTIES.join(" and ")} may be animated (got ${invalid
-      .map((p) => `"${p}"`)
-      .join(", ")})`;
-    if (import.meta.env?.PROD) {
-      console.warn(msg);
-      properties = properties.filter((p) =>
-        (MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
-      );
-    } else {
-      throw new Error(msg);
-    }
-  }
-  return properties.map((p) => `${p} ${durationMs}ms ${easing}`).join(", ");
+  return buildTransition(properties, durationMs, easing, !import.meta.env?.PROD);
 }
 
 /**

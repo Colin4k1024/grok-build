@@ -124,10 +124,10 @@ export function ApprovalCard({
   return (
     <div className="mx-4 my-2 rounded-lg border border-gb-yellow/30 bg-gb-yellow/5 p-3">
       <div className="mb-2 flex items-center gap-2">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" className="text-gb-yellow">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" className="text-gb-warning-text">
           <path d="M7 0L0 14h14L7 0zm0 5l3.5 7h-7L7 5z" />
         </svg>
-        <span className="text-xs font-semibold text-gb-yellow">需要授权</span>
+        <span className="text-xs font-semibold text-gb-warning-text">需要授权</span>
         <span className="ml-auto text-[10px] text-gb-muted">{remaining} 秒后自动拒绝</span>
       </div>
       <div className="mb-2">
@@ -140,7 +140,7 @@ export function ApprovalCard({
       </div>
       <div className="flex gap-2">
         <button
-          className="flex-1 rounded-lg bg-gb-green/20 px-3 py-1.5 text-xs font-medium text-gb-green hover:bg-gb-green/30 disabled:opacity-40"
+          className="flex-1 rounded-lg bg-gb-green/20 px-3 py-1.5 text-xs font-medium text-gb-success-text hover:bg-gb-green/30 disabled:opacity-40"
           onClick={() => handleRespond("allow")}
           disabled={responding}
         >
@@ -156,7 +156,7 @@ export function ApprovalCard({
           </button>
         )}
         <button
-          className="flex-1 rounded-lg bg-gb-red/20 px-3 py-1.5 text-xs font-medium text-gb-red hover:bg-gb-red/30 disabled:opacity-40"
+          className="flex-1 rounded-lg bg-gb-red/20 px-3 py-1.5 text-xs font-medium text-gb-danger-text hover:bg-gb-red/30 disabled:opacity-40"
           onClick={() => handleRespond("deny")}
           disabled={responding}
         >

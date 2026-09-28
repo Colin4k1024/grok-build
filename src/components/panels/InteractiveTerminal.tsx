@@ -161,7 +161,7 @@ export function InteractiveTerminal({ session, onClosed }: Props) {
         </div>
       )}
       {exitCode === null && !connected && (
-        <div className="pointer-events-none absolute right-1 bottom-1 rounded bg-gb-yellow/20 px-1.5 py-0.5 text-[9px] text-gb-yellow">
+        <div className="pointer-events-none absolute right-1 bottom-1 rounded bg-gb-yellow/20 px-1.5 py-0.5 text-[9px] text-gb-warning-text">
           连接中…
         </div>
       )}

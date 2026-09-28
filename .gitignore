@@ -20,3 +20,6 @@ build/icon.iconset/
 coverage/
 test-results/
 evidence/
+
+# Local AI tool session state
+.pi/

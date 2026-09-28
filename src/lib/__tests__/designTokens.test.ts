@@ -31,6 +31,7 @@ const THEME_PAIRED_TOKENS = [
   "--gb-accent",
   "--gb-accent-fg",
   "--gb-accent-text",
+  "--gb-focus",
   "--gb-success",
   "--gb-success-text",
   "--gb-warning",
@@ -68,11 +69,13 @@ const LEGACY_ALIASES = [
   "--gb-tab-inactive",
 ];
 
-/** Return the concatenated bodies of every flat `selector { … }` block. */
+/** Return the concatenated bodies of every flat `selector { … }` block
+ *  whose selector starts a line (avoids matching ':root, .light {' when
+ *  looking for '.light', or the indented ':root' inside the media query). */
 function blocks(css: string, selector: string): string {
   const out: string[] = [];
   let from = 0;
-  const open = selector + " {";
+  const open = "\n" + selector + " {";
   for (;;) {
     const start = css.indexOf(open, from);
     if (start === -1) break;

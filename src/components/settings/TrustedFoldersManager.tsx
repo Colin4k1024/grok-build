@@ -85,7 +85,7 @@ export function TrustedFoldersManager() {
               <span className="truncate font-mono text-xs text-gb-text">{path}</span>
               <button
                 onClick={() => handleRemove(path)}
-                className="shrink-0 rounded px-2 py-1 text-[11px] text-gb-red hover:bg-gb-red/10"
+                className="shrink-0 rounded px-2 py-1 text-[11px] text-gb-danger-text hover:bg-gb-red/10"
               >
                 Remove
               </button>
@@ -114,7 +114,7 @@ export function TrustedFoldersManager() {
             Trust
           </button>
         </div>
-        {error && <p className="mt-1 text-[11px] text-gb-red">{error}</p>}
+        {error && <p className="mt-1 text-[11px] text-gb-danger-text">{error}</p>}
       </section>
     </div>
   );
