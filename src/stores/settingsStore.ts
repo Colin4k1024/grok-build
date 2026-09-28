@@ -354,13 +354,17 @@ export const useSettingsStore = create<SettingsState>()(
         set((s) => ({ userPresets: { ...s.userPresets, [id]: { label, values: { ...values } } } }));
       },
       renameUserPreset: (id, label) => {
-        const cur = get().userPresets[id];
+        const cur = Object.prototype.hasOwnProperty.call(get().userPresets, id)
+          ? get().userPresets[id]
+          : undefined;
         if (!cur) throw new Error(`unknown preset: ${id}`);
         if (!label.trim()) throw new Error("preset label must not be empty");
         set((s) => ({ userPresets: { ...s.userPresets, [id]: { ...cur, label } } }));
       },
       deleteUserPreset: (id) => {
-        if (!get().userPresets[id]) throw new Error(`unknown preset: ${id}`);
+        if (!Object.prototype.hasOwnProperty.call(get().userPresets, id)) {
+          throw new Error(`unknown preset: ${id}`);
+        }
         set((s) => {
           const next = { ...s.userPresets };
           delete next[id];

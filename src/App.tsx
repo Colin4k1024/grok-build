@@ -22,6 +22,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { ToastViewport } from "./components/ui";
+import { confirmLeaveIfDirty } from "./lib/unsavedGuard";
 
 // Surfaces that are never part of the first paint. Splitting them out keeps the
 // entry chunk (and therefore app-launch parse time) down; in a packaged
@@ -173,7 +174,18 @@ export default function App() {
     setSettingsTab(tab);
     setDestination("settings");
   }, []);
-  const goConversations = useCallback(() => setDestination("conversations"), []);
+  const goConversations = useCallback(() => {
+    if (destination === "settings" && !confirmLeaveIfDirty()) return;
+    setDestination("conversations");
+  }, [destination]);
+  // Rail navigation consults the unsaved-changes guard (R4-07 #240).
+  const navigateTo = useCallback(
+    (d: AppDestination) => {
+      if (destination === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return;
+      setDestination(d);
+    },
+    [destination],
+  );
 
   // Deep-linked settings tab must not leak across visits: leaving the
   // settings destination resets it so the next visit opens the default tab.
@@ -1018,7 +1030,7 @@ export default function App() {
       rail={
         <ActivityBar
           destination={destination}
-          onNavigate={setDestination}
+          onNavigate={navigateTo}
           onOpenSearch={() => setShowSearch(true)}
           onToggleSidebar={toggleSidebarGated}
           sidebarVisible={!responsiveSidebarCollapsed}
