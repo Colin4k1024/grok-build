@@ -182,6 +182,7 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
       () => useSettingsStore.getState().setVoiceTtsEnabled(0 as never),
       () => useSettingsStore.getState().setNotificationsEnabled("off" as never),
       () => useSettingsStore.getState().addTrustedFolder(42 as never),
+      () => useSettingsStore.getState().removeTrustedFolder(42 as never),
     ];
     for (const fn of bad) expect(fn).toThrow();
     // nothing moved
@@ -198,6 +199,33 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     syncFromFileDoc({ version: 1, values: {} }, "boot");
     expect(useSettingsStore.getState().theme).toBe("light");
     expect(localStorage.getItem("gb-settings")).toBe(blob);
+  });
+
+  it("boot mode seeds the durable file from localStorage when the file has no blob", async () => {
+    const { syncFromFileDoc } = await import("../settingsStore");
+    const calls: Array<{ key: string; value: unknown }> = [];
+    window.gbSettings = {
+      getAll: async () => ({ version: 1, values: {} }),
+      set: async (key: string, value: unknown) => {
+        calls.push({ key, value });
+        return { version: 1, values: {} };
+      },
+      delete: async () => ({ version: 1, values: {} }),
+      reset: async () => ({ version: 1, values: {} }),
+      onChanged: () => () => {},
+    };
+    try {
+      useSettingsStore.getState().setTheme("light");
+      const blob = localStorage.getItem("gb-settings")!;
+      calls.length = 0; // ignore the dual-write mirror from setTheme itself
+      syncFromFileDoc({ version: 1, values: {} }, "boot");
+      await new Promise((r) => setTimeout(r, 0)); // flush the fire-and-forget seed
+      expect(calls).toEqual([{ key: "gb-settings", value: blob }]);
+      // local state untouched
+      expect(useSettingsStore.getState().theme).toBe("light");
+    } finally {
+      delete window.gbSettings;
+    }
   });
 
   it("boot mode adopts a present blob from the file", async () => {

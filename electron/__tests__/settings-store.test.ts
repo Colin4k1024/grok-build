@@ -57,9 +57,15 @@ describe("settings file store (R4-05 #238)", () => {
   it("rejects non-JSON-serializable and oversized values", () => {
     expect(() => writeSettingsValue(dir, "gb-settings", undefined)).toThrow(/invalid_value/);
     expect(() => writeSettingsValue(dir, "gb-settings", () => {})).toThrow(/invalid_value/);
-    expect(() => writeSettingsValue(dir, "gb-settings", "x".repeat(20 * 1024))).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", "x".repeat(300 * 1024))).toThrow(/invalid_value/);
     // multi-byte text must count BYTES, not UTF-16 units
-    expect(() => writeSettingsValue(dir, "gb-settings", "汉".repeat(6000))).toThrow(/invalid_value/);
+    expect(() => writeSettingsValue(dir, "gb-settings", "汉".repeat(100_000))).toThrow(/invalid_value/);
+  });
+
+  it("a large but legal blob round-trips (no false oversize rejections)", () => {
+    const big = JSON.stringify({ state: { notes: "x".repeat(100 * 1024) } });
+    writeSettingsValue(dir, "gb-settings", big);
+    expect(readSettingsFile(dir).values["gb-settings"]).toBe(big);
   });
 
   it("rejects credential-shaped keys (defense in depth)", () => {

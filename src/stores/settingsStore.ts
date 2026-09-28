@@ -248,12 +248,14 @@ export const useSettingsStore = create<SettingsState>()(
           return { trustedFolders: next };
         });
       },
-      removeTrustedFolder: (path) =>
+      removeTrustedFolder: (path) => {
+        if (typeof path !== "string" || !path) throw new Error(`invalid trusted folder path: ${JSON.stringify(path)}`);
         set((s) => {
           const next = s.trustedFolders.filter((p) => p !== path);
           try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(next)); } catch {}
           return { trustedFolders: next };
-        }),
+        });
+      },
 
       setGlobalByKey: (storeKey, value) => {
         // Validation is mandatory even for direct store writes — an invalid

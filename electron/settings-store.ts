@@ -32,7 +32,11 @@ const SECRET_PATTERN = /api[-_]?key|token|secret|password|credential/i;
 /** Envelope keys this channel actually serves. Today the renderer persists
  *  exactly one document (the zustand persist blob); extend deliberately. */
 const ALLOWED_KEYS = new Set(["gb-settings"]);
-const MAX_VALUE_BYTES = 16 * 1024;
+// 256 KiB: generous headroom for the persist blob (project overrides,
+// trusted folders) while still bounding a corrupt/hostile payload. A
+// smaller cap risks a rejected mirror write → stale durable file →
+// rollback on next boot (R4-05 review).
+const MAX_VALUE_BYTES = 256 * 1024;
 
 function filePath(dir: string): string {
   return path.join(dir, FILE_NAME);
