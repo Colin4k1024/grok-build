@@ -15,7 +15,8 @@
  */
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
+import { getSettingsBridge } from "../config/fileSync";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -84,11 +85,55 @@ export interface SettingsState {
   setNotificationsEnabled: (v: boolean) => void;
   addTrustedFolder: (path: string) => void;
   removeTrustedFolder: (path: string) => void;
+
+  /** R4-05 (#238): project-scope overrides, keyed by project path, then by
+   *  setting id (e.g. "appearance.theme"). Resolution semantics live in
+   *  src/config/resolve.ts — this store only persists the layers. */
+  projectOverrides: Record<string, Record<string, unknown>>;
+
+  /** R4-05: generic typed-setter dispatch by flat store key ("theme", …).
+   *  Unknown keys throw instead of silently persisting garbage. */
+  setGlobalByKey: (storeKey: string, value: unknown) => void;
+  setProjectOverride: (projectId: string, settingId: string, value: unknown) => void;
+  clearProjectOverride: (projectId: string, settingId: string) => void;
+  /** Project-level reset removes ONLY project overrides — never global. */
+  resetProjectOverrides: (projectId: string) => void;
 }
+
+/**
+ * R4-05 (#238): dual-write storage. localStorage stays the synchronous
+ * read path (fast hydration, works in tests); every write is mirrored to
+ * the durable settings file over the typed IPC bridge when available.
+ */
+const dualWriteStorage: StateStorage = {
+  getItem: (name) => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name, value) => {
+    try {
+      localStorage.setItem(name, value);
+    } catch {}
+    getSettingsBridge()
+      ?.set(name, value)
+      .catch(() => {});
+  },
+  removeItem: (name) => {
+    try {
+      localStorage.removeItem(name);
+    } catch {}
+    getSettingsBridge()
+      ?.delete(name)
+      .catch(() => {});
+  },
+};
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // Defaults with legacy fallback on first load
       theme: legacyString(LEGACY_THEME, "dark") as ThemeMode,
       fontSize: legacyString(LEGACY_FONT_SIZE, "medium") as FontSizeId,
@@ -101,6 +146,7 @@ export const useSettingsStore = create<SettingsState>()(
       voiceTtsEnabled: false,
       notificationsEnabled: legacyBool(LEGACY_NOTIFICATIONS, true),
       trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, []),
+      projectOverrides: {},
 
       setTheme: (theme) => {
         set({ theme });
@@ -150,11 +196,71 @@ export const useSettingsStore = create<SettingsState>()(
           try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(next)); } catch {}
           return { trustedFolders: next };
         }),
+
+      setGlobalByKey: (storeKey, value) => {
+        const s = get();
+        switch (storeKey) {
+          case "theme": return s.setTheme(value as ThemeMode);
+          case "fontSize": return s.setFontSize(value as FontSizeId);
+          case "zoom": return s.setZoom(value as number);
+          case "sandboxMode": return s.setSandboxMode(value as "sandbox" | "full");
+          case "agentMode": return s.setAgentMode(value as AgentMode);
+          case "agentAutonomous": return s.setAgentAutonomous(value as boolean);
+          case "voiceLanguage": return s.setVoiceLanguage(value as VoiceLanguage);
+          case "voiceWakeEnabled": return s.setVoiceWakeEnabled(value as boolean);
+          case "voiceTtsEnabled": return s.setVoiceTtsEnabled(value as boolean);
+          case "notificationsEnabled": return s.setNotificationsEnabled(value as boolean);
+          case "trustedFolders":
+            if (!Array.isArray(value)) throw new Error("trustedFolders must be an array");
+            return set({ trustedFolders: value as string[] });
+          default:
+            throw new Error(`unknown settings store key: ${storeKey}`);
+        }
+      },
+      setProjectOverride: (projectId, settingId, value) =>
+        set((s) => ({
+          projectOverrides: {
+            ...s.projectOverrides,
+            [projectId]: { ...(s.projectOverrides[projectId] ?? {}), [settingId]: value },
+          },
+        })),
+      clearProjectOverride: (projectId, settingId) =>
+        set((s) => {
+          const current = { ...(s.projectOverrides[projectId] ?? {}) };
+          delete current[settingId];
+          const next = { ...s.projectOverrides };
+          if (Object.keys(current).length === 0) delete next[projectId];
+          else next[projectId] = current;
+          return { projectOverrides: next };
+        }),
+      resetProjectOverrides: (projectId) =>
+        set((s) => {
+          if (!(projectId in s.projectOverrides)) return s;
+          const next = { ...s.projectOverrides };
+          delete next[projectId];
+          return { projectOverrides: next };
+        }),
     }),
     {
       name: "gb-settings",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => dualWriteStorage),
       version: 1,
     }
   )
 );
+
+// Multi-window sync: another window's file write rehydrates this store.
+// Content-compare guards against any echo loop.
+if (typeof window !== "undefined") {
+  getSettingsBridge()?.onChanged((doc) => {
+    const remote = doc.values["gb-settings"];
+    if (typeof remote !== "string") return;
+    try {
+      if (localStorage.getItem("gb-settings") === remote) return;
+      localStorage.setItem("gb-settings", remote);
+      useSettingsStore.persist.rehydrate();
+    } catch {
+      /* storage unavailable */
+    }
+  });
+}

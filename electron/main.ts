@@ -292,6 +292,37 @@ function toConfigSnapshot(doc: typeof DEFAULT_MODELS_DOC) {
 
 ipcMain.handle("get_config", () => ok(toConfigSnapshot(readModelsDoc())));
 
+// --- Unified settings file IPC (R4-05 #238) ---
+// One typed channel family for renderer settings persistence, replacing
+// ad-hoc per-page storage. The renderer's typed registry owns validation
+// semantics; this layer enforces key/value safety and durability
+// (atomic writes, corruption quarantine) and broadcasts changes to other
+// windows for multi-window consistency.
+{
+  const dir = () => app.getPath("userData");
+  const broadcast = (sender: Electron.WebContents, doc: SettingsFile) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== sender.id) w.webContents.send("settings_file_changed", doc);
+    }
+  };
+  ipcMain.handle("settings_file_get_all", () => ok(readSettingsFile(dir())));
+  ipcMain.handle("settings_file_set", (e, args: { key: string; value: unknown }) => {
+    const doc = writeSettingsValue(dir(), args?.key, args?.value);
+    broadcast(e.sender, doc);
+    return ok(doc);
+  });
+  ipcMain.handle("settings_file_delete", (e, args: { key: string }) => {
+    const doc = deleteSettingsValue(dir(), args?.key);
+    broadcast(e.sender, doc);
+    return ok(doc);
+  });
+  ipcMain.handle("settings_file_reset", (e) => {
+    const doc = resetSettingsFile(dir());
+    broadcast(e.sender, doc);
+    return ok(doc);
+  });
+}
+
 ipcMain.handle("save_models", (_e, args: { models: ModelInfoInput[]; defaults: ModelDefaultsInput }) => {
   const modelsArr = args.models.map((m) => {
     const out: Record<string, unknown> = {
@@ -882,6 +913,13 @@ import {
 } from "./claude-import";
 import { persistTranscript } from "./transcript-store";
 import { appendJournal, queueJournal, flushAllJournalsSync } from "./journal";
+import {
+  readSettingsFile,
+  writeSettingsValue,
+  deleteSettingsValue,
+  resetSettingsFile,
+  type SettingsFile,
+} from "./settings-store";
 import {
   registerWorktree, unregisterWorktree, touchWorktree,
   listOrphans, pruneOrphans, worktreeCount, readRegistry,
