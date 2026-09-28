@@ -48,7 +48,7 @@ const TAB_KEYWORDS: Record<SettingsTab, string[]> = {
   about: ["about", "version", "info"],
 };
 
-export function Settings({ onClose, initialTab }: { onClose: () => void; initialTab?: string }) {
+export function Settings({ onClose: _onClose, initialTab }: { onClose: () => void; initialTab?: string }) {
   const [tab, setTab] = useState<SettingsTab>(
     (initialTab as SettingsTab | undefined) && initialTab! in TAB_LABELS
       ? (initialTab as SettingsTab)
@@ -82,23 +82,21 @@ export function Settings({ onClose, initialTab }: { onClose: () => void; initial
   }, [initialTab]);
 
   return (
-    <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      {/* macOS traffic-light clearance */}
-      <div className="app-drag h-9 shrink-0" />
-      <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-gb-border/8 pl-24 pr-4">
-        <h2 className="text-[13px] font-medium">设置</h2>
+    <div className="flex h-full flex-col bg-gb-canvas text-gb-text-primary">
+      {/* R4-03: no window chrome / duplicate title — the shell TitleBar owns
+         the destination name; this slim toolbar keeps settings search. */}
+      <div className="flex h-11 shrink-0 items-center justify-end gap-2 border-b gb-border-hairline px-4">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索设置…"
-          className="max-w-[240px] flex-1 rounded-md border border-gb-border/10 bg-gb-surface px-2.5 py-1 text-[12px] text-gb-text placeholder:text-gb-muted focus:border-gb-accent/40 focus:outline-none"
+          className="w-64 rounded-gb-md border gb-border-control bg-gb-surface-1 px-2.5 py-1 text-gb-xs text-gb-text-primary placeholder:text-gb-text-muted focus:border-gb-accent focus:outline-none"
           aria-label="搜索设置"
         />
-        <button className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text" onClick={onClose}>← Back</button>
-      </header>
+      </div>
       <div className="flex flex-1 overflow-hidden">
-        <nav className="w-44 shrink-0 overflow-y-auto border-r border-gb-border/8 bg-gb-bg-secondary p-1.5">
+        <nav aria-label="设置分类" className="w-44 shrink-0 overflow-y-auto border-r gb-border-hairline bg-gb-sidebar p-1.5">
           {visibleTabs.length === 0 ? (
             <p className="px-2 py-4 text-center text-[11px] text-gb-muted">
               No settings match "{query}"

@@ -45,7 +45,12 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
         run: (e) => {
           const num = parseInt(e.key, 10);
           const tab = useSessionStore.getState().tabs[num - 1];
-          if (tab) useSessionStore.getState().setActiveSession(tab.id);
+          if (tab) {
+            useSessionStore.getState().setActiveSession(tab.id);
+            // Jumping to a thread is a conversation-context switch — App
+            // listens and navigates to the conversations destination.
+            window.dispatchEvent(new CustomEvent("gb-open-session"));
+          }
         },
       },
     ];

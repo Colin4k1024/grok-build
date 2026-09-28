@@ -8,7 +8,10 @@ import { MessageList } from "./components/chat/MessageList";
 import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
+import { ActivityBar } from "./components/layout/ActivityBar";
+import { AppShell } from "./components/layout/AppShell";
 import { Sidebar } from "./components/layout/Sidebar";
+import type { AppDestination } from "./components/layout/destinations";
 import { RightPanel } from "./components/panels/RightPanel";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { QuestionCard } from "./components/chat/QuestionCard";
@@ -161,11 +164,26 @@ export default function App() {
   const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
-  const [showAgentsPage, setShowAgentsPage] = useState(false);
-  const [showAutomations, setShowAutomations] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(false);
+  // R4-03 (#236): top-level destination. Destination pages render INSIDE the
+  // stable shell — no conditional full-page returns that would destroy the
+  // rail/sidebar/titlebar state on every switch.
+  const [destination, setDestination] = useState<AppDestination>("conversations");
+  const openSettings = useCallback((tab?: string) => {
+    setSettingsTab(tab);
+    setDestination("settings");
+  }, []);
+  const goConversations = useCallback(() => setDestination("conversations"), []);
+
+  // Deep-linked settings tab must not leak across visits: leaving the
+  // settings destination resets it so the next visit opens the default tab.
+  useEffect(() => {
+    if (destination !== "settings") setSettingsTab(undefined);
+  }, [destination]);
+
+  // Visibility toggles only apply where the panels exist — on other
+  // destinations ⌘B / ⌘J must not invisibly mutate state (R4-03 review).
+  const inConversations = destination === "conversations";
 
   // null = follow responsive auto rule; boolean = explicit user override
   // (fixes: below the 1000px breakpoint the manual toggle could never
@@ -206,6 +224,15 @@ export default function App() {
   const toggleSidebar = useCallback(() => {
     setSidebarOverride((prev) => !(prev ?? window.innerWidth < 1000));
   }, []);
+  // Gated variants: visibility toggles only act on the conversations
+  // destination, where the sidebar and inspector actually exist.
+  const toggleSidebarGated = useCallback(() => {
+    if (destination === "conversations") toggleSidebar();
+  }, [destination, toggleSidebar]);
+  const toggleRightPanelGated = useCallback(() => {
+    if (destination !== "conversations") return;
+    setRightPanelCollapsed((collapsed) => !collapsed);
+  }, [destination]);
   const responsiveRightCollapsed = rightPanelCollapsed || windowWidth < 1200;
 
   const refreshAuth = useCallback(async () => {
@@ -303,10 +330,14 @@ export default function App() {
     const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
+        setDestination("conversations");
         const pendingId = `pending:${session.id}`;
         setResumingIds((prev) => new Set(prev).add(pendingId));
       },
-      onFocusExisting: () => setShowHome(false),
+      onFocusExisting: () => {
+        setShowHome(false);
+        setDestination("conversations");
+      },
       onStreamingExisting: () =>
         setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送"),
       onError: (m) => {
@@ -333,6 +364,8 @@ export default function App() {
   const handleNewSession = useCallback(async () => {
     setCreating(true);
     setError(null);
+    // Creating a session is a conversation-context action — navigate there.
+    setDestination("conversations");
     try {
       const info = await createSession(".");
       addTab({
@@ -430,6 +463,7 @@ export default function App() {
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
         store.setActiveSession(next.id);
         setShowHome(false);
+        setDestination("conversations");
       }
     };
     window.addEventListener("keydown", handler);
@@ -437,9 +471,12 @@ export default function App() {
   }, []);
 
   // Sidebar thread entries activate sessions through the store directly; this
-  // event tells App to reveal the thread view (hide Home).
+  // event tells App to reveal the thread view (hide Home) in conversations.
   useEffect(() => {
-    const open = () => setShowHome(false);
+    const open = () => {
+      setShowHome(false);
+      setDestination("conversations");
+    };
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
   }, []);
@@ -525,8 +562,8 @@ export default function App() {
     onCloseActiveThread: () => {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
-    onToggleSidebar: toggleSidebar,
-    onOpenSettings: () => setShowSettings(true),
+    onToggleSidebar: toggleSidebarGated,
+    onOpenSettings: () => openSettings(),
     onOpenSearch: () => setShowSearch(true),
     onAddProject: () => {
       pickDirectory()
@@ -537,6 +574,8 @@ export default function App() {
         .catch((err) => setError(String(err)));
     },
     onToggleTerminal: () => {
+      // The terminal lives in the inspector — a conversations-only panel.
+      if (destination !== "conversations") return;
       setRightPanelCollapsed((collapsed) => {
         if (!collapsed) return true; // closing the panel
         window.dispatchEvent(new CustomEvent("gb-open-terminal"));
@@ -663,7 +702,7 @@ export default function App() {
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
-          newThread: () => { setActiveSession(null); setShowHome(true); },
+          newThread: () => { setActiveSession(null); setShowHome(true); setDestination("conversations"); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           forkCurrentThread: () => {
@@ -848,6 +887,7 @@ export default function App() {
         action: () => {
           setActiveSession(tab.id);
           setShowHome(false);
+          setDestination("conversations");
         },
       });
     }
@@ -888,10 +928,7 @@ export default function App() {
         id: s.id,
         title: s.title,
         category: "Settings",
-        action: () => {
-          setSettingsTab(s.tab);
-          setShowSettings(true);
-        },
+        action: () => openSettings(s.tab),
       });
     }
 
@@ -900,7 +937,10 @@ export default function App() {
       id: "go-home",
       title: "Go Home",
       category: "Navigation",
-      action: () => setShowHome(true),
+      action: () => {
+        setShowHome(true);
+        setDestination("conversations");
+      },
     });
 
     // Surfaces previously on the sidebar, now reachable from the palette.
@@ -909,13 +949,13 @@ export default function App() {
         id: "open-agents",
         title: "Open: Workspace Agents",
         category: "Navigation",
-        action: () => setShowAgentsPage(true),
+        action: () => setDestination("agents"),
       },
       {
         id: "open-dashboard",
         title: "Open: Dashboard",
         category: "Navigation",
-        action: () => setShowDashboard(true),
+        action: () => setDestination("dashboard"),
       },
       {
         id: "browse-threads",
@@ -926,7 +966,7 @@ export default function App() {
     );
 
     return cmds;
-  }, [tabs, activeSessionId, config, setActiveSession]);
+  }, [tabs, activeSessionId, config, setActiveSession, openSettings]);
 
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
   if (isAuthHandoff) return <Suspense fallback={<PageFallback />}><AuthHandoff /></Suspense>;
@@ -970,75 +1010,48 @@ export default function App() {
     );
   }
 
-  if (showAutomations) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <AutomationsPage onClose={() => setShowAutomations(false)} />
-      </Suspense>
-    );
-  }
-
-  if (showAgentsPage) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <WorkspaceAgentsPage
-          onClose={() => setShowAgentsPage(false)}
-          onOpenSession={(id) => {
-            setActiveSession(id);
-            setShowAgentsPage(false);
-          }}
-        />
-      </Suspense>
-    );
-  }
-
-  if (showDashboard) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <Dashboard
-          onClose={() => setShowDashboard(false)}
-          onOpenSession={() => setShowDashboard(false)}
-        />
-      </Suspense>
-    );
-  }
-
-  if (showSettings) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <Settings onClose={() => { setShowSettings(false); setSettingsTab(undefined); }} initialTab={settingsTab} />
-      </Suspense>
-    );
-  }
-
   return (
     <ErrorBoundary>
-    <div className="flex h-full overflow-hidden text-gb-text">
-        <Sidebar
-          collapsed={responsiveSidebarCollapsed}
-          creating={creating}
-          onNewSession={handleNewSession}
-          onNewSessionInDir={handleNewSessionInDir}
-          onResumeThread={handleResumeThread}
-          onForkSession={handleForkSession}
-          onRenameHistory={handleRenameHistory}
-          onCloseSession={handleCloseSession}
+    <AppShell
+      destination={destination}
+      rail={
+        <ActivityBar
+          destination={destination}
+          onNavigate={setDestination}
           onOpenSearch={() => setShowSearch(true)}
-          onOpenSettings={(tab) => { setSettingsTab(tab); setShowSettings(true); }}
-          onOpenAutomations={() => setShowAutomations(true)}
+          onToggleSidebar={toggleSidebarGated}
+          sidebarVisible={!responsiveSidebarCollapsed}
+          sidebarAvailable={inConversations}
         />
-
-        <main className="flex flex-1 flex-col overflow-hidden">
-          <TitleBar
-            sidebarCollapsed={responsiveSidebarCollapsed}
-            auth={auth}
-            onLogout={handleLogout}
-            onNewSession={handleNewSession}
+      }
+      sidebar={
+        destination === "conversations" ? (
+          <Sidebar
+            collapsed={responsiveSidebarCollapsed}
             creating={creating}
-            onToggleSidebar={toggleSidebar}
-            onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
-            onOpenSettings={() => setShowSettings(true)}
+            onNewSession={handleNewSession}
+            onNewSessionInDir={handleNewSessionInDir}
+            onResumeThread={handleResumeThread}
+            onForkSession={handleForkSession}
+            onRenameHistory={handleRenameHistory}
+            onCloseSession={handleCloseSession}
           />
+        ) : undefined
+      }
+      titlebar={
+        <TitleBar
+          sidebarCollapsed={responsiveSidebarCollapsed || !inConversations}
+          auth={auth}
+          destination={destination}
+          onLogout={handleLogout}
+          onNewSession={handleNewSession}
+          creating={creating}
+          onToggleSidebar={toggleSidebarGated}
+          onToggleRightPanel={toggleRightPanelGated}
+        />
+      }
+      workspace={
+        <>
           {error && (
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-danger-text backdrop-blur-xl">
               <span className="flex-1">{error}</span>
@@ -1064,72 +1077,111 @@ export default function App() {
           )}
           {slashNotice && (
             <div
-              className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-gb-border/40 bg-gb-surface-solid px-4 py-2 text-xs text-gb-text shadow-xl"
+              className="pointer-events-none fixed bottom-24 left-1/2 z-gb-toast -translate-x-1/2 rounded-lg border gb-border-hairline bg-gb-surface-1 px-4 py-2 text-xs text-gb-text shadow-gb-modal"
               onClick={() => setSlashNotice(null)}
             >
               {slashNotice}
             </div>
           )}
 
-          {showHome ? (
-            <Home
-              config={config}
-              onStart={handleStartFromHome}
-              onOpenSession={(id) => {
-                setActiveSession(id);
-                setShowHome(false);
-              }}
-              onResumeThread={handleResumeThread}
-              creating={creating}
-            />
-          ) : (
-            <>
-              <WorktreeOnboardingBanner />
-              {activeSessionId && resumingIds.has(activeSessionId) && (
-                <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
-                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
-                  正在恢复会话 — 转录加载中，恢复完成后即可继续发送
-                </div>
-              )}
-              <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
-              {activeSessionId && activePermissions.map((perm) => (
-                <ApprovalCard
-                  key={perm.requestId}
-                  sessionId={activeSessionId}
-                  requestId={perm.requestId}
-                  toolName={perm.toolName}
-                  command={perm.command}
-                  options={perm.options}
-                  onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
-                />
-              ))}
-              {activeSessionId && activeQuestions.map((q) => (
-                <QuestionCard
-                  key={q.requestId}
-                  sessionId={activeSessionId}
-                  requestId={q.requestId}
-                  questions={q.questions}
-                  mode={q.mode}
-                  onResolved={() => removePendingQuestion(activeSessionId!, q.requestId)}
-                />
-              ))}
-              <PromptInput
-                onSend={handleSend}
-                onCancel={handleCancel}
-                isStreaming={isStreaming}
-                disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
-                cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
-                onSwitchProject={handleSwitchProject}
+          {/* Conversations stays MOUNTED across destination switches (hidden
+              via CSS) — MessageList scroll position, composer state, pending
+              approval cards and streaming sessions survive a round trip. */}
+          <div
+            className={inConversations ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+            aria-hidden={!inConversations}
+          >
+            {showHome ? (
+              <Home
                 config={config}
-                onModelEffortChange={handleModelEffortChange}
-                onWorkModeChange={handleWorkModeChange}
-                onQueue={handleQueue}
+                onStart={handleStartFromHome}
+                onOpenSession={(id) => {
+                  setActiveSession(id);
+                  setShowHome(false);
+                }}
+                onResumeThread={handleResumeThread}
+                creating={creating}
               />
-            </>
-          )}
-        </main>
+            ) : (
+              <>
+                <WorktreeOnboardingBanner />
+                {activeSessionId && resumingIds.has(activeSessionId) && (
+                  <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
+                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
+                    正在恢复会话 — 转录加载中，恢复完成后即可继续发送
+                  </div>
+                )}
+                <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
+                {activeSessionId && activePermissions.map((perm) => (
+                  <ApprovalCard
+                    key={perm.requestId}
+                    sessionId={activeSessionId}
+                    requestId={perm.requestId}
+                    toolName={perm.toolName}
+                    command={perm.command}
+                    options={perm.options}
+                    onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
+                  />
+                ))}
+                {activeSessionId && activeQuestions.map((q) => (
+                  <QuestionCard
+                    key={q.requestId}
+                    sessionId={activeSessionId}
+                    requestId={q.requestId}
+                    questions={q.questions}
+                    mode={q.mode}
+                    onResolved={() => removePendingQuestion(activeSessionId, q.requestId)}
+                  />
+                ))}
+                <PromptInput
+                  onSend={handleSend}
+                  onCancel={handleCancel}
+                  isStreaming={isStreaming}
+                  disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
+                  cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
+                  onSwitchProject={handleSwitchProject}
+                  config={config}
+                  onModelEffortChange={handleModelEffortChange}
+                  onWorkModeChange={handleWorkModeChange}
+                  onQueue={handleQueue}
+                />
+              </>
+            )}
+          </div>
 
-        <RightPanel collapsed={responsiveRightCollapsed} />
+          {/* Destination pages mount fresh per visit (they are views over
+              stores, not stateful editors) and get the page-enter motion. */}
+          {!inConversations && (
+            <div key={destination} className="gb-motion-page-enter flex min-h-0 flex-1 flex-col overflow-hidden">
+              {destination === "dashboard" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <Dashboard onClose={goConversations} onOpenSession={goConversations} />
+                </Suspense>
+              ) : destination === "automations" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <AutomationsPage onClose={goConversations} />
+                </Suspense>
+              ) : destination === "agents" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <WorkspaceAgentsPage
+                    onClose={goConversations}
+                    onOpenSession={(id) => {
+                      setActiveSession(id);
+                      goConversations();
+                    }}
+                  />
+                </Suspense>
+              ) : (
+                <Suspense fallback={<PageFallback />}>
+                  <Settings onClose={goConversations} initialTab={settingsTab} />
+                </Suspense>
+              )}
+            </div>
+          )}
+        </>
+      }
+      inspector={destination === "conversations" ? <RightPanel collapsed={responsiveRightCollapsed} /> : undefined}
+    />
 
       {showPicker && (
         <Suspense fallback={null}>
@@ -1141,28 +1193,28 @@ export default function App() {
         <Suspense fallback={null}>
           <GlobalSearch
             onClose={() => setShowSearch(false)}
-            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); }}
+            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); setDestination("conversations"); }}
             onResumeThread={handleResumeThread}
           />
         </Suspense>
       )}
 
       {confirmClose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-80 rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-center shadow-2xl">
-            <p className="mb-2 text-sm font-medium text-gb-text">关闭这个会话？</p>
-            <p className="mb-4 text-xs text-gb-muted">
+        <div className="fixed inset-0 z-gb-modal flex items-center justify-center bg-black/50">
+          <div className="w-80 rounded-gb-lg border gb-border-hairline bg-gb-surface-1 p-6 text-center shadow-gb-modal">
+            <p className="mb-2 text-sm font-medium text-gb-text-primary">关闭这个会话？</p>
+            <p className="mb-4 text-xs text-gb-text-muted">
               Messages in this session will be lost. The agent process will be terminated.
             </p>
             <div className="flex gap-2">
               <button
-                className="flex-1 rounded-md border border-gb-border/10 px-3 py-2 text-[12px] text-gb-muted hover:bg-gb-surface-hover"
+                className="flex-1 rounded-gb-md border gb-border-control px-3 py-2 text-gb-xs text-gb-text-secondary transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover"
                 onClick={() => setConfirmClose(null)}
               >
                 Cancel
               </button>
               <button
-                className="flex-1 rounded-md bg-gb-red px-3 py-2 text-[12px] font-medium text-white hover:opacity-80"
+                className="flex-1 rounded-gb-md bg-gb-danger px-3 py-2 text-gb-xs font-medium text-gb-accent-fg transition-colors duration-gb-fast ease-gb hover:opacity-80"
                 onClick={() => performClose(confirmClose)}
               >
                 Close
@@ -1175,8 +1227,8 @@ export default function App() {
       <CommandPalette
         commands={paletteCommands}
         onNewSession={handleNewSession}
-        onOpenSettings={() => setShowSettings(true)}
-        onOpenDashboard={() => setShowDashboard(true)}
+        onOpenSettings={() => openSettings()}
+        onOpenDashboard={() => setDestination("dashboard")}
         onToggleSidebar={toggleSidebar}
         onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
@@ -1198,7 +1250,6 @@ export default function App() {
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
       <ToastViewport />
-    </div>
     </ErrorBoundary>
   );
 }

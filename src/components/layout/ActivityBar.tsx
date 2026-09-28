@@ -1,64 +1,136 @@
-// VS Code-style Activity Bar: 48px icon rail on the far left.
-// Top: view toggles (Explorer / Search / Dashboard / Automations).
-// Bottom: account-level actions (Settings).
-interface ActivityBarProps {
-  sidebarVisible: boolean;
-  onToggleSidebar: () => void;
-  onOpenSearch: () => void;
-  onOpenDashboard: () => void;
-  onOpenAutomations: () => void;
-  onOpenSettings: () => void;
+import { Tooltip } from "../ui";
+import { DESTINATIONS, type AppDestination } from "./destinations";
+
+/**
+ * ActivityBar (R4-03 #236): the 48px primary rail — the SOLE owner of
+ * top-level destinations. Every destination appears exactly once, with
+ * aria-current on the active one; search and the sidebar toggle are
+ * commands, not destinations. The contextual sidebar must never repeat
+ * these entries.
+ *
+ * Destination registry (labels/icons) lives in ./destinations — TitleBar
+ * reads the same source so names never drift.
+ */
+
+const SEARCH_ICON = "M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM21 21l-5.2-5.2";
+const SIDEBAR_ICON = "M2 4h12v1H2V4zm0 3.5h12v1H2v-1zm0 3.5h12v1H2v-1z";
+
+interface RailButtonProps {
+  label: string;
+  shortcut?: string;
+  icon: string;
+  active?: boolean;
+  current?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
 }
 
-function ActivityIcon({ d, active, label, onClick }: { d: string; active?: boolean; label: string; onClick: () => void }) {
+// Plain button (not ui/IconButton) because IconButton forces a `title`
+// attribute which would double up with the Tooltip wrapper.
+function RailButton({ label, shortcut, icon, active, current, disabled, onClick }: RailButtonProps) {
+  const fullLabel = shortcut ? `${label} (${shortcut})` : label;
   return (
-    <button
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      className={`relative flex h-12 w-12 items-center justify-center transition-colors ${
-        active ? "text-white" : "text-gb-activitybar-fg hover:text-white"
-      }`}
-    >
-      {active && <span className="absolute left-0 top-2 bottom-2 w-0.5 bg-white" />}
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-        <path d={d} />
-      </svg>
-    </button>
+    <Tooltip content={fullLabel}>
+      <button
+        type="button"
+        aria-label={fullLabel}
+        aria-current={current ? "page" : undefined}
+        aria-pressed={current ? undefined : active}
+        disabled={disabled}
+        onClick={onClick}
+        className={[
+          "gb-motion-press relative flex h-10 w-10 items-center justify-center rounded-gb-md transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-30",
+          current || active
+            ? "bg-gb-accent/15 text-gb-accent-text"
+            : "text-gb-text-muted hover:bg-gb-surface-hover hover:text-gb-text-primary",
+        ].join(" ")}
+      >
+        {current ? (
+          <span
+            aria-hidden="true"
+            className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-gb-accent"
+          />
+        ) : null}
+        <svg
+          aria-hidden="true"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d={icon} />
+        </svg>
+      </button>
+    </Tooltip>
   );
 }
 
+export interface ActivityBarProps {
+  destination: AppDestination;
+  onNavigate: (destination: AppDestination) => void;
+  onOpenSearch: () => void;
+  onToggleSidebar: () => void;
+  sidebarVisible: boolean;
+  /** False on destinations that have no contextual sidebar — the toggle is
+   *  then disabled instead of invisibly mutating state (R4-03 review). */
+  sidebarAvailable: boolean;
+}
+
 export function ActivityBar({
-  sidebarVisible, onToggleSidebar, onOpenSearch, onOpenDashboard, onOpenAutomations, onOpenSettings,
+  destination,
+  onNavigate,
+  onOpenSearch,
+  onToggleSidebar,
+  sidebarVisible,
+  sidebarAvailable,
 }: ActivityBarProps) {
+  const [primary, settingsEntry] = [
+    DESTINATIONS.filter((d) => d.id !== "settings"),
+    DESTINATIONS.find((d) => d.id === "settings")!,
+  ];
   return (
-    <nav className="flex w-12 shrink-0 flex-col items-center bg-gb-activitybar" aria-label="活动栏">
-      <ActivityIcon
-        label="资源管理器（会话）(⌘B)"
-        active={sidebarVisible}
-        onClick={onToggleSidebar}
-        d="M14 3H5a2 2 0 00-2 2v14a2 2 0 002 2h9M14 3l5 5m-5-5v5h5M9 12h6M9 16h4"
-      />
-      <ActivityIcon
-        label="搜索 (⌘G)"
+    <nav
+      aria-label="主导航"
+      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r gb-border-hairline bg-gb-sidebar pb-2"
+    >
+      {/* Traffic-light clearance — draggable window region (traffic lights
+         end at y≈29 with the default inset position, so keep 32px) */}
+      <div className="app-drag h-8 w-full shrink-0" />
+      {primary.map((d) => (
+        <RailButton
+          key={d.id}
+          label={d.label}
+          shortcut={d.shortcut}
+          icon={d.icon}
+          current={destination === d.id}
+          onClick={() => onNavigate(d.id)}
+        />
+      ))}
+      <RailButton
+        label="搜索"
+        shortcut="⌘G"
+        icon={SEARCH_ICON}
         onClick={onOpenSearch}
-        d="M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM21 21l-5.2-5.2"
       />
-      <ActivityIcon
-        label="仪表盘"
-        onClick={onOpenDashboard}
-        d="M3 20h18M6 20v-6m6 6V8m6 12v-9"
-      />
-      <ActivityIcon
-        label="自动化"
-        onClick={onOpenAutomations}
-        d="M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3.5 2"
+      <RailButton
+        label="切换会话侧栏"
+        shortcut="⌘B"
+        icon={SIDEBAR_ICON}
+        active={sidebarAvailable && sidebarVisible}
+        disabled={!sidebarAvailable}
+        onClick={onToggleSidebar}
       />
       <div className="flex-1" />
-      <ActivityIcon
-        label="设置 (⌘,)"
-        onClick={onOpenSettings}
-        d="M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"
+      <RailButton
+        label={settingsEntry.label}
+        shortcut={settingsEntry.shortcut}
+        icon={settingsEntry.icon}
+        current={destination === "settings"}
+        onClick={() => onNavigate("settings")}
       />
     </nav>
   );

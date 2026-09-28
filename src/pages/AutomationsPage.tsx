@@ -18,7 +18,7 @@ import {
  * page reloads. The renderer syncs its list via `automations_sync` and
  * receives run events on the `automation_run` IPC channel.
  */
-export function AutomationsPage({ onClose }: { onClose: () => void }) {
+export function AutomationsPage({ onClose: _onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<Automation[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -90,26 +90,17 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      {/* macOS traffic-light clearance */}
-      <div className="app-drag h-9 shrink-0" />
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 pl-24 pr-4">
-        <h2 className="text-[13px] font-medium">Automations</h2>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-gb-accent-fg hover:opacity-85"
-          >
-            {showForm ? "Cancel" : "+ New"}
-          </button>
-          <button
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-            onClick={onClose}
-          >
-            Back
-          </button>
-        </div>
-      </header>
+    <div className="flex h-full flex-col bg-gb-canvas text-gb-text-primary">
+      {/* R4-03: no window chrome — the shell owns the destination name; this
+         slim toolbar keeps the page's primary action. */}
+      <div className="flex h-10 shrink-0 items-center justify-end border-b gb-border-hairline px-4">
+        <button
+          onClick={() => setShowForm((v) => !v)}
+          className="rounded-gb-md bg-gb-accent px-3 py-1 text-gb-xs font-medium text-gb-accent-fg transition-colors duration-gb-fast ease-gb hover:bg-gb-accent-hover"
+        >
+          {showForm ? "Cancel" : "+ New"}
+        </button>
+      </div>
 
       <div className="flex-1 overflow-y-auto p-4">
         {showForm && (

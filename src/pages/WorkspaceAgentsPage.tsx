@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useSessionStore, type Subagent } from "../stores/sessionStore";
 
 interface WorkspaceAgentsPageProps {
+  /** Retained for API compatibility — navigation back is via the rail. */
   onClose: () => void;
   onOpenSession: (id: string) => void;
 }
@@ -10,7 +11,7 @@ interface WorkspaceAgentsPageProps {
  * Workspace-wide agent overview — lists every subagent across every open
  * session, with detail drill-down. Codex parity: `workspace-agents-page`.
  */
-export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsPageProps) {
+export function WorkspaceAgentsPage({ onClose: _onClose, onOpenSession }: WorkspaceAgentsPageProps) {
   const tabs = useSessionStore((s) => s.tabs);
   const subagents = useSessionStore((s) => s.subagents);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -32,19 +33,8 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
   );
 
   return (
-    <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      {/* macOS traffic-light clearance */}
-      <div className="app-drag h-9 shrink-0" />
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-gb-border/8 pl-24 pr-4">
-        <h2 className="text-[13px] font-medium">工作区 Agent</h2>
-        <button
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-[12px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
-          onClick={onClose}
-        >
-          ← Back
-        </button>
-      </header>
-
+    <div className="flex h-full flex-col bg-gb-canvas text-gb-text-primary">
+      {/* R4-03: no window chrome — the shell TitleBar shows the destination. */}
       <div className="flex flex-1 overflow-hidden">
         {/* List */}
         <div className="w-80 shrink-0 overflow-y-auto border-r border-gb-border/8 bg-gb-bg-secondary p-2">

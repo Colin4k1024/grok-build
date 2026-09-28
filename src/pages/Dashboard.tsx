@@ -1,11 +1,12 @@
 import { useSessionStore } from "../stores/sessionStore";
 
 interface Props {
+  /** Retained for API compatibility — navigation back is via the rail. */
   onClose: () => void;
   onOpenSession: (sessionId: string) => void;
 }
 
-export function Dashboard({ onClose, onOpenSession }: Props) {
+export function Dashboard({ onOpenSession }: Props) {
   const tabs = useSessionStore((s) => s.tabs);
   const messages = useSessionStore((s) => s.messages);
   const subagents = useSessionStore((s) => s.subagents);
@@ -32,22 +33,9 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-gb-bg text-gb-text">
-      {/* macOS traffic-light clearance */}
-      <div className="app-drag h-9 shrink-0" />
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-gb-border bg-gb-surface pl-24 pr-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold">仪表盘</h2>
-          <span className="text-[10px] text-gb-muted">全局概览</span>
-        </div>
-        <button
-          className="rounded px-2 py-1 text-xs text-gb-muted hover:bg-gb-bg hover:text-gb-text"
-          onClick={onClose}
-        >
-          ← 返回对话
-        </button>
-      </header>
-
+    <div className="flex h-full flex-col bg-gb-canvas text-gb-text-primary">
+      {/* R4-03: no window chrome here — the shell TitleBar shows the
+         destination name; page content starts directly. */}
       <div className="flex-1 overflow-y-auto p-4">
         {/* Stats bar */}
         <div className="mb-4 grid grid-cols-4 gap-3">
