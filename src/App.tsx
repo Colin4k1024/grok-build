@@ -8,6 +8,8 @@ import { MessageList } from "./components/chat/MessageList";
 import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
+import { ActivityBar, type AppDestination } from "./components/layout/ActivityBar";
+import { AppShell } from "./components/layout/AppShell";
 import { Sidebar } from "./components/layout/Sidebar";
 import { RightPanel } from "./components/panels/RightPanel";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
@@ -161,11 +163,16 @@ export default function App() {
   const [resumingIds, setResumingIds] = useState<Set<string>>(new Set());
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined);
-  const [showAgentsPage, setShowAgentsPage] = useState(false);
-  const [showAutomations, setShowAutomations] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(false);
+  // R4-03 (#236): top-level destination. Destination pages render INSIDE the
+  // stable shell — no conditional full-page returns that would destroy the
+  // rail/sidebar/titlebar state on every switch.
+  const [destination, setDestination] = useState<AppDestination>("conversations");
+  const openSettings = useCallback((tab?: string) => {
+    setSettingsTab(tab);
+    setDestination("settings");
+  }, []);
+  const goConversations = useCallback(() => setDestination("conversations"), []);
 
   // null = follow responsive auto rule; boolean = explicit user override
   // (fixes: below the 1000px breakpoint the manual toggle could never
@@ -526,7 +533,7 @@ export default function App() {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
     onToggleSidebar: toggleSidebar,
-    onOpenSettings: () => setShowSettings(true),
+    onOpenSettings: () => openSettings(),
     onOpenSearch: () => setShowSearch(true),
     onAddProject: () => {
       pickDirectory()
@@ -888,10 +895,7 @@ export default function App() {
         id: s.id,
         title: s.title,
         category: "Settings",
-        action: () => {
-          setSettingsTab(s.tab);
-          setShowSettings(true);
-        },
+        action: () => openSettings(s.tab),
       });
     }
 
@@ -909,13 +913,13 @@ export default function App() {
         id: "open-agents",
         title: "Open: Workspace Agents",
         category: "Navigation",
-        action: () => setShowAgentsPage(true),
+        action: () => setDestination("agents"),
       },
       {
         id: "open-dashboard",
         title: "Open: Dashboard",
         category: "Navigation",
-        action: () => setShowDashboard(true),
+        action: () => setDestination("dashboard"),
       },
       {
         id: "browse-threads",
@@ -970,75 +974,48 @@ export default function App() {
     );
   }
 
-  if (showAutomations) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <AutomationsPage onClose={() => setShowAutomations(false)} />
-      </Suspense>
-    );
-  }
-
-  if (showAgentsPage) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <WorkspaceAgentsPage
-          onClose={() => setShowAgentsPage(false)}
-          onOpenSession={(id) => {
-            setActiveSession(id);
-            setShowAgentsPage(false);
-          }}
-        />
-      </Suspense>
-    );
-  }
-
-  if (showDashboard) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <Dashboard
-          onClose={() => setShowDashboard(false)}
-          onOpenSession={() => setShowDashboard(false)}
-        />
-      </Suspense>
-    );
-  }
-
-  if (showSettings) {
-    return (
-      <Suspense fallback={<PageFallback />}>
-        <Settings onClose={() => { setShowSettings(false); setSettingsTab(undefined); }} initialTab={settingsTab} />
-      </Suspense>
-    );
-  }
-
   return (
     <ErrorBoundary>
-    <div className="flex h-full overflow-hidden text-gb-text">
-        <Sidebar
-          collapsed={responsiveSidebarCollapsed}
-          creating={creating}
-          onNewSession={handleNewSession}
-          onNewSessionInDir={handleNewSessionInDir}
-          onResumeThread={handleResumeThread}
-          onForkSession={handleForkSession}
-          onRenameHistory={handleRenameHistory}
-          onCloseSession={handleCloseSession}
+    <AppShell
+      destination={destination}
+      rail={
+        <ActivityBar
+          destination={destination}
+          onNavigate={setDestination}
           onOpenSearch={() => setShowSearch(true)}
-          onOpenSettings={(tab) => { setSettingsTab(tab); setShowSettings(true); }}
-          onOpenAutomations={() => setShowAutomations(true)}
+          onToggleSidebar={toggleSidebar}
+          sidebarVisible={!responsiveSidebarCollapsed}
         />
-
-        <main className="flex flex-1 flex-col overflow-hidden">
-          <TitleBar
-            sidebarCollapsed={responsiveSidebarCollapsed}
-            auth={auth}
-            onLogout={handleLogout}
-            onNewSession={handleNewSession}
+      }
+      sidebar={
+        destination === "conversations" ? (
+          <Sidebar
+            collapsed={responsiveSidebarCollapsed}
             creating={creating}
-            onToggleSidebar={toggleSidebar}
-            onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
-            onOpenSettings={() => setShowSettings(true)}
+            onNewSession={handleNewSession}
+            onNewSessionInDir={handleNewSessionInDir}
+            onResumeThread={handleResumeThread}
+            onForkSession={handleForkSession}
+            onRenameHistory={handleRenameHistory}
+            onCloseSession={handleCloseSession}
+            onOpenSearch={() => setShowSearch(true)}
           />
+        ) : undefined
+      }
+      titlebar={
+        <TitleBar
+          sidebarCollapsed={responsiveSidebarCollapsed || destination !== "conversations"}
+          auth={auth}
+          destination={destination}
+          onLogout={handleLogout}
+          onNewSession={handleNewSession}
+          creating={creating}
+          onToggleSidebar={toggleSidebar}
+          onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+        />
+      }
+      workspace={
+        <>
           {error && (
             <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-danger-text backdrop-blur-xl">
               <span className="flex-1">{error}</span>
@@ -1064,72 +1041,99 @@ export default function App() {
           )}
           {slashNotice && (
             <div
-              className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-gb-border/40 bg-gb-surface-solid px-4 py-2 text-xs text-gb-text shadow-xl"
+              className="pointer-events-none fixed bottom-24 left-1/2 z-gb-toast -translate-x-1/2 rounded-lg border gb-border-hairline bg-gb-surface-1 px-4 py-2 text-xs text-gb-text shadow-gb-modal"
               onClick={() => setSlashNotice(null)}
             >
               {slashNotice}
             </div>
           )}
 
-          {showHome ? (
-            <Home
-              config={config}
-              onStart={handleStartFromHome}
-              onOpenSession={(id) => {
-                setActiveSession(id);
-                setShowHome(false);
-              }}
-              onResumeThread={handleResumeThread}
-              creating={creating}
-            />
-          ) : (
-            <>
-              <WorktreeOnboardingBanner />
-              {activeSessionId && resumingIds.has(activeSessionId) && (
-                <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
-                  <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
-                  正在恢复会话 — 转录加载中，恢复完成后即可继续发送
-                </div>
-              )}
-              <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
-              {activeSessionId && activePermissions.map((perm) => (
-                <ApprovalCard
-                  key={perm.requestId}
-                  sessionId={activeSessionId}
-                  requestId={perm.requestId}
-                  toolName={perm.toolName}
-                  command={perm.command}
-                  options={perm.options}
-                  onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
-                />
-              ))}
-              {activeSessionId && activeQuestions.map((q) => (
-                <QuestionCard
-                  key={q.requestId}
-                  sessionId={activeSessionId}
-                  requestId={q.requestId}
-                  questions={q.questions}
-                  mode={q.mode}
-                  onResolved={() => removePendingQuestion(activeSessionId!, q.requestId)}
-                />
-              ))}
-              <PromptInput
-                onSend={handleSend}
-                onCancel={handleCancel}
-                isStreaming={isStreaming}
-                disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
-                cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
-                onSwitchProject={handleSwitchProject}
+          <div key={destination} className="gb-motion-page-enter flex min-h-0 flex-1 flex-col">
+          {destination === "conversations" ? (
+            showHome ? (
+              <Home
                 config={config}
-                onModelEffortChange={handleModelEffortChange}
-                onWorkModeChange={handleWorkModeChange}
-                onQueue={handleQueue}
+                onStart={handleStartFromHome}
+                onOpenSession={(id) => {
+                  setActiveSession(id);
+                  setShowHome(false);
+                }}
+                onResumeThread={handleResumeThread}
+                creating={creating}
               />
-            </>
+            ) : (
+              <>
+                <WorktreeOnboardingBanner />
+                {activeSessionId && resumingIds.has(activeSessionId) && (
+                  <div className="flex shrink-0 items-center gap-2.5 border-b border-gb-border/40 bg-gb-surface/40 px-4 py-2 text-[13px] text-gb-text-secondary">
+                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gb-border border-t-gb-accent" />
+                    正在恢复会话 — 转录加载中，恢复完成后即可继续发送
+                  </div>
+                )}
+                <MessageList resuming={!!activeSessionId && resumingIds.has(activeSessionId)} />
+                {activeSessionId && activePermissions.map((perm) => (
+                  <ApprovalCard
+                    key={perm.requestId}
+                    sessionId={activeSessionId}
+                    requestId={perm.requestId}
+                    toolName={perm.toolName}
+                    command={perm.command}
+                    options={perm.options}
+                    onResolved={() => removePendingPermission(activeSessionId!, perm.requestId)}
+                  />
+                ))}
+                {activeSessionId && activeQuestions.map((q) => (
+                  <QuestionCard
+                    key={q.requestId}
+                    sessionId={activeSessionId}
+                    requestId={q.requestId}
+                    questions={q.questions}
+                    mode={q.mode}
+                    onResolved={() => removePendingQuestion(activeSessionId, q.requestId)}
+                  />
+                ))}
+                <PromptInput
+                  onSend={handleSend}
+                  onCancel={handleCancel}
+                  isStreaming={isStreaming}
+                  disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
+                  cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
+                  onSwitchProject={handleSwitchProject}
+                  config={config}
+                  onModelEffortChange={handleModelEffortChange}
+                  onWorkModeChange={handleWorkModeChange}
+                  onQueue={handleQueue}
+                />
+              </>
+            )
+          ) : destination === "dashboard" ? (
+            <Suspense fallback={<PageFallback />}>
+              <Dashboard onClose={goConversations} onOpenSession={goConversations} />
+            </Suspense>
+          ) : destination === "automations" ? (
+            <Suspense fallback={<PageFallback />}>
+              <AutomationsPage onClose={goConversations} />
+            </Suspense>
+          ) : destination === "agents" ? (
+            <Suspense fallback={<PageFallback />}>
+              <WorkspaceAgentsPage
+                onClose={goConversations}
+                onOpenSession={(id) => {
+                  setActiveSession(id);
+                  goConversations();
+                }}
+              />
+            </Suspense>
+          ) : (
+            <Suspense fallback={<PageFallback />}>
+              <Settings onClose={() => { goConversations(); setSettingsTab(undefined); }} initialTab={settingsTab} />
+            </Suspense>
           )}
-        </main>
-
-        <RightPanel collapsed={responsiveRightCollapsed} />
+          </div>
+        </>
+      }
+      inspector={destination === "conversations" ? <RightPanel collapsed={responsiveRightCollapsed} /> : undefined}
+    />
 
       {showPicker && (
         <Suspense fallback={null}>
@@ -1175,8 +1179,8 @@ export default function App() {
       <CommandPalette
         commands={paletteCommands}
         onNewSession={handleNewSession}
-        onOpenSettings={() => setShowSettings(true)}
-        onOpenDashboard={() => setShowDashboard(true)}
+        onOpenSettings={() => openSettings()}
+        onOpenDashboard={() => setDestination("dashboard")}
         onToggleSidebar={toggleSidebar}
         onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}
@@ -1198,7 +1202,6 @@ export default function App() {
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
       <ToastViewport />
-    </div>
     </ErrorBoundary>
   );
 }
