@@ -45,7 +45,7 @@ export function Switch({ label, checked, onCheckedChange, disabled, description 
       >
         <span
           aria-hidden="true"
-          className="inline-block h-4 w-4 rounded-full bg-white transition-transform duration-gb-fast ease-gb"
+          className="inline-block h-4 w-4 rounded-full bg-gb-accent-fg transition-transform duration-gb-fast ease-gb"
           style={{ transform: checked ? "translateX(18px)" : "translateX(2px)" }}
         />
       </button>

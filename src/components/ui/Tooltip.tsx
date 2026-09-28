@@ -40,7 +40,9 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   const tooltipId = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<HTMLSpanElement>(null);
-  const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
+  const [placement, setPlacement] = useState<{ left: number; top?: number; bottom?: number } | null>(
+    null,
+  );
 
   const clearTimer = () => {
     if (timer.current) {
@@ -54,7 +56,15 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
 
   const show = () => {
     const box = anchorRef.current?.getBoundingClientRect();
-    if (box) setRect({ top: box.top, left: box.left + box.width / 2 });
+    if (box) {
+      // Flip below the trigger when there is no room above (titlebar row).
+      const flipBelow = box.top < 34;
+      setPlacement(
+        flipBelow
+          ? { left: box.left + box.width / 2, top: box.bottom + 6 }
+          : { left: box.left + box.width / 2, bottom: window.innerHeight - box.top + 6 },
+      );
+    }
     setVisible(true);
   };
   const showDelayed = () => {
@@ -69,6 +79,14 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
     clearTimer();
     setVisible(false);
   };
+
+  // A tooltip is transient context — hide on scroll instead of floating
+  // detached from its anchor.
+  useEffect(() => {
+    if (!visible) return;
+    window.addEventListener("scroll", hide, true);
+    return () => window.removeEventListener("scroll", hide, true);
+  }, [visible]);
 
   if (!isValidElement(children)) return children;
 
@@ -103,12 +121,12 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
       <span ref={anchorRef} className="relative inline-flex">
         {child}
       </span>
-      {visible && rect
+      {visible && placement
         ? createPortal(
             <span
               role="tooltip"
               id={tooltipId}
-              style={{ bottom: window.innerHeight - rect.top + 6, left: rect.left }}
+              style={{ top: placement.top, bottom: placement.bottom, left: placement.left }}
               className="gb-motion-popover-enter pointer-events-none fixed z-gb-popover -translate-x-1/2 whitespace-nowrap rounded-gb-sm border gb-border-hairline bg-gb-surface-2 px-2 py-1 text-gb-xs text-gb-text-primary shadow-gb-low"
             >
               {content}

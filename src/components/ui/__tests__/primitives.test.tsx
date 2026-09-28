@@ -624,34 +624,42 @@ describe("layer composition", () => {
 
 describe("computeMenuPlacement", () => {
   const trigger = { top: 100, bottom: 132, left: 40, right: 120 };
+  const size = { width: 160, height: 160 };
+  const viewport = { width: 1280, height: 800 };
 
   it("opens below the trigger by default", () => {
-    const p = computeMenuPlacement(trigger, 160, 1280, 800, "left");
+    const p = computeMenuPlacement(trigger, size, viewport, "left");
     expect(p).toEqual({ top: 136, left: 40, right: undefined, flipped: false });
   });
 
   it("flips above when there is no room below", () => {
     const low = { top: 700, bottom: 732, left: 40, right: 120 };
-    const p = computeMenuPlacement(low, 160, 1280, 800, "left");
+    const p = computeMenuPlacement(low, size, viewport, "left");
     expect(p.flipped).toBe(true);
     expect(p.top).toBe(700 - 4 - 160);
   });
 
   it("never flips into negative space", () => {
     const cramped = { top: 60, bottom: 92, left: 40, right: 120 };
-    const p = computeMenuPlacement(cramped, 200, 1280, 130, "left");
+    const p = computeMenuPlacement(cramped, { width: 160, height: 200 }, { width: 1280, height: 130 }, "left");
     expect(p.top).toBeGreaterThanOrEqual(8);
   });
 
+  it("clamps left so the menu never overflows the right edge", () => {
+    const edge = { top: 100, bottom: 132, left: 1240, right: 1270 };
+    const p = computeMenuPlacement(edge, size, viewport, "left");
+    expect(p.left).toBe(1280 - 160 - 8);
+  });
+
   it("right-aligns via viewport-relative right offset", () => {
-    const p = computeMenuPlacement(trigger, 160, 1280, 800, "right");
+    const p = computeMenuPlacement(trigger, size, viewport, "right");
     expect(p.right).toBe(1280 - 120);
     expect(p.left).toBeUndefined();
   });
 });
 
-describe("menu item shrink while open", () => {
-  it("End lands on the remaining last item after items shrink", async () => {
+describe("menu item shrink", () => {
+  it("stays consistent when the item set shrinks between opens", async () => {
     function Shrinking() {
       const [items, setItems] = useState([
         { key: "a", label: "甲", onSelect: () => {} },
@@ -670,11 +678,7 @@ describe("menu item shrink while open", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
     );
-    // shrink to a single item (menu stays open; 收缩 is inside document but the
-    // click-away listener closes on outside mousedown — so shrink via keyboard
-    // would close; instead call the store path: use fireEvent on the button
-    // after closing focus… simplest: rerender through the button with the menu
-    // reopened)
+    // shrink while closed, then reopen: refs must not hold stale entries
     await userEvent.keyboard("{Escape}");
     await userEvent.click(screen.getByRole("button", { name: "收缩" }));
     await userEvent.click(screen.getByRole("button", { name: "收缩菜单" }));
@@ -703,9 +707,39 @@ describe("toast layout", () => {
 });
 
 describe("Input invalid state", () => {
-  it("renders the error border utility that wins over the control tier", () => {
+  it("renders the error border utility class", () => {
     render(<Input label="主机" error="必填" value="" onChange={() => {}} />);
     expect(screen.getByLabelText("主机").className).toContain("gb-border-danger");
+  });
+});
+
+describe("Tooltip flip", () => {
+  it("flips below the trigger when there is no room above (jsdom rects are zeroed)", async () => {
+    render(
+      <Tooltip content="顶部提示">
+        <button>顶行</button>
+      </Tooltip>,
+    );
+    screen.getByRole("button", { name: "顶行" }).focus();
+    await waitFor(() => {
+      const tip = screen.getByRole("tooltip");
+      // rect.top === 0 in jsdom → flips below → positioned via `top`
+      expect(tip.style.top).not.toBe("");
+      expect(tip.style.bottom).toBe("");
+    });
+  });
+});
+
+describe("Dialog overflow containment", () => {
+  it("caps the panel and scrolls the body region", async () => {
+    render(
+      <Dialog open onClose={() => {}} title="长内容">
+        <div>行</div>
+      </Dialog>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.className).toContain("max-h-[85vh]");
+    expect(dialog.querySelector(".overflow-y-auto")).not.toBeNull();
   });
 });
 

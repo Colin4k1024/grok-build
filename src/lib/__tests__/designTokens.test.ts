@@ -130,6 +130,23 @@ describe("semantic design tokens", () => {
     expect(stylesCss).not.toContain("rgba(34, 211, 238");
     expect(stylesCss).not.toContain("rgba(52, 211, 153");
   });
+
+  it("the error-border utility beats tier/hover/focus rules in every theme state", () => {
+    // Cascade contract: .gb-border-danger must come AFTER the control/hover
+    // tier rules, and have theme-scoped + focused variants so light theme
+    // and :focus cannot override the invalid state (verified by source order
+    // since jsdom has no real cascade).
+    const dangerIdx = stylesCss.indexOf(".gb-border-danger {");
+    const controlIdx = stylesCss.indexOf(".gb-border-control {");
+    const hoverIdx = stylesCss.indexOf(".gb-hover-border-control:hover");
+    expect(dangerIdx).toBeGreaterThan(-1);
+    expect(controlIdx).toBeGreaterThan(-1);
+    expect(dangerIdx).toBeGreaterThan(controlIdx);
+    expect(dangerIdx).toBeGreaterThan(hoverIdx);
+    expect(stylesCss).toContain(".light .gb-border-danger");
+    expect(stylesCss).toContain(".gb-border-danger:focus");
+    expect(stylesCss).toContain(".light .gb-border-danger:focus");
+  });
 });
 
 describe("motion tokens", () => {

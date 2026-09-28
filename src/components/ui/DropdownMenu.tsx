@@ -20,18 +20,22 @@ export interface MenuPlacement {
 /** Pure placement math, exported for tests. Viewport units throughout. */
 export function computeMenuPlacement(
   trigger: { top: number; bottom: number; left: number; right: number },
-  menuHeight: number,
-  viewportWidth: number,
-  viewportHeight: number,
+  menuSize: { width: number; height: number },
+  viewport: { width: number; height: number },
   align: "left" | "right",
 ): MenuPlacement {
   const gap = 4;
   const below = trigger.bottom + gap;
-  const flipped = below + menuHeight > viewportHeight - 8 && trigger.top - gap - menuHeight > 0;
+  const flipped =
+    below + menuSize.height > viewport.height - 8 && trigger.top - gap - menuSize.height > 0;
+  const unclampedLeft = align === "left" ? trigger.left : undefined;
   return {
-    top: flipped ? Math.max(8, trigger.top - gap - menuHeight) : below,
-    left: align === "left" ? trigger.left : undefined,
-    right: align === "right" ? viewportWidth - trigger.right : undefined,
+    top: flipped ? Math.max(8, trigger.top - gap - menuSize.height) : below,
+    left:
+      unclampedLeft === undefined
+        ? undefined
+        : Math.max(8, Math.min(unclampedLeft, viewport.width - menuSize.width - 8)),
+    right: align === "right" ? Math.max(8, viewport.width - trigger.right) : undefined,
     flipped,
   };
 }
@@ -84,7 +88,15 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
       const rect = triggerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const menuHeight = menuRef.current?.offsetHeight ?? items.length * 30 + 8;
-      setPos(computeMenuPlacement(rect, menuHeight, window.innerWidth, window.innerHeight, align));
+      const menuWidth = menuRef.current?.offsetWidth ?? 160;
+      setPos(
+        computeMenuPlacement(
+          rect,
+          { width: menuWidth, height: menuHeight },
+          { width: window.innerWidth, height: window.innerHeight },
+          align,
+        ),
+      );
     };
     update();
     window.addEventListener("resize", update);
@@ -198,7 +210,7 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
                 left: pos.left,
                 right: pos.right,
               }}
-              className="gb-motion-popover-enter fixed z-gb-dropdown min-w-[10rem] rounded-gb-md border gb-border-hairline bg-gb-surface-2 p-1 shadow-gb-medium"
+              className="gb-motion-popover-enter fixed z-gb-dropdown max-h-[70vh] min-w-[10rem] overflow-y-auto rounded-gb-md border gb-border-hairline bg-gb-surface-2 p-1 shadow-gb-medium"
             >
               {items.map((item, i) => (
                 <button

@@ -94,8 +94,8 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
       : "fixed inset-0 z-gb-modal flex justify-end";
   const panelClass =
     variant === "modal"
-      ? "gb-motion-modal-enter relative mx-4 w-full max-w-lg rounded-gb-lg border gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none"
-      : "gb-motion-panel-enter relative h-full w-full max-w-md border-l gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none";
+      ? "gb-motion-modal-enter relative mx-4 flex max-h-[85vh] w-full max-w-lg flex-col rounded-gb-lg border gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none"
+      : "gb-motion-panel-enter relative flex h-full w-full max-w-md flex-col border-l gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none";
 
   return createPortal(
     <div className={frameClass} onKeyDown={onKeyDown}>
@@ -113,13 +113,13 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
         tabIndex={-1}
         className={panelClass}
       >
-        <div className="flex items-center justify-between border-b gb-border-hairline px-4 py-2.5">
+        <div className="flex shrink-0 items-center justify-between border-b gb-border-hairline px-4 py-2.5">
           <h2 id={titleId} className="text-gb-sm font-semibold text-gb-text-primary">
             {title}
           </h2>
           {headerActions}
         </div>
-        <div className="px-4 py-3">{children}</div>
+        <div className="overflow-y-auto px-4 py-3">{children}</div>
       </div>
     </div>,
     document.body,

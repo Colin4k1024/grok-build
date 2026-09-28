@@ -84,7 +84,13 @@ export const toast = {
       return;
     }
     beginExit(id);
-    timers.set(id, setTimeout(() => remove(id), EXIT_MS));
+    timers.set(
+      id,
+      setTimeout(() => {
+        clearTimer(id);
+        remove(id);
+      }, EXIT_MS),
+    );
   },
 };
 
