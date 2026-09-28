@@ -90,7 +90,16 @@ export function readSettingsFile(dir: string): SettingsFile {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (isValidDoc(parsed)) return parsed;
+    if (isValidDoc(parsed)) {
+      // Reads are filtered to the served envelope set — a hand-edited file
+      // can't smuggle unknown keys into the renderer.
+      return {
+        version: 1,
+        values: Object.fromEntries(
+          Object.entries(parsed.values).filter(([k]) => ALLOWED_KEYS.has(k)),
+        ),
+      };
+    }
     throw new Error("bad shape");
   } catch {
     const unique = `${file}.corrupt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

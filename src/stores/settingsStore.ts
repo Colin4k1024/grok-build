@@ -54,13 +54,14 @@ export type FontSizeId = "small" | "medium" | "large" | "xlarge";
 export type AgentMode = "code" | "architect" | "debug";
 export type VoiceLanguage = "auto" | "zh-CN" | "en-US";
 
-/** Flat data keys that may hydrate from the persisted blob — an allowlist
- *  so a corrupt/hostile blob can never overwrite store actions or inject
- *  unknown state (R4-05 review). */
-const HYDRATABLE_KEYS = new Set([
-  "theme", "fontSize", "zoom", "sandboxMode", "agentMode", "agentAutonomous",
-  "voiceLanguage", "voiceWakeEnabled", "voiceTtsEnabled", "notificationsEnabled",
-  "trustedFolders", "projectOverrides",
+/** Flat data keys that may hydrate from the persisted blob — derived from
+ *  the registry (single declaration site) plus the overrides layer, so a
+ *  blob can never overwrite store actions or inject unknown state. */
+const HYDRATABLE_KEYS = new Set<string>([
+  ...listSettings()
+    .map((d) => d.storeKey)
+    .filter((k): k is string => !!k),
+  "projectOverrides",
 ]);
 
 /** Registry default for a store key (the schema is the only place defaults
@@ -68,6 +69,15 @@ const HYDRATABLE_KEYS = new Set([
 function registryDefault(storeKey: string): unknown {
   const def = listSettings().find((d) => d.storeKey === storeKey);
   return def?.defaultValue;
+}
+
+/** Throw when a value fails its registry validator. Every write path —
+ *  typed setters, setGlobalByKey, project overrides — goes through here. */
+function assertValidValue(storeKey: string, value: unknown): void {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  if (def && !def.validate(value)) {
+    throw new Error(`invalid value for ${def.id}: ${JSON.stringify(value)}`);
+  }
 }
 
 export interface SettingsState {
@@ -166,48 +176,67 @@ export const useSettingsStore = create<SettingsState>()(
       trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? []),
       projectOverrides: {},
 
+      // Every setter validates against the registry BEFORE writing —
+      // direct UI use and the storeBridge path share the same gate, so an
+      // invalid value can never reach persisted state regardless of caller.
       setTheme: (theme) => {
+        assertValidValue("theme", theme);
         set({ theme });
         // Keep legacy key in sync for consumers not yet migrated
         try { localStorage.setItem(LEGACY_THEME, theme); } catch {}
       },
       setFontSize: (fontSize) => {
+        assertValidValue("fontSize", fontSize);
         set({ fontSize });
         try { localStorage.setItem(LEGACY_FONT_SIZE, fontSize); } catch {}
       },
       setZoom: (zoom) => {
+        assertValidValue("zoom", zoom);
         set({ zoom });
         try { localStorage.setItem(LEGACY_ZOOM, String(zoom)); } catch {}
       },
       setSandboxMode: (sandboxMode) => {
+        assertValidValue("sandboxMode", sandboxMode);
         set({ sandboxMode });
         try { localStorage.setItem(LEGACY_SANDBOX, sandboxMode); } catch {}
       },
       setAgentMode: (agentMode) => {
+        assertValidValue("agentMode", agentMode);
         set({ agentMode });
         try { localStorage.setItem(LEGACY_AGENT_MODE, agentMode); } catch {}
       },
       setAgentAutonomous: (agentAutonomous) => {
+        assertValidValue("agentAutonomous", agentAutonomous);
         set({ agentAutonomous });
         try { localStorage.setItem(LEGACY_AGENT_AUTONOMOUS, String(agentAutonomous)); } catch {}
       },
       setVoiceLanguage: (voiceLanguage) => {
+        assertValidValue("voiceLanguage", voiceLanguage);
         set({ voiceLanguage });
         try { localStorage.setItem(LEGACY_VOICE_LANG, voiceLanguage); } catch {}
       },
-      setVoiceWakeEnabled: (voiceWakeEnabled) => set({ voiceWakeEnabled }),
-      setVoiceTtsEnabled: (voiceTtsEnabled) => set({ voiceTtsEnabled }),
+      setVoiceWakeEnabled: (voiceWakeEnabled) => {
+        assertValidValue("voiceWakeEnabled", voiceWakeEnabled);
+        set({ voiceWakeEnabled });
+      },
+      setVoiceTtsEnabled: (voiceTtsEnabled) => {
+        assertValidValue("voiceTtsEnabled", voiceTtsEnabled);
+        set({ voiceTtsEnabled });
+      },
       setNotificationsEnabled: (notificationsEnabled) => {
+        assertValidValue("notificationsEnabled", notificationsEnabled);
         set({ notificationsEnabled });
         try { localStorage.setItem(LEGACY_NOTIFICATIONS, String(notificationsEnabled)); } catch {}
       },
-      addTrustedFolder: (path) =>
+      addTrustedFolder: (path) => {
+        if (typeof path !== "string" || !path) throw new Error(`invalid trusted folder path: ${JSON.stringify(path)}`);
         set((s) => {
           if (s.trustedFolders.includes(path)) return s;
           const next = [...s.trustedFolders, path];
           try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(next)); } catch {}
           return { trustedFolders: next };
-        }),
+        });
+      },
       removeTrustedFolder: (path) =>
         set((s) => {
           const next = s.trustedFolders.filter((p) => p !== path);
@@ -325,31 +354,39 @@ export const useSettingsStore = create<SettingsState>()(
 
 // Multi-window sync + boot read-repair: the durable file is canonical.
 // Content-compare guards against any echo loop (main broadcasts only to
-// non-sender windows, but belt and braces). A document WITHOUT the blob key
-// means the file was reset — local state resets to defaults too.
-if (typeof window !== "undefined") {
-  const applyRemoteDoc = (doc: { values: Record<string, unknown> }) => {
-    try {
-      const remote = doc.values["gb-settings"];
-      if (typeof remote === "string") {
-        if (localStorage.getItem("gb-settings") === remote) return;
-        localStorage.setItem("gb-settings", remote);
-        useSettingsStore.persist.rehydrate();
-      } else if (remote === undefined) {
-        if (localStorage.getItem("gb-settings") === null) return;
-        localStorage.removeItem("gb-settings");
-        useSettingsStore.persist.rehydrate();
+// non-sender windows, but belt and braces).
+/** Apply a remote settings document: adopt a present blob, or reset local
+ *  state to registry defaults when the file no longer carries one. */
+export function syncFromFileDoc(doc: { version?: number; values: Record<string, unknown> }): void {
+  try {
+    const remote = doc.values["gb-settings"];
+    if (typeof remote === "string") {
+      if (localStorage.getItem("gb-settings") === remote) return;
+      localStorage.setItem("gb-settings", remote);
+      useSettingsStore.persist.rehydrate();
+    } else if (remote === undefined) {
+      // The canonical file was reset — reset live state too (rehydrate
+      // alone would merge "nothing" over the current state, keeping it).
+      if (localStorage.getItem("gb-settings") === null) return;
+      localStorage.removeItem("gb-settings");
+      const defaults: Record<string, unknown> = { projectOverrides: {} };
+      for (const def of listSettings()) {
+        if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
       }
-    } catch {
-      /* storage unavailable */
+      useSettingsStore.setState(defaults);
     }
-  };
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+if (typeof window !== "undefined") {
   const bridge = getSettingsBridge();
   if (bridge) {
     bridge
       .getAll()
-      .then((doc) => applyRemoteDoc(doc))
+      .then((doc) => syncFromFileDoc(doc))
       .catch(() => {});
-    bridge.onChanged((doc) => applyRemoteDoc(doc));
+    bridge.onChanged((doc) => syncFromFileDoc(doc));
   }
 }

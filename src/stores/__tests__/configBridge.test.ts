@@ -45,12 +45,26 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     }
   });
 
-  it("every binding round-trips through setGlobalByKey (no dispatch-table drift)", () => {
-    for (const [settingId, storeKey] of Object.entries(listStoreBindings())) {
+  it("every binding round-trips a distinct NON-default value to the exact field", () => {
+    const probes: Array<[string, unknown, (s: ReturnType<typeof useSettingsStore.getState>) => unknown]> = [
+      ["appearance.theme", "light", (s) => s.theme],
+      ["appearance.fontSize", "large", (s) => s.fontSize],
+      ["appearance.zoom", 1.5, (s) => s.zoom],
+      ["permissions.sandboxMode", "full", (s) => s.sandboxMode],
+      ["agent.mode", "debug", (s) => s.agentMode],
+      ["agent.autonomous", true, (s) => s.agentAutonomous],
+      ["voice.language", "zh-CN", (s) => s.voiceLanguage],
+      ["voice.wakeEnabled", true, (s) => s.voiceWakeEnabled],
+      ["voice.ttsEnabled", true, (s) => s.voiceTtsEnabled],
+      ["notifications.enabled", false, (s) => s.notificationsEnabled],
+      ["general.trustedFolders", ["/x"], (s) => s.trustedFolders],
+    ];
+    for (const [settingId, value, read] of probes) {
       const def = listSettings().find((d) => d.id === settingId)!;
-      // write the default back through the typed path — must not throw
-      useSettingsStore.getState().setGlobalByKey(storeKey, def.defaultValue);
-      expect(resolveFromStore(settingId).value).toEqual(def.defaultValue);
+      expect(def.validate(value)).toBe(true);
+      useSettingsStore.getState().setGlobalByKey(def.storeKey!, value);
+      expect(read(useSettingsStore.getState()), settingId).toEqual(value);
+      expect(resolveFromStore(settingId).value).toEqual(value);
     }
   });
 
@@ -147,5 +161,27 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw!);
     expect(parsed.state.projectOverrides["/proj/x"]["appearance.theme"]).toBe("light");
+  });
+
+  it("typed setters reject invalid values (direct UI path is validated too)", () => {
+    expect(() => useSettingsStore.getState().setTheme("banana" as never)).toThrow(/invalid value/);
+    expect(() => useSettingsStore.getState().setZoom(99)).toThrow(/invalid value/);
+    expect(useSettingsStore.getState().theme).toBe("dark");
+  });
+
+  it("remote file reset resets live state to registry defaults", async () => {
+    const { syncFromFileDoc } = await import("../settingsStore");
+    useSettingsStore.getState().setTheme("light");
+    useSettingsStore.getState().setProjectOverride("/p", "appearance.theme", "auto");
+    expect(useSettingsStore.getState().theme).toBe("light");
+    // the canonical file no longer carries the blob → local reset
+    syncFromFileDoc({ version: 1, values: {} });
+    const s = useSettingsStore.getState();
+    expect(s.theme).toBe("dark");
+    expect(s.projectOverrides).toEqual({});
+    // persist re-writes the reset state — the blob now holds defaults
+    const blob = JSON.parse(localStorage.getItem("gb-settings")!);
+    expect(blob.state.theme).toBe("dark");
+    expect(blob.state.projectOverrides).toEqual({});
   });
 });

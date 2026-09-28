@@ -78,6 +78,17 @@ describe("settings file store (R4-05 #238)", () => {
     expect(readSettingsFile(dir).values["gb-settings"]).toBe("blob");
   });
 
+  it("read path filters non-envelope keys from a hand-edited file", () => {
+    const { writeFileSync } = require("node:fs");
+    writeFileSync(
+      path.join(dir, "gb-settings.json"),
+      JSON.stringify({ version: 1, values: { "gb-settings": "blob", "rogue.key": 1 } }),
+    );
+    const doc = readSettingsFile(dir);
+    expect(doc.values["gb-settings"]).toBe("blob");
+    expect(doc.values["rogue.key"]).toBeUndefined();
+  });
+
   it("repeated corruption produces distinct quarantine files", () => {
     const { writeFileSync } = require("node:fs");
     writeFileSync(path.join(dir, "gb-settings.json"), "{ broken 1");
