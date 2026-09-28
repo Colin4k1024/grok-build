@@ -97,6 +97,19 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect(s.projectOverrides["/p1"]).toEqual({ "appearance.theme": "light" });
     expect(s.projectOverrides["/p2"]).toBeUndefined();
   });
+
+  it("a v1 persisted blob migrates to the current version (R4-06 #239)", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: { theme: "light", zoom: "bogus" }, version: 1 }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    const s = useSettingsStore.getState();
+    expect(s.theme).toBe("light"); // valid v1 value survives migration
+    expect(s.zoom).toBe(1.0); // invalid v1 value sanitized by the pipeline
+    expect(s.projectOverrides).toEqual({}); // layer guaranteed by migration
+  });
 });
 
 describe("reset excludes secrets (R3-11 #196)", () => {

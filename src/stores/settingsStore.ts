@@ -18,6 +18,8 @@ import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { getSettingsBridge } from "../config/fileSync";
 import { getSetting, listSettings } from "../config/registry";
+import { migratePersisted } from "../config/migrations";
+import { CURRENT_SETTINGS_VERSION } from "../config/version";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -62,6 +64,7 @@ const HYDRATABLE_KEYS = new Set<string>([
     .map((d) => d.storeKey)
     .filter((k): k is string => !!k),
   "projectOverrides",
+  "userPresets",
 ]);
 
 /** Registry default for a store key (the schema is the only place defaults
@@ -129,6 +132,12 @@ export interface SettingsState {
    *  src/config/resolve.ts — this store only persists the layers. */
   projectOverrides: Record<string, Record<string, unknown>>;
 
+  /** R4-06 (#239): user-saved presets (validated at save time). */
+  userPresets: Record<string, { label: string; values: Record<string, unknown> }>;
+  saveUserPreset: (id: string, label: string, values: Record<string, unknown>) => void;
+  renameUserPreset: (id: string, label: string) => void;
+  deleteUserPreset: (id: string) => void;
+
   /** R4-05: generic typed-setter dispatch by flat store key ("theme", …).
    *  Unknown keys throw instead of silently persisting garbage. */
   setGlobalByKey: (storeKey: string, value: unknown) => void;
@@ -186,6 +195,7 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
       trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
       projectOverrides: {},
+      userPresets: {},
 
       // Every setter validates against the registry BEFORE writing —
       // direct UI use and the storeBridge path share the same gate, so an
@@ -318,11 +328,50 @@ export const useSettingsStore = create<SettingsState>()(
           delete next[projectId];
           return { projectOverrides: next };
         }),
+
+      // ---- User presets (R4-06 #239) — validated at save time ----
+      saveUserPreset: (id, label, values) => {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new Error(`invalid preset id: ${id}`);
+        if (!label.trim()) throw new Error("preset label must not be empty");
+        for (const [settingId, value] of Object.entries(values)) {
+          const def = getSetting(settingId);
+          if (!def) throw new Error(`invalid preset: unknown setting ${settingId}`);
+          if (def.sensitive) throw new Error(`invalid preset: ${settingId} is sensitive`);
+          if (!def.validate(value)) {
+            throw new Error(`invalid preset: bad value for ${settingId}: ${JSON.stringify(value)}`);
+          }
+        }
+        set((s) => ({ userPresets: { ...s.userPresets, [id]: { label, values: { ...values } } } }));
+      },
+      renameUserPreset: (id, label) =>
+        set((s) => {
+          const cur = s.userPresets[id];
+          if (!cur) throw new Error(`unknown preset: ${id}`);
+          if (!label.trim()) throw new Error("preset label must not be empty");
+          return { userPresets: { ...s.userPresets, [id]: { ...cur, label } } };
+        }),
+      deleteUserPreset: (id) =>
+        set((s) => {
+          const next = { ...s.userPresets };
+          delete next[id];
+          return { userPresets: next };
+        }),
     }),
     {
       name: "gb-settings",
       storage: createJSONStorage(() => dualWriteStorage),
-      version: 1,
+      version: CURRENT_SETTINGS_VERSION,
+      // R4-06: version-gated migration pipeline. A failed migration keeps
+      // the original state (backup semantics) and logs — the always-on
+      // merge sanitizer below still protects the running app.
+      migrate: (persistedState, version) => {
+        const r = migratePersisted({ state: persistedState, version });
+        if (!r.ok) {
+          console.error(`[settings] migration failed: ${r.error}`);
+          return persistedState as never;
+        }
+        return r.state as never;
+      },
       // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
       // only on version bumps. Two layers of defense:
       //   1. allowlist — only known DATA keys may hydrate (a blob can never

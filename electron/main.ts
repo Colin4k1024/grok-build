@@ -1358,6 +1358,40 @@ ipcMain.handle("pick_directory", async () => {
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
 });
 
+// --- Settings transfer file dialogs (R4-06 #239) ---
+// Save/open a settings export document at a user-chosen path. Content
+// validation lives in the renderer (src/config/transfer.ts); these handlers
+// only do the OS file dance. Size is bounded on read.
+ipcMain.handle("settings_transfer_save", async (_e, args: { content: string; defaultPath?: string }) => {
+  if (!mainWindow) return { path: null };
+  if (typeof args?.content !== "string") throw new Error("settings_transfer_save: content must be a string");
+  if (Buffer.byteLength(args.content, "utf-8") > 1024 * 1024) {
+    throw new Error("settings_transfer_save: content too large");
+  }
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: "导出设置",
+    defaultPath: args.defaultPath ?? "grok-build-settings.json",
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (r.canceled || !r.filePath) return { path: null };
+  fs.writeFileSync(r.filePath, args.content, "utf-8");
+  return { path: r.filePath };
+});
+
+ipcMain.handle("settings_transfer_open", async () => {
+  if (!mainWindow) return { content: null };
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: "导入设置",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (r.canceled || r.filePaths.length === 0) return { content: null };
+  const stat = fs.statSync(r.filePaths[0]);
+  if (stat.size > 1024 * 1024) throw new Error("settings_transfer_open: file too large");
+  return { content: fs.readFileSync(r.filePaths[0], "utf-8"), path: r.filePaths[0] };
+});
+
+
 ipcMain.handle("projects_list", () =>
   ok(readProjects().sort((a, b) => b.lastUsedAt - a.lastUsedAt))
 );
