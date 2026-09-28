@@ -141,7 +141,7 @@ const ThreadRow = memo(function ThreadRow({
         <span className="h-1.5 w-1.5 shrink-0" />
       )}
       <span className="min-w-0 flex-1 truncate">{e.title}</span>
-      {isPinned && <span className="shrink-0 text-[9px] text-gb-accent">•</span>}
+      {isPinned && <span className="shrink-0 text-[9px] text-gb-accent-text">•</span>}
       <span className="hidden shrink-0 group-hover:block">
         <button
           className="rounded p-0.5 text-[9px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
@@ -570,7 +570,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
               >
                 <span className="min-w-0 flex-1 truncate">{e.title}</span>
                 <button
-                  className="shrink-0 rounded px-1 py-0.5 text-[10px] text-gb-accent opacity-0 hover:bg-gb-bg group-hover:opacity-100"
+                  className="shrink-0 rounded px-1 py-0.5 text-[10px] text-gb-accent-text opacity-0 hover:bg-gb-bg group-hover:opacity-100"
                   onClick={(ev) => {
                     ev.stopPropagation();
                     unarchiveEntry(e);
@@ -612,7 +612,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
             </button>
             <button className="w-full px-3 py-1.5 text-left text-xs text-gb-text hover:bg-gb-bg" onClick={() => archiveEntry(menu.entry)}>归档</button>
             <div className="my-1 border-t border-gb-border" />
-            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>删除…</button>
+            <button className="w-full px-3 py-1.5 text-left text-xs text-gb-danger-text hover:bg-gb-red/10" onClick={() => deleteEntry(menu.entry)}>删除…</button>
           </div>
         </>
       )}
@@ -628,7 +628,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
               New thread here
             </button>
             <button
-              className="w-full px-3 py-1.5 text-left text-xs text-gb-red hover:bg-gb-red/10"
+              className="w-full px-3 py-1.5 text-left text-xs text-gb-danger-text hover:bg-gb-red/10"
               onClick={async () => {
                 try { await removeProject(projectMenu.path); refreshProjects(); } catch (e) { console.error(e); }
                 setProjectMenu(null);

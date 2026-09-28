@@ -66,8 +66,8 @@ export function SandboxToggle() {
         onMouseLeave={() => setShowTooltip(false)}
         className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
           isSandbox
-            ? "bg-gb-green/10 text-gb-green hover:bg-gb-green/15"
-            : "bg-gb-yellow/10 text-gb-yellow hover:bg-gb-yellow/15"
+            ? "bg-gb-green/10 text-gb-success-text hover:bg-gb-green/15"
+            : "bg-gb-yellow/10 text-gb-warning-text hover:bg-gb-yellow/15"
         }`}
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         aria-label={`沙箱模式: ${mode}. Click to toggle.`}
@@ -80,14 +80,14 @@ export function SandboxToggle() {
         <div className="absolute left-1/2 top-full z-50 mt-1 w-64 -translate-x-1/2 rounded-md border border-gb-border/10 bg-gb-surface-solid p-2.5 text-[11px] shadow-lg">
           {isSandbox ? (
             <>
-              <p className="mb-1 font-medium text-gb-green">沙箱模式</p>
+              <p className="mb-1 font-medium text-gb-success-text">沙箱模式</p>
               <p className="text-gb-text-secondary">
                 工具调用需逐个审批。写入、网络和命令访问受限。
               </p>
             </>
           ) : (
             <>
-              <p className="mb-1 font-medium text-gb-yellow">完全访问</p>
+              <p className="mb-1 font-medium text-gb-warning-text">完全访问</p>
               <p className="text-gb-text-secondary">
                 工具调用自动批准。受信文件夹和权限规则仍然适用。
               </p>

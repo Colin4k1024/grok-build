@@ -53,7 +53,7 @@ export function ShortcutCheatSheet() {
         </div>
         <button
           onClick={() => setShow(false)}
-          className="mt-4 w-full rounded bg-gb-accent py-1.5 text-xs text-gb-bg"
+          className="mt-4 w-full rounded bg-gb-accent py-1.5 text-xs text-gb-accent-fg"
         >
           关闭
         </button>

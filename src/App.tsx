@@ -946,7 +946,7 @@ export default function App() {
       return (
         <div className="flex h-full items-center justify-center bg-gb-bg">
           <div className="max-w-md rounded-xl border border-gb-red/30 bg-gb-red/5 p-6 text-center">
-            <p className="text-sm font-medium text-gb-red">无法打开独立会话窗口</p>
+            <p className="text-sm font-medium text-gb-danger-text">无法打开独立会话窗口</p>
             <p className="mt-2 text-xs text-gb-muted">{error}</p>
             <p className="mt-3 text-[10px] text-gb-muted">可关闭此窗口回到主窗口继续。</p>
           </div>
@@ -1039,22 +1039,22 @@ export default function App() {
             onOpenSettings={() => setShowSettings(true)}
           />
           {error && (
-            <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-red backdrop-blur-xl">
+            <div className="flex items-center gap-2 border-b border-gb-red/20 bg-gb-red/5 px-4 py-2 text-xs text-gb-danger-text backdrop-blur-xl">
               <span className="flex-1">{error}</span>
-              <button className="text-gb-red/60 hover:text-gb-red" onClick={() => setError(null)}>✕</button>
+              <button className="text-gb-danger-text/60 hover:text-gb-danger-text" onClick={() => setError(null)}>✕</button>
             </div>
           )}
           {crashNotice && (
-            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/5 px-4 py-2 text-xs text-gb-yellow backdrop-blur-xl">
+            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/5 px-4 py-2 text-xs text-gb-warning-text backdrop-blur-xl">
               <span className="flex-1">{crashNotice}</span>
-              <button className="text-gb-yellow/60 hover:text-gb-yellow" onClick={() => setCrashNotice(null)}>✕</button>
+              <button className="text-gb-warning-text/60 hover:text-gb-warning-text" onClick={() => setCrashNotice(null)}>✕</button>
             </div>
           )}
           {activeRateLimit && activeRateLimit.until > Date.now() && (
-            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/10 px-4 py-1.5 text-xs text-gb-yellow">
+            <div className="flex items-center gap-2 border-b border-gb-yellow/30 bg-gb-yellow/10 px-4 py-1.5 text-xs text-gb-warning-text">
               <span className="flex-1">⏳ 限流中 — {formatRetry(activeRateLimit.until)}：{activeRateLimit.message.slice(0, 120)}</span>
               <button
-                className="text-gb-yellow/70 hover:text-gb-yellow"
+                className="text-gb-warning-text/70 hover:text-gb-warning-text"
                 onClick={() => activeSessionId && useSessionStore.getState().setRateLimit(activeSessionId, null)}
               >
                 ✕

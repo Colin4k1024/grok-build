@@ -85,11 +85,11 @@ export function BranchSelect({ cwd, branch, onPickBranch }: Props) {
               aria-selected={b === branch}
               onClick={() => { onPickBranch(b); setOpen(false); }}
               className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] hover:bg-gb-surface-hover ${
-                b === branch ? "text-gb-accent" : "text-gb-text"
+                b === branch ? "text-gb-accent-text" : "text-gb-text"
               }`}
             >
               <span className="truncate">⎇ {b}</span>
-              {b === branch && <span className="text-gb-accent">✓</span>}
+              {b === branch && <span className="text-gb-accent-text">✓</span>}
             </button>
           ))}
         </div>

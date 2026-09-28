@@ -171,7 +171,7 @@ export function ModelManager() {
   return (
     <div className="flex flex-col gap-4 p-4">
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-red">
+        <div className="rounded border border-gb-red/30 bg-gb-red/10 p-2 text-xs text-gb-danger-text">
           {error}
         </div>
       )}
@@ -213,7 +213,7 @@ export function ModelManager() {
               />
             </label>
             <button
-              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg hover:opacity-80"
+              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-accent-fg hover:opacity-80"
               onClick={() => setIsAdding(true)}
             >
               + Add Model
@@ -258,14 +258,14 @@ export function ModelManager() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-gb-text">{model.name}</span>
                             {model.hidden && (
-                              <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-yellow">已隐藏</span>
+                              <span className="rounded bg-gb-yellow/20 px-1 text-[9px] text-gb-warning-text">已隐藏</span>
                             )}
                             {test === "testing" && (
                               <span className="text-[10px] text-gb-muted">测试中…</span>
                             )}
                             {test && test !== "testing" && (
                               <span
-                                className={`text-[10px] ${test.ok ? "text-gb-green" : "text-gb-red"}`}
+                                className={`text-[10px] ${test.ok ? "text-gb-success-text" : "text-gb-danger-text"}`}
                                 title={test.message}
                               >
                                 {test.ok ? "✓ reachable" : "✗ failed"}
@@ -293,7 +293,7 @@ export function ModelManager() {
                             Edit
                           </button>
                           <button
-                            className="rounded px-2 py-1 text-[10px] text-gb-red hover:bg-gb-red/10"
+                            className="rounded px-2 py-1 text-[10px] text-gb-danger-text hover:bg-gb-red/10"
                             onClick={() => handleDelete(model.id)}
                           >
                             Delete
@@ -313,7 +313,7 @@ export function ModelManager() {
 
       {/* Save button */}
       <button
-        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
+        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-gb-accent-fg hover:opacity-80 disabled:opacity-40"
         onClick={handleSave}
         disabled={saving}
       >
@@ -396,7 +396,7 @@ function ModelEditor({ model, onSave, onCancel }: {
             Cancel
           </button>
           <button
-            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
+            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-accent-fg hover:opacity-80 disabled:opacity-40"
             onClick={() => form.id && form.name && onSave(form)}
             disabled={!form.id || !form.name}
           >

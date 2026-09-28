@@ -29,8 +29,8 @@ export function TodoPanel() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case "Completed": return "text-gb-green";
-      case "InProgress": return "text-gb-accent";
+      case "Completed": return "text-gb-success-text";
+      case "InProgress": return "text-gb-accent-text";
       default: return "text-gb-muted";
     }
   };
@@ -41,7 +41,7 @@ export function TodoPanel() {
       <div className="rounded-md bg-gb-surface p-2">
         <div className="mb-1 flex items-center justify-between text-[10px] text-gb-muted">
           <span>{completed}/{sessionTodos.length} completed</span>
-          {inProgress > 0 && <span className="text-gb-accent">{inProgress} in progress</span>}
+          {inProgress > 0 && <span className="text-gb-accent-text">{inProgress} in progress</span>}
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-gb-bg">
           <div

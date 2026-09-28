@@ -97,11 +97,11 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
             aria-selected={mode === "local"}
             onClick={() => { onChange("local"); setOpen(false); }}
             className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] hover:bg-gb-surface-hover ${
-              mode === "local" ? "text-gb-accent" : "text-gb-text"
+              mode === "local" ? "text-gb-accent-text" : "text-gb-text"
             }`}
           >
             <span>本地工作</span>
-            {mode === "local" && <span className="text-gb-accent">✓</span>}
+            {mode === "local" && <span className="text-gb-accent-text">✓</span>}
           </button>
 
           <div className="border-t border-gb-border/8 px-2.5 py-2">
@@ -130,7 +130,7 @@ export function WorkModeSelect({ cwd, mode, branch, onChange, onError }: Props) 
             ) : (
               <button
                 onClick={() => setCreating(true)}
-                className="w-full rounded px-1 py-0.5 text-left text-[11px] text-gb-accent hover:bg-gb-surface-hover"
+                className="w-full rounded px-1 py-0.5 text-left text-[11px] text-gb-accent-text hover:bg-gb-surface-hover"
               >
                 + New worktree from branch…
               </button>

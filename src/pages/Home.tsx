@@ -124,7 +124,7 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
                   className="group flex flex-col rounded-lg border border-gb-border/10 bg-gb-surface-solid/50 p-3 text-left transition-colors hover:border-gb-border/20 hover:bg-gb-surface-solid"
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] font-medium text-gb-text group-hover:text-gb-accent">
+                    <span className="truncate text-[13px] font-medium text-gb-text group-hover:text-gb-accent-text">
                       {tab.title}
                     </span>
                     <span className="shrink-0 text-[10px] text-gb-muted">
@@ -157,7 +157,7 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
                   className="group flex flex-col rounded-lg border border-gb-border/10 bg-gb-surface-solid/50 p-3 text-left transition-colors hover:border-gb-accent/30 hover:bg-gb-surface-solid"
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] font-medium text-gb-text group-hover:text-gb-accent">
+                    <span className="truncate text-[13px] font-medium text-gb-text group-hover:text-gb-accent-text">
                       {thread.title}
                     </span>
                     <span className="shrink-0 text-[10px] text-gb-muted">

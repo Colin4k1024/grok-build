@@ -60,7 +60,7 @@ export function QuestionCard({ sessionId, requestId, questions, onResolved }: Qu
   return (
     <div className="mx-4 my-2 rounded-lg border border-gb-accent/30 bg-gb-accent/5 p-3">
       <div className="mb-2 flex items-center gap-2">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" className="text-gb-accent">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" className="text-gb-accent-text">
           <path d="M7 0a7 7 0 100 14A7 7 0 007 0zm-.1 10.9a.9.9 0 110-1.8.9.9 0 010 1.8zM8.9 6.2c-.5.5-1.1.8-1.4 1.1-.3.4-.4.6-.4 1.1H5.9c0-.9.3-1.4.8-1.9.4-.4.9-.7 1.2-1.1.2-.3.3-.5.3-.8 0-.7-.5-1.1-1.2-1.1-.8 0-1.3.5-1.4 1.3H3.4C3.5 2.9 4.9 1.9 7 1.9c2 0 3.4 1.1 3.4 2.7 0 .8-.3 1.3-1.5 1.6z" />
         </svg>
         <span className="text-xs font-semibold text-gb-text">Agent 想确认几个问题</span>
@@ -99,7 +99,7 @@ export function QuestionCard({ sessionId, requestId, questions, onResolved }: Qu
 
       <div className="mt-3 flex gap-2">
         <button
-          className="flex-1 rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg hover:opacity-85 disabled:opacity-40"
+          className="flex-1 rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-accent-fg hover:opacity-85 disabled:opacity-40"
           onClick={handleSubmit}
           disabled={submitting || answeredCount === 0}
         >

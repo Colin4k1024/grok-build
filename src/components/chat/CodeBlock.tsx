@@ -84,7 +84,7 @@ export const CodeBlock = memo(function CodeBlock({ code, language, onApply }: Co
     <div className="my-2 overflow-hidden rounded-md border border-gb-border/10 bg-gb-bg-secondary">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-gb-border/8 bg-gb-surface/50 px-3 py-1.5">
-        <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-gb-accent">
+        <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-gb-accent-text">
           {langLabel}
         </span>
         <span className="text-[10px] text-gb-muted">{lineCount} lines</span>
@@ -101,9 +101,9 @@ export const CodeBlock = memo(function CodeBlock({ code, language, onApply }: Co
               onClick={handleApply}
               className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                 applyState === "applied"
-                  ? "text-gb-green"
+                  ? "text-gb-success-text"
                   : applyState === "failed"
-                    ? "text-gb-red"
+                    ? "text-gb-danger-text"
                     : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
               }`}
             >

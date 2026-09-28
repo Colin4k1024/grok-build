@@ -69,9 +69,9 @@ export function SubagentPanel() {
   const stepDot = (status: StepItem["status"]) => {
     switch (status) {
       case "done":
-        return <span className="text-gb-green">✓</span>;
+        return <span className="text-gb-success-text">✓</span>;
       case "failed":
-        return <span className="text-gb-red">✗</span>;
+        return <span className="text-gb-danger-text">✗</span>;
       case "in_progress":
         return <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-gb-accent" />;
       case "todo":
@@ -96,7 +96,7 @@ export function SubagentPanel() {
           Subagents ({sessionSubagents.length})
         </span>
         {runningCount > 0 && (
-          <span className="flex items-center gap-1 text-[10px] text-gb-accent">
+          <span className="flex items-center gap-1 text-[10px] text-gb-accent-text">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-accent" />
             {runningCount} running
           </span>
@@ -167,7 +167,7 @@ export function SubagentPanel() {
                     e.stopPropagation();
                     handleCancel(agent.id);
                   }}
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[9px] text-gb-red hover:bg-gb-red/10"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[9px] text-gb-danger-text hover:bg-gb-red/10"
                   aria-label="取消子代理"
                 >
                   取消

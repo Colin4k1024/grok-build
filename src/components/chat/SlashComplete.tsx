@@ -77,7 +77,7 @@ export function SlashComplete({ query, onSelect, onClose, anchorBottom }: SlashC
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-medium ${index === selectedIndex ? "text-gb-accent" : "text-gb-text"}`}>
+              <span className={`text-xs font-medium ${index === selectedIndex ? "text-gb-accent-text" : "text-gb-text"}`}>
                 /{cmd.name}
               </span>
               {cmd.aliases && cmd.aliases.length > 0 && (

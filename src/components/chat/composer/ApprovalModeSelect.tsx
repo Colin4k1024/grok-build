@@ -56,12 +56,12 @@ export function ApprovalModeSelect({ mode, onChange }: Props) {
               aria-selected={o.id === mode}
               onClick={() => { onChange(o.id); setOpen(false); }}
               className={`flex w-full flex-col px-2.5 py-1.5 text-left hover:bg-gb-surface-hover ${
-                o.id === mode ? "text-gb-accent" : "text-gb-text"
+                o.id === mode ? "text-gb-accent-text" : "text-gb-text"
               }`}
             >
               <span className="flex w-full items-center justify-between text-[12px] font-medium">
                 {o.label}
-                {o.id === mode && <span className="text-gb-accent">✓</span>}
+                {o.id === mode && <span className="text-gb-accent-text">✓</span>}
               </span>
               <span className="text-[10px] text-gb-muted">{o.hint}</span>
             </button>

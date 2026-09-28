@@ -356,14 +356,14 @@ export function PromptInput({
       )}
 
       {degraded && (
-        <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-yellow/10 px-2.5 py-1 text-[11px] text-gb-yellow">
+        <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-yellow/10 px-2.5 py-1 text-[11px] text-gb-warning-text">
           <span className="flex-1">{degraded}</span>
-          <button onClick={dismissDegraded} className="text-gb-yellow/70 hover:text-gb-yellow">✕</button>
+          <button onClick={dismissDegraded} className="text-gb-warning-text/70 hover:text-gb-warning-text">✕</button>
         </div>
       )}
       {isRecording && (
         <div className="mb-2 flex items-center gap-2 rounded-md bg-gb-red/10 px-2.5 py-1">
-          <span className="flex items-center gap-1.5 text-[11px] text-gb-red">
+          <span className="flex items-center gap-1.5 text-[11px] text-gb-danger-text">
             {voiceState === "muted"
               ? <><span className="h-1.5 w-1.5 rounded-full bg-gb-muted" />已静音（Ctrl+Shift+M 恢复）</>
               : <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-red" />{voiceState === "connecting" ? "连接中" : "录音中"}</>}
@@ -398,7 +398,7 @@ export function PromptInput({
       )}
 
       <div
-        className="rounded-2xl border border-gb-border bg-gb-surface px-3.5 py-2.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)] focus-within:border-gb-muted/60"
+        className="rounded-2xl border border-gb-border bg-gb-surface px-3.5 py-2.5 shadow-gb-medium focus-within:border-gb-muted/60"
         title={tokenUsage ? `上下文：${(tokenUsage.used / 1000).toFixed(1)}k / ${(tokenUsage.size / 1000).toFixed(0)}k tokens` : undefined}
       >
         <textarea ref={textareaRef} className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-gb-text outline-none placeholder:text-gb-muted" rows={1} placeholder={isStreaming ? "运行中 — Enter 插入追问 · Tab 排队" : "发送消息…（@ 文件 · $ 技能 · / 命令）"} value={text} onChange={e => handleTextChange(e.target.value)} onKeyDown={handleKeyDown} disabled={disabled} />
@@ -422,12 +422,12 @@ export function PromptInput({
           <div className="flex-1" />
 
           {queuedCount > 0 && (
-            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent" title="已排队的追问（Tab）">
+            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent-text" title="已排队的追问（Tab）">
               {queuedCount} 排队中
             </span>
           )}
           <button
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors ${isRecording ? "text-gb-red" : "text-gb-muted hover:text-gb-text"}`}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors ${isRecording ? "text-gb-danger-text" : "text-gb-muted hover:text-gb-text"}`}
             onClick={toggleRecording} disabled={disabled} title="语音输入"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2a2 2 0 00-2 2v3a2 2 0 004 0V4a2 2 0 00-2-2z" fill="currentColor" /><path d="M4 7a4 4 0 008 0M8 11v3" stroke="currentColor" strokeWidth="1.2" /></svg>

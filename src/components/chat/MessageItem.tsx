@@ -102,7 +102,7 @@ function MarkdownCode({
   }
   return (
     <code
-      className="rounded bg-gb-bg-secondary px-1 py-0.5 font-mono text-[12px] text-gb-accent"
+      className="rounded bg-gb-bg-secondary px-1 py-0.5 font-mono text-[12px] text-gb-accent-text"
       {...rest}
     >
       {children}
@@ -208,7 +208,7 @@ function MessageItemImpl({ message }: Props) {
     >
       <div
         className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-medium ${
-          isUser ? "bg-gb-accent text-gb-bg" : "bg-gb-surface-hover text-gb-text-secondary"
+          isUser ? "bg-gb-accent text-gb-accent-fg" : "bg-gb-surface-hover text-gb-text-secondary"
         }`}
       >
         {isUser ? "U" : "G"}
