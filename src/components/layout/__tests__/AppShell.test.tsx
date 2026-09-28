@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { AppShell } from "../AppShell";
+import type { AppDestination } from "../destinations";
 
 function Rail() {
   return <nav aria-label="主导航">rail</nav>;
@@ -65,7 +66,7 @@ describe("AppShell", () => {
 
   it("moves focus to the workspace when the destination changes", async () => {
     function Demo() {
-      const [dest, setDest] = useState("conversations");
+      const [dest, setDest] = useState<AppDestination>("conversations");
       return (
         <>
           <button onClick={() => setDest("dashboard")}>去仪表盘</button>

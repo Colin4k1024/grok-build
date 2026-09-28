@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import type { AppDestination } from "./destinations";
 
 /**
  * AppShell (R4-03 #236): the stable four-region desktop shell.
@@ -12,7 +13,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 export interface AppShellProps {
   /** Current top-level destination; focus moves to the workspace on change. */
-  destination: string;
+  destination: AppDestination;
   rail: ReactNode;
   /** Contextual sidebar for the active destination (never top-level links). */
   sidebar?: ReactNode;
@@ -20,7 +21,6 @@ export interface AppShellProps {
   workspace: ReactNode;
   /** Optional inspector; collapsible without unmounting the workspace. */
   inspector?: ReactNode;
-  statusbar?: ReactNode;
 }
 
 export function AppShell({
@@ -30,18 +30,18 @@ export function AppShell({
   titlebar,
   workspace,
   inspector,
-  statusbar,
 }: AppShellProps) {
   const mainRef = useRef<HTMLElement>(null);
-  const firstRender = useRef(true);
+  // StrictMode-safe: compare against the PREVIOUS destination instead of a
+  // firstRender ref — StrictMode re-invokes mount effects, which would
+  // otherwise steal focus at launch.
+  const prevDestination = useRef<AppDestination>(destination);
 
   // Focus follows navigation: switching destinations moves keyboard focus to
   // the workspace landmark so the new context is announced and reachable.
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    if (prevDestination.current === destination) return;
+    prevDestination.current = destination;
     mainRef.current?.focus();
   }, [destination]);
 
@@ -67,13 +67,12 @@ export function AppShell({
             id="gb-workspace"
             tabIndex={-1}
             aria-label="工作区"
-            className="flex min-w-0 flex-1 flex-col overflow-hidden outline-none"
+            className="flex min-w-0 flex-1 flex-col overflow-hidden"
           >
             {workspace}
           </main>
           {inspector}
         </div>
-        {statusbar}
       </div>
     </div>
   );

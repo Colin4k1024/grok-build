@@ -3,15 +3,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { type AuthStatus } from "../../lib/tauri";
 import { AgentMenu } from "./AgentMenu";
 import { SandboxToggle } from "./SandboxToggle";
-import type { AppDestination } from "./ActivityBar";
-
-const DESTINATION_LABELS: Record<AppDestination, string> = {
-  conversations: "会话",
-  dashboard: "仪表盘",
-  automations: "自动化",
-  agents: "代理",
-  settings: "设置",
-};
+import { DESTINATION_LABELS, type AppDestination } from "./destinations";
 
 interface TitleBarProps {
   auth: AuthStatus;

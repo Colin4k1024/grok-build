@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ActivityBar, type AppDestination } from "../ActivityBar";
+import { ActivityBar } from "../ActivityBar";
+import type { AppDestination } from "../destinations";
 
 function renderBar(destination: AppDestination = "conversations") {
   const onNavigate = vi.fn();
@@ -14,6 +15,7 @@ function renderBar(destination: AppDestination = "conversations") {
       onOpenSearch={onOpenSearch}
       onToggleSidebar={onToggleSidebar}
       sidebarVisible
+      sidebarAvailable
     />,
   );
   return { onNavigate, onOpenSearch, onToggleSidebar };

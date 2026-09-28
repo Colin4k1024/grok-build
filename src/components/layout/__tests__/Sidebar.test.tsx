@@ -18,7 +18,6 @@ function renderSidebar() {
       onForkSession={() => {}}
       onRenameHistory={() => {}}
       onCloseSession={() => {}}
-      onOpenSearch={() => {}}
     />,
   );
 }
@@ -33,11 +32,12 @@ describe("Sidebar (contextual, conversations-only)", () => {
     expect(screen.queryByRole("button", { name: /^仪表盘/ })).not.toBeInTheDocument();
   });
 
-  it("keeps the conversation context: new thread + thread tree + search", () => {
+  it("keeps the conversation context: new thread + thread tree", () => {
     renderSidebar();
     expect(screen.getByRole("button", { name: /新对话/ })).toBeInTheDocument();
     expect(screen.getByTestId("thread-tree")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^搜索/ })).toBeInTheDocument();
+    // search is owned by the rail — no duplicate entry here
+    expect(screen.queryByRole("button", { name: /^搜索/ })).not.toBeInTheDocument();
   });
 
   it("renders nothing when collapsed", () => {
@@ -51,7 +51,6 @@ describe("Sidebar (contextual, conversations-only)", () => {
         onForkSession={() => {}}
         onRenameHistory={() => {}}
         onCloseSession={() => {}}
-        onOpenSearch={() => {}}
       />,
     );
     expect(container.firstChild).toBeNull();

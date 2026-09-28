@@ -12,7 +12,6 @@ interface SidebarProps {
   /** Persist a rename for a history thread (ISS-079). */
   onRenameHistory: (session: HistorySession, title: string) => void;
   onCloseSession: (id: string) => void;
-  onOpenSearch: () => void;
 }
 
 function NavItem({ icon, label, onClick, title, disabled }: {
@@ -31,28 +30,20 @@ function NavItem({ icon, label, onClick, title, disabled }: {
   );
 }
 
-// Contextual sidebar (R4-03 #236): conversation context ONLY — new thread,
-// thread tree, search. Top-level destinations (dashboard / automations /
-// agents / settings) live exclusively in the primary rail (ActivityBar).
+// Contextual sidebar (R4-03 #236): conversation context ONLY — new thread
+// and the thread tree. Top-level destinations live exclusively in the
+// primary rail (ActivityBar), and the rail owns the search command too.
 export function Sidebar({
   collapsed, creating, onNewSession, onNewSessionInDir, onResumeThread,
-  onForkSession, onRenameHistory, onCloseSession, onOpenSearch,
+  onForkSession, onRenameHistory, onCloseSession,
 }: SidebarProps) {
   if (collapsed) return null;
 
   return (
     <aside aria-label="会话侧栏" className="flex w-[260px] shrink-0 flex-col bg-gb-sidebar">
-      {/* Header — app identity + search entry */}
+      {/* Header — app identity */}
       <div className="flex items-center justify-between px-3 pb-1 pt-2">
         <span className="px-1 text-gb-sm font-semibold text-gb-text-primary">Grok Build</span>
-        <button
-          className="rounded-gb-md p-1.5 text-gb-text-muted transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover hover:text-gb-text-primary"
-          onClick={onOpenSearch}
-          title="搜索 (⌘G)"
-          aria-label="搜索 (⌘G)"
-        >
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" /><path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
-        </button>
       </div>
 
       {/* Conversation actions */}

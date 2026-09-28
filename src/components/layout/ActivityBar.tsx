@@ -1,55 +1,16 @@
 import { Tooltip } from "../ui";
+import { DESTINATIONS, type AppDestination } from "./destinations";
 
 /**
  * ActivityBar (R4-03 #236): the 48px primary rail — the SOLE owner of
  * top-level destinations. Every destination appears exactly once, with
- * aria-current on the active one; search is a command (overlay), not a
- * destination. The contextual sidebar must never repeat these entries.
+ * aria-current on the active one; search and the sidebar toggle are
+ * commands, not destinations. The contextual sidebar must never repeat
+ * these entries.
+ *
+ * Destination registry (labels/icons) lives in ./destinations — TitleBar
+ * reads the same source so names never drift.
  */
-
-export type AppDestination =
-  | "conversations"
-  | "dashboard"
-  | "automations"
-  | "agents"
-  | "settings";
-
-interface DestinationDef {
-  id: AppDestination;
-  label: string;
-  shortcut?: string;
-  icon: string; // svg path
-}
-
-const DESTINATIONS: DestinationDef[] = [
-  {
-    id: "conversations",
-    label: "会话",
-    shortcut: "⌘1",
-    icon: "M14 3H5a2 2 0 00-2 2v14a2 2 0 002 2h9M14 3l5 5m-5-5v5h5M9 12h6M9 16h4",
-  },
-  {
-    id: "dashboard",
-    label: "仪表盘",
-    icon: "M3 20h18M6 20v-6m6 6V8m6 12v-9",
-  },
-  {
-    id: "automations",
-    label: "自动化",
-    icon: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3.5 2",
-  },
-  {
-    id: "agents",
-    label: "代理",
-    icon: "M12 12a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM5 20a7 7 0 0114 0",
-  },
-  {
-    id: "settings",
-    label: "设置",
-    shortcut: "⌘,",
-    icon: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82.33l.06.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z",
-  },
-];
 
 const SEARCH_ICON = "M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM21 21l-5.2-5.2";
 const SIDEBAR_ICON = "M2 4h12v1H2V4zm0 3.5h12v1H2v-1zm0 3.5h12v1H2v-1z";
@@ -60,10 +21,13 @@ interface RailButtonProps {
   icon: string;
   active?: boolean;
   current?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }
 
-function RailButton({ label, shortcut, icon, active, current, onClick }: RailButtonProps) {
+// Plain button (not ui/IconButton) because IconButton forces a `title`
+// attribute which would double up with the Tooltip wrapper.
+function RailButton({ label, shortcut, icon, active, current, disabled, onClick }: RailButtonProps) {
   const fullLabel = shortcut ? `${label} (${shortcut})` : label;
   return (
     <Tooltip content={fullLabel}>
@@ -72,9 +36,10 @@ function RailButton({ label, shortcut, icon, active, current, onClick }: RailBut
         aria-label={fullLabel}
         aria-current={current ? "page" : undefined}
         aria-pressed={current ? undefined : active}
+        disabled={disabled}
         onClick={onClick}
         className={[
-          "gb-motion-press relative flex h-10 w-10 items-center justify-center rounded-gb-md transition-colors duration-gb-fast ease-gb",
+          "gb-motion-press relative flex h-10 w-10 items-center justify-center rounded-gb-md transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-30",
           current || active
             ? "bg-gb-accent/15 text-gb-accent-text"
             : "text-gb-text-muted hover:bg-gb-surface-hover hover:text-gb-text-primary",
@@ -110,6 +75,9 @@ export interface ActivityBarProps {
   onOpenSearch: () => void;
   onToggleSidebar: () => void;
   sidebarVisible: boolean;
+  /** False on destinations that have no contextual sidebar — the toggle is
+   *  then disabled instead of invisibly mutating state (R4-03 review). */
+  sidebarAvailable: boolean;
 }
 
 export function ActivityBar({
@@ -118,6 +86,7 @@ export function ActivityBar({
   onOpenSearch,
   onToggleSidebar,
   sidebarVisible,
+  sidebarAvailable,
 }: ActivityBarProps) {
   const [primary, settingsEntry] = [
     DESTINATIONS.filter((d) => d.id !== "settings"),
@@ -126,10 +95,11 @@ export function ActivityBar({
   return (
     <nav
       aria-label="主导航"
-      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r gb-border-hairline bg-gb-sidebar py-2"
+      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r gb-border-hairline bg-gb-sidebar pb-2"
     >
-      {/* Traffic-light clearance — draggable window region */}
-      <div className="app-drag h-6 w-full shrink-0" />
+      {/* Traffic-light clearance — draggable window region (traffic lights
+         end at y≈29 with the default inset position, so keep 32px) */}
+      <div className="app-drag h-8 w-full shrink-0" />
       {primary.map((d) => (
         <RailButton
           key={d.id}
@@ -150,7 +120,8 @@ export function ActivityBar({
         label="切换会话侧栏"
         shortcut="⌘B"
         icon={SIDEBAR_ICON}
-        active={sidebarVisible}
+        active={sidebarAvailable && sidebarVisible}
+        disabled={!sidebarAvailable}
         onClick={onToggleSidebar}
       />
       <div className="flex-1" />

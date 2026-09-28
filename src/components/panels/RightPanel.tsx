@@ -855,7 +855,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
   }
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-gb-border bg-gb-surface">
+    <aside aria-label="检查器" className="flex w-72 shrink-0 flex-col border-l border-gb-border bg-gb-surface">
       <div className="flex items-center border-b border-gb-border">
         {tabs.map((tab) => (
           <button

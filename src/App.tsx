@@ -8,9 +8,10 @@ import { MessageList } from "./components/chat/MessageList";
 import { WorktreeOnboardingBanner } from "./components/chat/WorktreeOnboardingBanner";
 import { PromptInput } from "./components/chat/PromptInput";
 import { TitleBar } from "./components/layout/TitleBar";
-import { ActivityBar, type AppDestination } from "./components/layout/ActivityBar";
+import { ActivityBar } from "./components/layout/ActivityBar";
 import { AppShell } from "./components/layout/AppShell";
 import { Sidebar } from "./components/layout/Sidebar";
+import type { AppDestination } from "./components/layout/destinations";
 import { RightPanel } from "./components/panels/RightPanel";
 import { ApprovalCard } from "./components/chat/ApprovalCard";
 import { QuestionCard } from "./components/chat/QuestionCard";
@@ -174,6 +175,16 @@ export default function App() {
   }, []);
   const goConversations = useCallback(() => setDestination("conversations"), []);
 
+  // Deep-linked settings tab must not leak across visits: leaving the
+  // settings destination resets it so the next visit opens the default tab.
+  useEffect(() => {
+    if (destination !== "settings") setSettingsTab(undefined);
+  }, [destination]);
+
+  // Visibility toggles only apply where the panels exist — on other
+  // destinations ⌘B / ⌘J must not invisibly mutate state (R4-03 review).
+  const inConversations = destination === "conversations";
+
   // null = follow responsive auto rule; boolean = explicit user override
   // (fixes: below the 1000px breakpoint the manual toggle could never
   // re-open the sidebar because auto-collapse was OR'ed over user state)
@@ -213,6 +224,15 @@ export default function App() {
   const toggleSidebar = useCallback(() => {
     setSidebarOverride((prev) => !(prev ?? window.innerWidth < 1000));
   }, []);
+  // Gated variants: visibility toggles only act on the conversations
+  // destination, where the sidebar and inspector actually exist.
+  const toggleSidebarGated = useCallback(() => {
+    if (destination === "conversations") toggleSidebar();
+  }, [destination, toggleSidebar]);
+  const toggleRightPanelGated = useCallback(() => {
+    if (destination !== "conversations") return;
+    setRightPanelCollapsed((collapsed) => !collapsed);
+  }, [destination]);
   const responsiveRightCollapsed = rightPanelCollapsed || windowWidth < 1200;
 
   const refreshAuth = useCallback(async () => {
@@ -310,10 +330,14 @@ export default function App() {
     const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
+        setDestination("conversations");
         const pendingId = `pending:${session.id}`;
         setResumingIds((prev) => new Set(prev).add(pendingId));
       },
-      onFocusExisting: () => setShowHome(false),
+      onFocusExisting: () => {
+        setShowHome(false);
+        setDestination("conversations");
+      },
       onStreamingExisting: () =>
         setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送"),
       onError: (m) => {
@@ -340,6 +364,8 @@ export default function App() {
   const handleNewSession = useCallback(async () => {
     setCreating(true);
     setError(null);
+    // Creating a session is a conversation-context action — navigate there.
+    setDestination("conversations");
     try {
       const info = await createSession(".");
       addTab({
@@ -437,6 +463,7 @@ export default function App() {
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
         store.setActiveSession(next.id);
         setShowHome(false);
+        setDestination("conversations");
       }
     };
     window.addEventListener("keydown", handler);
@@ -444,9 +471,12 @@ export default function App() {
   }, []);
 
   // Sidebar thread entries activate sessions through the store directly; this
-  // event tells App to reveal the thread view (hide Home).
+  // event tells App to reveal the thread view (hide Home) in conversations.
   useEffect(() => {
-    const open = () => setShowHome(false);
+    const open = () => {
+      setShowHome(false);
+      setDestination("conversations");
+    };
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
   }, []);
@@ -532,7 +562,7 @@ export default function App() {
     onCloseActiveThread: () => {
       if (activeSessionId) handleCloseSession(activeSessionId);
     },
-    onToggleSidebar: toggleSidebar,
+    onToggleSidebar: toggleSidebarGated,
     onOpenSettings: () => openSettings(),
     onOpenSearch: () => setShowSearch(true),
     onAddProject: () => {
@@ -544,6 +574,8 @@ export default function App() {
         .catch((err) => setError(String(err)));
     },
     onToggleTerminal: () => {
+      // The terminal lives in the inspector — a conversations-only panel.
+      if (destination !== "conversations") return;
       setRightPanelCollapsed((collapsed) => {
         if (!collapsed) return true; // closing the panel
         window.dispatchEvent(new CustomEvent("gb-open-terminal"));
@@ -670,7 +702,7 @@ export default function App() {
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
-          newThread: () => { setActiveSession(null); setShowHome(true); },
+          newThread: () => { setActiveSession(null); setShowHome(true); setDestination("conversations"); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           forkCurrentThread: () => {
@@ -855,6 +887,7 @@ export default function App() {
         action: () => {
           setActiveSession(tab.id);
           setShowHome(false);
+          setDestination("conversations");
         },
       });
     }
@@ -904,7 +937,10 @@ export default function App() {
       id: "go-home",
       title: "Go Home",
       category: "Navigation",
-      action: () => setShowHome(true),
+      action: () => {
+        setShowHome(true);
+        setDestination("conversations");
+      },
     });
 
     // Surfaces previously on the sidebar, now reachable from the palette.
@@ -930,7 +966,7 @@ export default function App() {
     );
 
     return cmds;
-  }, [tabs, activeSessionId, config, setActiveSession]);
+  }, [tabs, activeSessionId, config, setActiveSession, openSettings]);
 
   if (auth && !auth.authenticated) return <Login onLoginSuccess={refreshAuth} />;
   if (isAuthHandoff) return <Suspense fallback={<PageFallback />}><AuthHandoff /></Suspense>;
@@ -983,8 +1019,9 @@ export default function App() {
           destination={destination}
           onNavigate={setDestination}
           onOpenSearch={() => setShowSearch(true)}
-          onToggleSidebar={toggleSidebar}
+          onToggleSidebar={toggleSidebarGated}
           sidebarVisible={!responsiveSidebarCollapsed}
+          sidebarAvailable={inConversations}
         />
       }
       sidebar={
@@ -998,20 +1035,19 @@ export default function App() {
             onForkSession={handleForkSession}
             onRenameHistory={handleRenameHistory}
             onCloseSession={handleCloseSession}
-            onOpenSearch={() => setShowSearch(true)}
           />
         ) : undefined
       }
       titlebar={
         <TitleBar
-          sidebarCollapsed={responsiveSidebarCollapsed || destination !== "conversations"}
+          sidebarCollapsed={responsiveSidebarCollapsed || !inConversations}
           auth={auth}
           destination={destination}
           onLogout={handleLogout}
           onNewSession={handleNewSession}
           creating={creating}
-          onToggleSidebar={toggleSidebar}
-          onToggleRightPanel={() => setRightPanelCollapsed((v) => !v)}
+          onToggleSidebar={toggleSidebarGated}
+          onToggleRightPanel={toggleRightPanelGated}
         />
       }
       workspace={
@@ -1048,9 +1084,14 @@ export default function App() {
             </div>
           )}
 
-          <div key={destination} className="gb-motion-page-enter flex min-h-0 flex-1 flex-col">
-          {destination === "conversations" ? (
-            showHome ? (
+          {/* Conversations stays MOUNTED across destination switches (hidden
+              via CSS) — MessageList scroll position, composer state, pending
+              approval cards and streaming sessions survive a round trip. */}
+          <div
+            className={inConversations ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+            aria-hidden={!inConversations}
+          >
+            {showHome ? (
               <Home
                 config={config}
                 onStart={handleStartFromHome}
@@ -1105,31 +1146,38 @@ export default function App() {
                   onQueue={handleQueue}
                 />
               </>
-            )
-          ) : destination === "dashboard" ? (
-            <Suspense fallback={<PageFallback />}>
-              <Dashboard onClose={goConversations} onOpenSession={goConversations} />
-            </Suspense>
-          ) : destination === "automations" ? (
-            <Suspense fallback={<PageFallback />}>
-              <AutomationsPage onClose={goConversations} />
-            </Suspense>
-          ) : destination === "agents" ? (
-            <Suspense fallback={<PageFallback />}>
-              <WorkspaceAgentsPage
-                onClose={goConversations}
-                onOpenSession={(id) => {
-                  setActiveSession(id);
-                  goConversations();
-                }}
-              />
-            </Suspense>
-          ) : (
-            <Suspense fallback={<PageFallback />}>
-              <Settings onClose={() => { goConversations(); setSettingsTab(undefined); }} initialTab={settingsTab} />
-            </Suspense>
-          )}
+            )}
           </div>
+
+          {/* Destination pages mount fresh per visit (they are views over
+              stores, not stateful editors) and get the page-enter motion. */}
+          {!inConversations && (
+            <div key={destination} className="gb-motion-page-enter flex min-h-0 flex-1 flex-col overflow-hidden">
+              {destination === "dashboard" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <Dashboard onClose={goConversations} onOpenSession={goConversations} />
+                </Suspense>
+              ) : destination === "automations" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <AutomationsPage onClose={goConversations} />
+                </Suspense>
+              ) : destination === "agents" ? (
+                <Suspense fallback={<PageFallback />}>
+                  <WorkspaceAgentsPage
+                    onClose={goConversations}
+                    onOpenSession={(id) => {
+                      setActiveSession(id);
+                      goConversations();
+                    }}
+                  />
+                </Suspense>
+              ) : (
+                <Suspense fallback={<PageFallback />}>
+                  <Settings onClose={goConversations} initialTab={settingsTab} />
+                </Suspense>
+              )}
+            </div>
+          )}
         </>
       }
       inspector={destination === "conversations" ? <RightPanel collapsed={responsiveRightCollapsed} /> : undefined}
@@ -1145,28 +1193,28 @@ export default function App() {
         <Suspense fallback={null}>
           <GlobalSearch
             onClose={() => setShowSearch(false)}
-            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); }}
+            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); setDestination("conversations"); }}
             onResumeThread={handleResumeThread}
           />
         </Suspense>
       )}
 
       {confirmClose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-80 rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-center shadow-2xl">
-            <p className="mb-2 text-sm font-medium text-gb-text">关闭这个会话？</p>
-            <p className="mb-4 text-xs text-gb-muted">
+        <div className="fixed inset-0 z-gb-modal flex items-center justify-center bg-black/50">
+          <div className="w-80 rounded-gb-lg border gb-border-hairline bg-gb-surface-1 p-6 text-center shadow-gb-modal">
+            <p className="mb-2 text-sm font-medium text-gb-text-primary">关闭这个会话？</p>
+            <p className="mb-4 text-xs text-gb-text-muted">
               Messages in this session will be lost. The agent process will be terminated.
             </p>
             <div className="flex gap-2">
               <button
-                className="flex-1 rounded-md border border-gb-border/10 px-3 py-2 text-[12px] text-gb-muted hover:bg-gb-surface-hover"
+                className="flex-1 rounded-gb-md border gb-border-control px-3 py-2 text-gb-xs text-gb-text-secondary transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover"
                 onClick={() => setConfirmClose(null)}
               >
                 Cancel
               </button>
               <button
-                className="flex-1 rounded-md bg-gb-red px-3 py-2 text-[12px] font-medium text-white hover:opacity-80"
+                className="flex-1 rounded-gb-md bg-gb-danger px-3 py-2 text-gb-xs font-medium text-gb-accent-fg transition-colors duration-gb-fast ease-gb hover:opacity-80"
                 onClick={() => performClose(confirmClose)}
               >
                 Close
