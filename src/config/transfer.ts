@@ -1,6 +1,6 @@
 import { getSetting, listSettings } from "./registry";
 import { resolveFromStore, setScopedValue } from "./storeBridge";
-import { useSettingsStore } from "../stores/settingsStore";
+import { useSettingsStore, LEGACY_KEYS } from "../stores/settingsStore";
 import { CURRENT_SETTINGS_VERSION } from "./version";
 
 /**
@@ -25,20 +25,25 @@ function exportable(defId: string): boolean {
   return !!def && !def.sensitive;
 }
 
-export function exportSettings(): SettingsExportDoc {
+export function exportSettings(opts: { includeProjects?: boolean } = {}): SettingsExportDoc {
   const s = useSettingsStore.getState();
   const global: Record<string, unknown> = {};
   for (const def of listSettings()) {
     if (!def.storeKey || def.sensitive) continue;
     global[def.id] = (s as unknown as Record<string, unknown>)[def.storeKey];
   }
-  const projects: Record<string, Record<string, unknown>> = {};
-  for (const [projectId, entries] of Object.entries(s.projectOverrides)) {
-    const kept: Record<string, unknown> = {};
-    for (const [settingId, value] of Object.entries(entries)) {
-      if (exportable(settingId)) kept[settingId] = value;
+  // Project overrides are EXCLUDED by default: their keys are absolute
+  // filesystem paths — the same layout leak that makes trustedFolders
+  // sensitive. Opt in explicitly for advanced backup flows.
+  const projects: SettingsExportDoc["projects"] = {};
+  if (opts.includeProjects) {
+    for (const [projectId, entries] of Object.entries(s.projectOverrides)) {
+      const kept: Record<string, unknown> = {};
+      for (const [settingId, value] of Object.entries(entries)) {
+        if (exportable(settingId)) kept[settingId] = value;
+      }
+      if (Object.keys(kept).length > 0) projects[projectId] = kept;
     }
-    if (Object.keys(kept).length > 0) projects[projectId] = kept;
   }
   return {
     kind: "gb-settings-export",
@@ -175,13 +180,26 @@ export interface ImportResult {
 
 function snapshotState() {
   const s = useSettingsStore.getState();
+  const flat = Object.fromEntries(
+    listSettings()
+      .filter((d) => d.storeKey)
+      .map((d) => [d.storeKey as string, (s as unknown as Record<string, unknown>)[d.storeKey as string]]),
+  );
+  // Legacy mirror keys are written by the setters — snapshot them too, or a
+  // rollback would leave localStorage contradicting the store (the sandbox
+  // toggle's boot read is a real enforcement boundary).
+  const legacy: Record<string, string | null> = {};
+  for (const key of Object.values(LEGACY_KEYS)) {
+    try {
+      legacy[key] = localStorage.getItem(key);
+    } catch {
+      legacy[key] = null;
+    }
+  }
   return {
-    flat: Object.fromEntries(
-      listSettings()
-        .filter((d) => d.storeKey)
-        .map((d) => [d.storeKey as string, (s as unknown as Record<string, unknown>)[d.storeKey as string]]),
-    ),
+    flat,
     projectOverrides: JSON.parse(JSON.stringify(s.projectOverrides)) as Record<string, Record<string, unknown>>,
+    legacy,
   };
 }
 
@@ -204,29 +222,42 @@ export function applyImport(
 
   const rollback = () => {
     useSettingsStore.setState({ ...before.flat, projectOverrides: before.projectOverrides });
+    for (const [key, value] of Object.entries(before.legacy)) {
+      try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+      } catch {
+        /* storage unavailable */
+      }
+    }
   };
 
   const writes: Array<() => string | null> = [];
-  for (const [id, value] of Object.entries(doc.global)) {
+  const pushWrite = (
+    id: string,
+    value: unknown,
+    scope: "global" | "project",
+    pid?: string,
+  ) => {
     writes.push(() => {
+      const tag = pid ? `${pid}:${id}` : id;
       const def = getSetting(id);
-      // Mirror preview semantics: sensitive/unknown keys are SKIPPED, never
-      // written (even if a caller hand-built the document).
-      if (!def || def.sensitive) return null;
-      setScopedValue(id, value, "global");
-      return id;
+      // Mirror preview's ignored list exactly: unknown / sensitive /
+      // out-of-scope entries are SKIPPED, never written.
+      if (!def || def.sensitive || !def.scopes.includes(scope)) return null;
+      // No-op writes are not "applied" — the report reflects real changes.
+      const cur = resolveFromStore(id, pid);
+      if (JSON.stringify(cur.value) === JSON.stringify(value)) return null;
+      setScopedValue(id, value, scope, pid);
+      return tag;
     });
-  }
+  };
+  for (const [id, value] of Object.entries(doc.global)) pushWrite(id, value, "global");
   for (const [pid, entries] of Object.entries(doc.projects)) {
-    for (const [id, value] of Object.entries(entries)) {
-      writes.push(() => {
-        const def = getSetting(id);
-        if (!def || def.sensitive) return null;
-        setScopedValue(id, value, "project", pid);
-        return `${pid}:${id}`;
-      });
-    }
+    for (const [id, value] of Object.entries(entries)) pushWrite(id, value, "project", pid);
   }
+  // Replace mode resets the GLOBAL layer only — project layers are
+  // merge-only (resetting projects you can't see would be a trap).
   if (mode === "replace") {
     for (const id of preview.reset) {
       const def = getSetting(id);

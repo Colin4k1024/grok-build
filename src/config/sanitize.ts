@@ -41,7 +41,8 @@ export function sanitizePersistedState(state: Record<string, unknown>): Record<s
   }
   out.projectOverrides = cleaned;
 
-  // userPresets: validated per entry (label string, known+valid values)
+  // userPresets: per-entry cleaning — invalid entries are dropped, valid
+  // siblings survive (never drop a whole preset over one bad value).
   const rawPresets = out.userPresets;
   const cleanPresets: Record<string, { label: string; values: Record<string, unknown> }> = {};
   if (rawPresets && typeof rawPresets === "object" && !Array.isArray(rawPresets)) {
@@ -50,16 +51,12 @@ export function sanitizePersistedState(state: Record<string, unknown>): Record<s
       const p = preset as { label?: unknown; values?: unknown };
       if (typeof p.label !== "string" || !p.values || typeof p.values !== "object" || Array.isArray(p.values)) continue;
       const keptValues: Record<string, unknown> = {};
-      let allValid = true;
       for (const [settingId, value] of Object.entries(p.values as Record<string, unknown>)) {
         const def = getSetting(settingId);
-        if (!def || def.sensitive || !def.validate(value)) {
-          allValid = false;
-          break;
-        }
+        if (!def || def.sensitive || !def.validate(value)) continue; // drop just this entry
         keptValues[settingId] = value;
       }
-      if (allValid) cleanPresets[id] = { label: p.label, values: keptValues };
+      if (Object.keys(keptValues).length > 0) cleanPresets[id] = { label: p.label, values: keptValues };
     }
   }
   out.userPresets = cleanPresets;

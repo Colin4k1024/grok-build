@@ -51,6 +51,20 @@ function legacyJson<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
+/** storeKey → legacy localStorage key (still mirrored for unmigrated
+ *  consumers). Exported so transfers can snapshot/restore them (R4-06). */
+export const LEGACY_KEYS: Record<string, string> = {
+  theme: LEGACY_THEME,
+  fontSize: LEGACY_FONT_SIZE,
+  zoom: LEGACY_ZOOM,
+  sandboxMode: LEGACY_SANDBOX,
+  agentMode: LEGACY_AGENT_MODE,
+  agentAutonomous: LEGACY_AGENT_AUTONOMOUS,
+  voiceLanguage: LEGACY_VOICE_LANG,
+  notificationsEnabled: LEGACY_NOTIFICATIONS,
+  trustedFolders: LEGACY_TRUSTED,
+};
+
 // ---- Types ----
 
 export type ThemeMode = "light" | "dark" | "auto";
@@ -355,14 +369,23 @@ export const useSettingsStore = create<SettingsState>()(
       name: "gb-settings",
       storage: createJSONStorage(() => dualWriteStorage),
       version: CURRENT_SETTINGS_VERSION,
-      // R4-06: version-gated migration pipeline. A failed migration keeps
-      // the original state (backup semantics) and logs — the always-on
-      // merge sanitizer below still protects the running app.
+      // R4-06: version-gated migration pipeline. A failed migration does
+      // NOT adopt the foreign payload (a newer install's blob must never
+      // be silently downgraded): the original is quarantined to a backup
+      // key and the app boots on registry defaults.
       migrate: (persistedState, version) => {
         const r = migratePersisted({ state: persistedState, version });
         if (!r.ok) {
           console.error(`[settings] migration failed: ${r.error}`);
-          return persistedState as never;
+          try {
+            localStorage.setItem(
+              `gb-settings.backup-${Date.now()}`,
+              JSON.stringify({ state: persistedState, version }),
+            );
+          } catch {
+            /* storage unavailable */
+          }
+          return undefined as never; // fall back to initial (defaults)
         }
         return r.state as never;
       },

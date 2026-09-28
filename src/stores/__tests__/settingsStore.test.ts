@@ -123,6 +123,21 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect((migrated as { theme: string }).theme).toBe("dark");
     expect((migrated as { projectOverrides: unknown }).projectOverrides).toEqual({});
   });
+
+  it("a NEWER persisted version is quarantined, not adopted (no silent downgrade)", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: { theme: "light" }, version: CURRENT_SETTINGS_VERSION + 1 }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    // the newer blob was NOT adopted — defaults instead
+    expect(useSettingsStore.getState().theme).toBe("dark");
+    // and the original was quarantined to a backup key
+    const backups = Object.keys(localStorage).filter((k) => k.startsWith("gb-settings.backup-"));
+    expect(backups.length).toBeGreaterThan(0);
+    expect(localStorage.getItem(backups[0])).toContain('"light"');
+  });
 });
 
 describe("reset excludes secrets (R3-11 #196)", () => {

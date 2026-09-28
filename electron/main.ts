@@ -925,6 +925,12 @@ import {
   type SettingsFile,
 } from "./settings-store";
 import {
+  sanitizeTransferFileName,
+  validateTransferContent,
+  writeTransferFile,
+  readTransferFile,
+} from "./settings-transfer";
+import {
   registerWorktree, unregisterWorktree, touchWorktree,
   listOrphans, pruneOrphans, worktreeCount, readRegistry,
 } from "./worktree-registry";
@@ -1363,45 +1369,28 @@ ipcMain.handle("pick_directory", async () => {
 // validation lives in the renderer (src/config/transfer.ts); these handlers
 // only do the OS file dance. Size is bounded on read.
 ipcMain.handle("settings_transfer_save", async (_e, args: { content: string; defaultPath?: string }) => {
-  if (!mainWindow) return { path: null };
-  if (typeof args?.content !== "string") throw new Error("settings_transfer_save: content must be a string");
-  if (Buffer.byteLength(args.content, "utf-8") > 1024 * 1024) {
-    throw new Error("settings_transfer_save: content too large");
-  }
-  // Only a bare file NAME is honored from the renderer — never a path.
-  const safeName = path.basename(String(args.defaultPath ?? "grok-build-settings.json"));
+  if (!mainWindow) return { path: null, reason: "no-window" };
+  const content = validateTransferContent(args?.content);
   const r = await dialog.showSaveDialog(mainWindow, {
     title: "导出设置",
-    defaultPath: safeName,
+    defaultPath: sanitizeTransferFileName(args?.defaultPath),
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
-  if (r.canceled || !r.filePath) return { path: null };
-  try {
-    fs.writeFileSync(r.filePath, args.content, "utf-8");
-  } catch (e) {
-    throw new Error(`settings_transfer_save: write failed: ${e instanceof Error ? e.message : String(e)}`);
-  }
+  if (r.canceled || !r.filePath) return { path: null, reason: "canceled" };
+  writeTransferFile(r.filePath, content);
   return { path: r.filePath };
 });
 
 ipcMain.handle("settings_transfer_open", async () => {
-  if (!mainWindow) return { content: null };
+  if (!mainWindow) return { content: null, reason: "no-window" };
   const r = await dialog.showOpenDialog(mainWindow, {
     title: "导入设置",
     properties: ["openFile"],
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
-  if (r.canceled || r.filePaths.length === 0) return { content: null };
-  try {
-    const stat = fs.statSync(r.filePaths[0]);
-    if (stat.size > 1024 * 1024) throw new Error("file too large");
-    return { content: fs.readFileSync(r.filePaths[0], "utf-8"), path: r.filePaths[0] };
-  } catch (e) {
-    // A file that vanishes or becomes unreadable between dialog and read
-    // is a clean null, not an unhandled rejection.
-    console.warn("[settings] transfer open failed:", e);
-    return { content: null };
-  }
+  if (r.canceled || r.filePaths.length === 0) return { content: null, reason: "canceled" };
+  const content = readTransferFile(r.filePaths[0]);
+  return { content, path: r.filePaths[0] };
 });
 
 
