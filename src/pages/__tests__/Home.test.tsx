@@ -4,7 +4,8 @@
  * selection, and a WorkOverview that distinguishes live sessions from
  * resumable history WITHOUT duplicate entries.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
 
@@ -120,5 +121,76 @@ describe("Home (R4-04)", () => {
     );
     const overview = await screen.findByTestId("work-overview");
     expect(overview.textContent).toMatch(/开始新任务|暂无/);
+  });
+
+  it("running sessions show a TEXT 进行中 badge (never color alone)", async () => {
+    resetStore([liveTab]);
+    useSessionStore.setState({ streaming: { "tab-1": true } });
+    render(
+      <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
+    );
+    const overview = await screen.findByTestId("work-overview");
+    expect(overview.textContent).toContain("进行中");
+    expect(overview.textContent).toContain("1 进行中"); // header count badge
+  });
+
+  it("pending approvals surface a 待处理 badge", async () => {
+    resetStore([liveTab]);
+    useSessionStore.setState({
+      pendingPermissions: {
+        "tab-1": [{ requestId: "r1", toolName: "bash", command: "rm -rf /tmp/x", options: [] } as never],
+      },
+    });
+    render(
+      <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
+    );
+    const overview = await screen.findByTestId("work-overview");
+    expect(overview.textContent).toContain("待处理");
+  });
+
+  it("empty threads (num_messages=0) are never offered as resumable", async () => {
+    const tauri = await import("../../lib/tauri");
+    (tauri.listHistorySessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: "empty-1", session_id: "s-e", title: "空线程", cwd: "/x", num_messages: 0, model: "m", last_active_at: "", created_at: 1, updated_at: 2 },
+    ]);
+    render(
+      <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
+    );
+    const overview = await screen.findByTestId("work-overview");
+    await waitFor(() => expect(overview.textContent).toMatch(/暂无/));
+    expect(overview.textContent).not.toContain("空线程");
+  });
+
+  it("history load failure shows an error with a working retry", async () => {
+    const tauri = await import("../../lib/tauri");
+    const mock = tauri.listHistorySessions as ReturnType<typeof vi.fn>;
+    mock.mockRejectedValueOnce(new Error("磁盘读取失败"));
+    render(
+      <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
+    );
+    const overview = await screen.findByTestId("work-overview");
+    await waitFor(() => expect(overview.textContent).toContain("历史加载失败"));
+    mock.mockResolvedValueOnce([]);
+    await userEvent.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => expect(overview.textContent).toMatch(/暂无/));
+  });
+
+  it("refreshes when threads change elsewhere (gb-threads-changed)", async () => {
+    const tauri = await import("../../lib/tauri");
+    const mock = tauri.listHistorySessions as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValue([]);
+    render(
+      <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
+    );
+    await screen.findByTestId("work-overview");
+    mock.mockResolvedValue([
+      { id: "new-1", session_id: "s-n", title: "新线程", cwd: "/y", num_messages: 3, model: "m", last_active_at: "", created_at: 1, updated_at: 2 },
+    ]);
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("gb-threads-changed"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("work-overview").textContent).toContain("新线程"),
+    );
   });
 });

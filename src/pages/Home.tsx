@@ -3,7 +3,7 @@ import { PromptInput } from "../components/chat/PromptInput";
 import { WorkOverview } from "../components/home/WorkOverview";
 import type { ApprovalMode } from "../stores/sessionStore";
 import { getSandboxMode } from "../components/layout/SandboxToggle";
-import { pickDirectory, type ConfigSnapshot } from "../lib/tauri";
+import { pickDirectory, type ConfigSnapshot, type HistorySession } from "../lib/tauri";
 
 export type ComposerMode = "chat" | "agent";
 
@@ -15,7 +15,7 @@ interface HomeProps {
     prefs: { cwd: string; model: string; effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"; approval: ApprovalMode }
   ) => void;
   onOpenSession: (id: string) => void;
-  onResumeThread: (session: import("../lib/tauri").HistorySession) => void;
+  onResumeThread: (session: HistorySession) => void;
   creating: boolean;
 }
 
@@ -49,7 +49,11 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
   return (
     <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-12">
       <div className="w-full max-w-2xl">
-        <div className="mb-3 text-center text-gb-brand" aria-hidden>✻</div>
+        <div className="mb-3 flex justify-center text-gb-accent-text" aria-hidden>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" />
+          </svg>
+        </div>
 
         {/* Project title — codex scopes the new chat to a project */}
         <div className="mb-4 flex items-center justify-center gap-2">
@@ -70,6 +74,7 @@ export function Home({ config, onStart, onOpenSession, onResumeThread, creating 
           onCancel={() => {}}
           isStreaming={false}
           disabled={creating}
+          disabledReason="正在创建会话…"
           config={config}
           home={{
             cwd: projectCwd,

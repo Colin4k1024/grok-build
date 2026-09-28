@@ -91,6 +91,7 @@ export function MessageList({ sessionId, resuming }: Props = {}) {
   const measureOverflow = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (!visibleRef.current) return; // display:none → all metrics are 0; keep state
     const top = el.scrollTop > 4;
     const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
     // setState with an identical primitive is a no-op in React, so these are
@@ -133,16 +134,21 @@ export function MessageList({ sessionId, resuming }: Props = {}) {
   }, [totalItems, measureOverflow]);
 
   // R4-03/#237: the conversation subtree is kept mounted but display:none
-  // while another destination is active — measurements read 0 there and go
-  // stale. Re-measure when the list becomes visible again.
+  // while another destination is active — geometry reads 0 there, which
+  // would clobber the follow flag. Track visibility and skip measurement
+  // while hidden; on becoming visible, re-measure and re-pin IF we were
+  // following before (read the flag BEFORE measureOverflow touches it).
+  const visibleRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
+      const visible = entries.some((e) => e.isIntersecting);
+      const wasFollowing = followRef.current;
+      visibleRef.current = visible;
+      if (visible) {
         measureOverflow();
-        // re-pin to the bottom if we were following when hidden
-        if (followRef.current) el.scrollTop = el.scrollHeight;
+        if (wasFollowing) el.scrollTop = el.scrollHeight;
       }
     });
     io.observe(el);

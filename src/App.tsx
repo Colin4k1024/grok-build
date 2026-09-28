@@ -1005,6 +1005,7 @@ export default function App() {
           onCancel={handleCancel}
           isStreaming={isStreaming}
           disabled={!activeSessionId}
+          disabledReason="暂不可用 — 没有活跃会话"
         />
       </div>
     );
@@ -1138,6 +1139,7 @@ export default function App() {
                   onCancel={handleCancel}
                   isStreaming={isStreaming}
                   disabled={!!activeSessionId && resumingIds.has(activeSessionId)}
+                  disabledReason="会话恢复中 — 转录加载中"
                   cwd={activeSessionId ? tabs.find((t) => t.id === activeSessionId)?.cwd : undefined}
                   onSwitchProject={handleSwitchProject}
                   config={config}

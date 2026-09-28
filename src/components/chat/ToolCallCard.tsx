@@ -4,19 +4,49 @@ import type { ChatMessage } from "../../stores/sessionStore";
 
 interface Props { message: ChatMessage; }
 
-/** Pick a small emoji glyph per tool so users can scan the timeline quickly. */
-function toolIcon(toolName?: string): string {
+/** Shared SVG glyphs per tool family (R4 design rule: no emoji as icons). */
+const TOOL_ICONS: Array<{ match: (n: string) => boolean; d: string }> = [
+  { match: (n) => n.includes("bash") || n.includes("terminal") || n.includes("cmd") || n.includes("shell"),
+    d: "M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM7 9l3 3-3 3M12 15h5" },
+  { match: (n) => n.includes("read") || n.includes("open"),
+    d: "M13 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-6-5zM13 3v5h5" },
+  { match: (n) => n.includes("write") || n.includes("edit"),
+    d: "M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4L16.5 3.5z" },
+  { match: (n) => n.includes("search") || n.includes("grep") || n.includes("find"),
+    d: "M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM21 21l-5.2-5.2" },
+  { match: (n) => n.includes("web") || n.includes("http") || n.includes("fetch"),
+    d: "M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3a13 13 0 010 18 13 13 0 010-18z" },
+  { match: (n) => n.includes("git"),
+    d: "M6 3v12M18 9a3 3 0 100-6 3 3 0 000 6zM6 21a3 3 0 100-6 3 3 0 000 6zM18 9a9 9 0 01-9 9" },
+  { match: (n) => n.includes("todo") || n.includes("plan"),
+    d: "M9 11l3 3 8-8M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9" },
+  { match: (n) => n.includes("image") || n.includes("screenshot"),
+    d: "M3 5h18v14H3zM8.5 11a2 2 0 100-4 2 2 0 000 4zM21 15l-5-5-7 7" },
+  { match: (n) => n.includes("mcp"),
+    d: "M9 3v5M15 3v5M6 8h12v4a6 6 0 01-12 0V8zM12 18v3" },
+];
+const TOOL_ICON_FALLBACK =
+  "M14.5 6.5a4.5 4.5 0 00-6 6L4 17l3 3 4.5-4.5a4.5 4.5 0 006-6l-2.8 2.8-2.2-2.2 2.8-2.8z";
+
+export function ToolIcon({ toolName, className }: { toolName?: string; className?: string }) {
   const n = (toolName || "").toLowerCase();
-  if (n.includes("bash") || n.includes("terminal") || n.includes("cmd") || n.includes("shell")) return "💻";
-  if (n.includes("read") || n.includes("open")) return "📖";
-  if (n.includes("write") || n.includes("edit")) return "✏️";
-  if (n.includes("search") || n.includes("grep") || n.includes("find")) return "🔍";
-  if (n.includes("web") || n.includes("http") || n.includes("fetch")) return "🌐";
-  if (n.includes("git")) return "🌿";
-  if (n.includes("todo") || n.includes("plan")) return "📝";
-  if (n.includes("image") || n.includes("screenshot")) return "🖼️";
-  if (n.includes("mcp")) return "🔌";
-  return "🔧";
+  const d = TOOL_ICONS.find((t) => t.match(n))?.d ?? TOOL_ICON_FALLBACK;
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d={d} />
+    </svg>
+  );
 }
 
 /** Format milliseconds as a compact human-readable duration. */
@@ -131,8 +161,8 @@ export const ToolCallCard = memo(function ToolCallCard({ message }: Props) {
         >
           <path d="M1 2l3 3 3-3z" />
         </svg>
-        <span className="shrink-0 text-sm" aria-hidden>
-          {toolIcon(toolName)}
+        <span className={`shrink-0 ${statusColor}`}>
+          <ToolIcon toolName={toolName} />
         </span>
         <span className="truncate text-[12px] text-gb-text-secondary">{toolName}</span>
         {durationMs !== null && (

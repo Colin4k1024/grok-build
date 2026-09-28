@@ -113,24 +113,66 @@ describe("composer status line (R4-04)", () => {
     expect(screen.getByTestId("composer-status").textContent).toBe("");
   });
 
-  it("status text survives reduced-motion (status is content, not decoration)", () => {
-    // reduced-motion only kills animation; the status region is static text
+  it("status text is static content (never animation-dependent)", () => {
     resetStore({ isStreaming: true });
     render(<PromptInput onSend={() => {}} onCancel={() => {}} isStreaming />);
     const status = screen.getByTestId("composer-status");
     expect(status.className).not.toMatch(/animate|gb-motion/);
     expect(status.textContent).toContain("运行中");
   });
+
+  it("cancelling announces 停止中 until the cancel resolves", async () => {
+    let resolveCancel: () => void = () => {};
+    const onCancel = vi.fn(() => new Promise<void>((r) => { resolveCancel = r; }));
+    resetStore({ isStreaming: true, activeSessionId: "s1" });
+    render(<PromptInput onSend={() => {}} onCancel={onCancel} isStreaming />);
+    await userEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("composer-status").textContent).toContain("停止中");
+    expect(screen.getByRole("button", { name: "停止" })).toBeDisabled();
+    resolveCancel!();
+    await screen.findByText(/运行中/);
+  });
+
+  it("disabled with a reason announces the reason", () => {
+    render(
+      <PromptInput onSend={() => {}} onCancel={() => {}} isStreaming={false} disabled disabledReason="正在创建会话…" />,
+    );
+    expect(screen.getByTestId("composer-status").textContent).toContain("正在创建会话");
+  });
 });
 
 describe("composer interaction (R4-04)", () => {
-  it("Enter sends; the composer clears", async () => {
+  it("Enter sends AND clears the composer", async () => {
     const onSend = vi.fn();
     render(<PromptInput onSend={onSend} onCancel={() => {}} isStreaming={false} />);
     const input = screen.getByPlaceholderText(/发送消息/);
     await userEvent.type(input, "你好");
     await userEvent.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledWith("你好", []);
+    expect(input).toHaveValue("");
+  });
+
+  it("home variant renders the metadata controls (model / approval)", () => {
+    render(
+      <PromptInput
+        onSend={() => {}}
+        onCancel={() => {}}
+        isStreaming={false}
+        config={{ models: [{ id: "m1", name: "模型一" } as never], default_model: "m1" } as never}
+        home={{
+          cwd: "/proj",
+          model: "m1",
+          effort: "medium",
+          approval: "ask",
+          onCwdChange: () => {},
+          onPatch: () => {},
+        }}
+      />,
+    );
+    // composer metadata row is present with model + approval controls
+    expect(screen.getByText(/模型一|m1/)).toBeInTheDocument();
+    expect(screen.getByTitle("审批模式")).toBeInTheDocument();
   });
 
   it("Escape while streaming cancels", async () => {
