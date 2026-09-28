@@ -44,6 +44,24 @@ const api = {
 
 contextBridge.exposeInMainWorld("electron", api);
 
+// R4-05 (#238): typed settings persistence channel — the ONLY settings IPC
+// surface. Payloads are settings values, never credentials.
+const gbSettings = {
+  getAll: () => ipcRenderer.invoke("settings_file_get_all"),
+  set: (key: string, value: unknown) =>
+    ipcRenderer.invoke("settings_file_set", { key, value }),
+  delete: (key: string) => ipcRenderer.invoke("settings_file_delete", { key }),
+  reset: () => ipcRenderer.invoke("settings_file_reset"),
+  onChanged: (handler: (doc: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: unknown) => handler(payload);
+    ipcRenderer.on("settings_file_changed", listener);
+    return () => {
+      ipcRenderer.removeListener("settings_file_changed", listener);
+    };
+  },
+};
+contextBridge.exposeInMainWorld("gbSettings", gbSettings);
+
 if (BRIDGE_LOG) {
   console.log("[preload] bridge exposed to renderer (tracing on)");
 }

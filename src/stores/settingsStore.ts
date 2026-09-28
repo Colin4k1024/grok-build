@@ -15,7 +15,9 @@
  */
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
+import { getSettingsBridge } from "../config/fileSync";
+import { getSetting, listSettings } from "../config/registry";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -52,6 +54,43 @@ export type FontSizeId = "small" | "medium" | "large" | "xlarge";
 export type AgentMode = "code" | "architect" | "debug";
 export type VoiceLanguage = "auto" | "zh-CN" | "en-US";
 
+/** Flat data keys that may hydrate from the persisted blob — derived from
+ *  the registry (single declaration site) plus the overrides layer, so a
+ *  blob can never overwrite store actions or inject unknown state. */
+const HYDRATABLE_KEYS = new Set<string>([
+  ...listSettings()
+    .map((d) => d.storeKey)
+    .filter((k): k is string => !!k),
+  "projectOverrides",
+]);
+
+/** Registry default for a store key (the schema is the only place defaults
+ *  are declared — even this store's fallbacks come from it). */
+function registryDefault(storeKey: string): unknown {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  return def?.defaultValue;
+}
+
+/** Throw when a value fails its registry validator. Every write path —
+ *  typed setters, setGlobalByKey, project overrides — goes through here. */
+function assertValidValue(storeKey: string, value: unknown): void {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  if (def && !def.validate(value)) {
+    throw new Error(`invalid value for ${def.id}: ${JSON.stringify(value)}`);
+  }
+}
+
+/** Initial value for a flat field: legacy localStorage read, but ONLY if it
+ *  passes the registry validator — a corrupt/legacy key can never become
+ *  live state (R4-05). Falls back to the schema default. */
+function initialValue<T>(storeKey: string, legacy: T): T {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  if (def) {
+    if (!def.validate(legacy)) return def.defaultValue as T;
+  }
+  return legacy;
+}
+
 export interface SettingsState {
   // Appearance
   theme: ThemeMode;
@@ -84,77 +123,305 @@ export interface SettingsState {
   setNotificationsEnabled: (v: boolean) => void;
   addTrustedFolder: (path: string) => void;
   removeTrustedFolder: (path: string) => void;
+
+  /** R4-05 (#238): project-scope overrides, keyed by project path, then by
+   *  setting id (e.g. "appearance.theme"). Resolution semantics live in
+   *  src/config/resolve.ts — this store only persists the layers. */
+  projectOverrides: Record<string, Record<string, unknown>>;
+
+  /** R4-05: generic typed-setter dispatch by flat store key ("theme", …).
+   *  Unknown keys throw instead of silently persisting garbage. */
+  setGlobalByKey: (storeKey: string, value: unknown) => void;
+  setProjectOverride: (projectId: string, settingId: string, value: unknown) => void;
+  clearProjectOverride: (projectId: string, settingId: string) => void;
+  /** Project-level reset removes ONLY project overrides — never global. */
+  resetProjectOverrides: (projectId: string) => void;
 }
+
+/**
+ * R4-05 (#238): dual-write storage. localStorage stays the synchronous
+ * read path (fast hydration, works in tests); every write is mirrored to
+ * the durable settings file over the typed IPC bridge when available.
+ */
+const dualWriteStorage: StateStorage = {
+  getItem: (name) => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name, value) => {
+    try {
+      localStorage.setItem(name, value);
+    } catch {}
+    getSettingsBridge()
+      ?.set(name, value)
+      .catch((e) => console.warn("[settings] file mirror write failed:", e));
+  },
+  removeItem: (name) => {
+    try {
+      localStorage.removeItem(name);
+    } catch {}
+    getSettingsBridge()
+      ?.delete(name)
+      .catch((e) => console.warn("[settings] file mirror delete failed:", e));
+  },
+};
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
-      // Defaults with legacy fallback on first load
-      theme: legacyString(LEGACY_THEME, "dark") as ThemeMode,
-      fontSize: legacyString(LEGACY_FONT_SIZE, "medium") as FontSizeId,
-      zoom: Number(legacyString(LEGACY_ZOOM, "1.0")),
-      sandboxMode: legacyString(LEGACY_SANDBOX, "sandbox") as "sandbox" | "full",
-      agentMode: legacyString(LEGACY_AGENT_MODE, "code") as AgentMode,
-      agentAutonomous: legacyBool(LEGACY_AGENT_AUTONOMOUS, false),
-      voiceLanguage: legacyString(LEGACY_VOICE_LANG, "auto") as VoiceLanguage,
-      voiceWakeEnabled: false,
-      voiceTtsEnabled: false,
-      notificationsEnabled: legacyBool(LEGACY_NOTIFICATIONS, true),
-      trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, []),
+    (set, get) => ({
+      // Defaults: the registry schema is the ONLY declaration site; legacy
+      // keys are honored as one-time migration reads, validated first.
+      theme: initialValue("theme", legacyString(LEGACY_THEME, registryDefault("theme") as string)) as ThemeMode,
+      fontSize: initialValue("fontSize", legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string)) as FontSizeId,
+      zoom: initialValue("zoom", Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0)))) as number,
+      sandboxMode: initialValue("sandboxMode", legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string)) as "sandbox" | "full",
+      agentMode: initialValue("agentMode", legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string)) as AgentMode,
+      agentAutonomous: initialValue("agentAutonomous", legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false)),
+      voiceLanguage: initialValue("voiceLanguage", legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)) as VoiceLanguage,
+      voiceWakeEnabled: (registryDefault("voiceWakeEnabled") as boolean) ?? false,
+      voiceTtsEnabled: (registryDefault("voiceTtsEnabled") as boolean) ?? false,
+      notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
+      trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
+      projectOverrides: {},
 
+      // Every setter validates against the registry BEFORE writing —
+      // direct UI use and the storeBridge path share the same gate, so an
+      // invalid value can never reach persisted state regardless of caller.
       setTheme: (theme) => {
+        assertValidValue("theme", theme);
         set({ theme });
         // Keep legacy key in sync for consumers not yet migrated
         try { localStorage.setItem(LEGACY_THEME, theme); } catch {}
       },
       setFontSize: (fontSize) => {
+        assertValidValue("fontSize", fontSize);
         set({ fontSize });
         try { localStorage.setItem(LEGACY_FONT_SIZE, fontSize); } catch {}
       },
       setZoom: (zoom) => {
+        assertValidValue("zoom", zoom);
         set({ zoom });
         try { localStorage.setItem(LEGACY_ZOOM, String(zoom)); } catch {}
       },
       setSandboxMode: (sandboxMode) => {
+        assertValidValue("sandboxMode", sandboxMode);
         set({ sandboxMode });
         try { localStorage.setItem(LEGACY_SANDBOX, sandboxMode); } catch {}
       },
       setAgentMode: (agentMode) => {
+        assertValidValue("agentMode", agentMode);
         set({ agentMode });
         try { localStorage.setItem(LEGACY_AGENT_MODE, agentMode); } catch {}
       },
       setAgentAutonomous: (agentAutonomous) => {
+        assertValidValue("agentAutonomous", agentAutonomous);
         set({ agentAutonomous });
         try { localStorage.setItem(LEGACY_AGENT_AUTONOMOUS, String(agentAutonomous)); } catch {}
       },
       setVoiceLanguage: (voiceLanguage) => {
+        assertValidValue("voiceLanguage", voiceLanguage);
         set({ voiceLanguage });
         try { localStorage.setItem(LEGACY_VOICE_LANG, voiceLanguage); } catch {}
       },
-      setVoiceWakeEnabled: (voiceWakeEnabled) => set({ voiceWakeEnabled }),
-      setVoiceTtsEnabled: (voiceTtsEnabled) => set({ voiceTtsEnabled }),
+      setVoiceWakeEnabled: (voiceWakeEnabled) => {
+        assertValidValue("voiceWakeEnabled", voiceWakeEnabled);
+        set({ voiceWakeEnabled });
+      },
+      setVoiceTtsEnabled: (voiceTtsEnabled) => {
+        assertValidValue("voiceTtsEnabled", voiceTtsEnabled);
+        set({ voiceTtsEnabled });
+      },
       setNotificationsEnabled: (notificationsEnabled) => {
+        assertValidValue("notificationsEnabled", notificationsEnabled);
         set({ notificationsEnabled });
         try { localStorage.setItem(LEGACY_NOTIFICATIONS, String(notificationsEnabled)); } catch {}
       },
-      addTrustedFolder: (path) =>
+      addTrustedFolder: (path) => {
+        if (typeof path !== "string" || !path) throw new Error(`invalid trusted folder path: ${JSON.stringify(path)}`);
         set((s) => {
           if (s.trustedFolders.includes(path)) return s;
           const next = [...s.trustedFolders, path];
           try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(next)); } catch {}
           return { trustedFolders: next };
-        }),
-      removeTrustedFolder: (path) =>
+        });
+      },
+      removeTrustedFolder: (path) => {
+        if (typeof path !== "string" || !path) throw new Error(`invalid trusted folder path: ${JSON.stringify(path)}`);
         set((s) => {
           const next = s.trustedFolders.filter((p) => p !== path);
           try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(next)); } catch {}
           return { trustedFolders: next };
+        });
+      },
+
+      setGlobalByKey: (storeKey, value) => {
+        // Validation is mandatory even for direct store writes — an invalid
+        // value must never reach persisted state (R4-05 acceptance).
+        const def = listSettings().find((d) => d.storeKey === storeKey);
+        if (!def) throw new Error(`unknown settings store key: ${storeKey}`);
+        if (!def.validate(value)) {
+          throw new Error(`invalid value for ${def.id}: ${JSON.stringify(value)}`);
+        }
+        const s = get();
+        // One dispatch table, co-located with validation. If schema's
+        // storeKey drifts from this table the round-trip test in
+        // configBridge.test.ts fails ("unbound … key").
+        const setters: Record<string, () => void> = {
+          theme: () => s.setTheme(value as ThemeMode),
+          fontSize: () => s.setFontSize(value as FontSizeId),
+          zoom: () => s.setZoom(value as number),
+          sandboxMode: () => s.setSandboxMode(value as "sandbox" | "full"),
+          agentMode: () => s.setAgentMode(value as AgentMode),
+          agentAutonomous: () => s.setAgentAutonomous(value as boolean),
+          voiceLanguage: () => s.setVoiceLanguage(value as VoiceLanguage),
+          voiceWakeEnabled: () => s.setVoiceWakeEnabled(value as boolean),
+          voiceTtsEnabled: () => s.setVoiceTtsEnabled(value as boolean),
+          notificationsEnabled: () => s.setNotificationsEnabled(value as boolean),
+          trustedFolders: () => set({ trustedFolders: value as string[] }),
+        };
+        const run = setters[storeKey];
+        if (!run) throw new Error(`unbound settings store key: ${storeKey}`);
+        run();
+      },
+      setProjectOverride: (projectId, settingId, value) => {
+        const def = getSetting(settingId);
+        if (!def) throw new Error(`unknown setting id: ${settingId}`);
+        if (!def.scopes.includes("project")) {
+          throw new Error(`${settingId} does not allow project scope`);
+        }
+        if (!def.validate(value)) {
+          throw new Error(`invalid value for ${settingId}: ${JSON.stringify(value)}`);
+        }
+        set((s) => ({
+          projectOverrides: {
+            ...s.projectOverrides,
+            [projectId]: { ...(s.projectOverrides[projectId] ?? {}), [settingId]: value },
+          },
+        }));
+      },
+      clearProjectOverride: (projectId, settingId) =>
+        set((s) => {
+          const current = { ...(s.projectOverrides[projectId] ?? {}) };
+          delete current[settingId];
+          const next = { ...s.projectOverrides };
+          if (Object.keys(current).length === 0) delete next[projectId];
+          else next[projectId] = current;
+          return { projectOverrides: next };
+        }),
+      resetProjectOverrides: (projectId) =>
+        set((s) => {
+          if (!(projectId in s.projectOverrides)) return s;
+          const next = { ...s.projectOverrides };
+          delete next[projectId];
+          return { projectOverrides: next };
         }),
     }),
     {
       name: "gb-settings",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => dualWriteStorage),
       version: 1,
+      // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
+      // only on version bumps. Two layers of defense:
+      //   1. allowlist — only known DATA keys may hydrate (a blob can never
+      //      overwrite store actions or inject unknown state);
+      //   2. per-field registry validation — invalid values fall back to
+      //      the schema default; invalid override entries are dropped.
+      merge: (persisted, current) => {
+        const state = persisted as Record<string, unknown> | undefined;
+        if (!state || typeof state !== "object") return current;
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(state)) {
+          if (HYDRATABLE_KEYS.has(key)) out[key] = state[key];
+        }
+        for (const def of listSettings()) {
+          if (!def.storeKey) continue;
+          const key = def.storeKey;
+          if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
+        }
+        // Normalize projectOverrides: always an object of objects with
+        // validated entries (never null / array / garbage).
+        const raw = out.projectOverrides;
+        const cleaned: Record<string, Record<string, unknown>> = {};
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
+            if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
+            const kept: Record<string, unknown> = {};
+            for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
+              const def = getSetting(settingId);
+              if (def && def.scopes.includes("project") && def.validate(value)) {
+                kept[settingId] = value;
+              }
+            }
+            if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
+          }
+        }
+        out.projectOverrides = cleaned;
+        return { ...current, ...out };
+      },
     }
   )
 );
+
+// Multi-window sync + boot read-repair: the durable file is canonical.
+// Content-compare guards against any echo loop (main broadcasts only to
+// non-sender windows, but belt and braces).
+/**
+ * Apply a remote settings document.
+ *
+ * mode "boot": the file may simply not exist yet (first launch after
+ *   upgrade) — absence of the blob means "no file data", NEVER a reset.
+ *   We adopt a present blob, or seed the file from localStorage so the
+ *   mirror converges without touching local state.
+ * mode "event": fired only by explicit set/delete/reset mutations — a
+ *   missing blob there is a real reset, so live state resets to registry
+ *   defaults (unconditionally: another window may have cleared the shared
+ *   localStorage first while this window's state is still stale).
+ */
+export function syncFromFileDoc(
+  doc: { version?: number; values: Record<string, unknown> },
+  mode: "boot" | "event" = "event",
+): void {
+  try {
+    const remote = doc.values["gb-settings"];
+    if (typeof remote === "string") {
+      if (localStorage.getItem("gb-settings") === remote) return;
+      localStorage.setItem("gb-settings", remote);
+      useSettingsStore.persist.rehydrate();
+      return;
+    }
+    if (remote !== undefined) return; // unexpected type — ignore
+    if (mode === "boot") {
+      // Seed the durable file from existing local state (upgrade path).
+      const local = localStorage.getItem("gb-settings");
+      if (local) {
+        getSettingsBridge()
+          ?.set("gb-settings", local)
+          .catch(() => {});
+      }
+      return;
+    }
+    // event mode: real reset
+    localStorage.removeItem("gb-settings");
+    const defaults: Record<string, unknown> = { projectOverrides: {} };
+    for (const def of listSettings()) {
+      if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
+    }
+    useSettingsStore.setState(defaults);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+if (typeof window !== "undefined") {
+  const bridge = getSettingsBridge();
+  if (bridge) {
+    bridge
+      .getAll()
+      .then((doc) => syncFromFileDoc(doc, "boot"))
+      .catch(() => {});
+    bridge.onChanged((doc) => syncFromFileDoc(doc, "event"));
+  }
+}
