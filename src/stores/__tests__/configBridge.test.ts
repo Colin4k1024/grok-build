@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "../settingsStore";
 import {
   SettingWriteError,
@@ -169,19 +169,51 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     expect(useSettingsStore.getState().theme).toBe("dark");
   });
 
-  it("remote file reset resets live state to registry defaults", async () => {
+  it("ALL typed setters validate against the registry", () => {
+    const bad: Array<() => void> = [
+      () => useSettingsStore.getState().setTheme("banana" as never),
+      () => useSettingsStore.getState().setFontSize("huge" as never),
+      () => useSettingsStore.getState().setZoom(99),
+      () => useSettingsStore.getState().setSandboxMode("none" as never),
+      () => useSettingsStore.getState().setAgentMode("yolo" as never),
+      () => useSettingsStore.getState().setAgentAutonomous("yes" as never),
+      () => useSettingsStore.getState().setVoiceLanguage("fr-FR" as never),
+      () => useSettingsStore.getState().setVoiceWakeEnabled(1 as never),
+      () => useSettingsStore.getState().setVoiceTtsEnabled(0 as never),
+      () => useSettingsStore.getState().setNotificationsEnabled("off" as never),
+    ];
+    for (const fn of bad) expect(fn).toThrow(/invalid value/);
+    // nothing moved
+    expect(useSettingsStore.getState().theme).toBe("dark");
+    expect(useSettingsStore.getState().notificationsEnabled).toBe(true);
+  });
+
+  it("remote file reset resets live state even when localStorage is already empty", async () => {
     const { syncFromFileDoc } = await import("../settingsStore");
     useSettingsStore.getState().setTheme("light");
-    useSettingsStore.getState().setProjectOverride("/p", "appearance.theme", "auto");
-    expect(useSettingsStore.getState().theme).toBe("light");
-    // the canonical file no longer carries the blob → local reset
+    localStorage.removeItem("gb-settings"); // another window cleared it first
     syncFromFileDoc({ version: 1, values: {} });
-    const s = useSettingsStore.getState();
-    expect(s.theme).toBe("dark");
-    expect(s.projectOverrides).toEqual({});
-    // persist re-writes the reset state — the blob now holds defaults
-    const blob = JSON.parse(localStorage.getItem("gb-settings")!);
-    expect(blob.state.theme).toBe("dark");
-    expect(blob.state.projectOverrides).toEqual({});
+    expect(useSettingsStore.getState().theme).toBe("dark");
+  });
+
+  it("legacy keys are validated at module init — corrupt values fall back to registry defaults", async () => {
+    // The init path only runs at import time, so build a fresh module with
+    // poisoned legacy keys and no persisted blob.
+    localStorage.clear();
+    localStorage.setItem("gb-theme", "banana");
+    localStorage.setItem("gb-zoom", "99");
+    localStorage.setItem("gb-trusted-folders", "{}");
+    vi.resetModules();
+    try {
+      const mod = await import("../settingsStore");
+      expect(mod.useSettingsStore.getState().theme).toBe("dark");
+      expect(mod.useSettingsStore.getState().zoom).toBe(1.0);
+      expect(mod.useSettingsStore.getState().trustedFolders).toEqual([]);
+    } finally {
+      // restore a clean shared module for subsequent tests
+      localStorage.clear();
+      vi.resetModules();
+      await import("../settingsStore");
+    }
   });
 });

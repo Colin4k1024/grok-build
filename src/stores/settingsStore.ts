@@ -80,6 +80,17 @@ function assertValidValue(storeKey: string, value: unknown): void {
   }
 }
 
+/** Initial value for a flat field: legacy localStorage read, but ONLY if it
+ *  passes the registry validator — a corrupt/legacy key can never become
+ *  live state (R4-05). Falls back to the schema default. */
+function initialValue<T>(storeKey: string, legacy: T): T {
+  const def = listSettings().find((d) => d.storeKey === storeKey);
+  if (def) {
+    if (!def.validate(legacy)) return def.defaultValue as T;
+  }
+  return legacy;
+}
+
 export interface SettingsState {
   // Appearance
   theme: ThemeMode;
@@ -162,18 +173,18 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
       // Defaults: the registry schema is the ONLY declaration site; legacy
-      // keys are still honored as one-time migration reads.
-      theme: legacyString(LEGACY_THEME, registryDefault("theme") as string) as ThemeMode,
-      fontSize: legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string) as FontSizeId,
-      zoom: Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0))),
-      sandboxMode: legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string) as "sandbox" | "full",
-      agentMode: legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string) as AgentMode,
-      agentAutonomous: legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false),
-      voiceLanguage: legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string) as VoiceLanguage,
+      // keys are honored as one-time migration reads, validated first.
+      theme: initialValue("theme", legacyString(LEGACY_THEME, registryDefault("theme") as string)) as ThemeMode,
+      fontSize: initialValue("fontSize", legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string)) as FontSizeId,
+      zoom: initialValue("zoom", Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0)))) as number,
+      sandboxMode: initialValue("sandboxMode", legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string)) as "sandbox" | "full",
+      agentMode: initialValue("agentMode", legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string)) as AgentMode,
+      agentAutonomous: initialValue("agentAutonomous", legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false)),
+      voiceLanguage: initialValue("voiceLanguage", legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)) as VoiceLanguage,
       voiceWakeEnabled: (registryDefault("voiceWakeEnabled") as boolean) ?? false,
       voiceTtsEnabled: (registryDefault("voiceTtsEnabled") as boolean) ?? false,
-      notificationsEnabled: legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true),
-      trustedFolders: legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? []),
+      notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
+      trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
       projectOverrides: {},
 
       // Every setter validates against the registry BEFORE writing —
@@ -365,9 +376,10 @@ export function syncFromFileDoc(doc: { version?: number; values: Record<string, 
       localStorage.setItem("gb-settings", remote);
       useSettingsStore.persist.rehydrate();
     } else if (remote === undefined) {
-      // The canonical file was reset — reset live state too (rehydrate
-      // alone would merge "nothing" over the current state, keeping it).
-      if (localStorage.getItem("gb-settings") === null) return;
+      // The canonical file was reset — reset live state too. Always apply:
+      // localStorage may already be empty (another window cleared it first)
+      // while this window's Zustand state is still stale. The persist layer
+      // re-mirrors the defaults, so all windows converge.
       localStorage.removeItem("gb-settings");
       const defaults: Record<string, unknown> = { projectOverrides: {} };
       for (const def of listSettings()) {
