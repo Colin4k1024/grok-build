@@ -42,13 +42,17 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
   // Focus management: move focus inside on open, restore it on close.
   // If the trigger unmounted meanwhile (e.g. row action deleted its row),
   // leave focus where the browser put it instead of forcing it to <body>.
+  // Body scroll is locked for the lifetime of the dialog.
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = dialogRef.current;
     const first = root && Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).find(isActuallyFocusable);
     (first ?? root)?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
+      document.body.style.overflow = prevOverflow;
       if (previous?.isConnected) previous.focus();
     };
   }, [open]);
@@ -114,7 +118,8 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
             {title}
           </h2>
           {headerActions}
-        </div>        <div className="px-4 py-3">{children}</div>
+        </div>
+        <div className="px-4 py-3">{children}</div>
       </div>
     </div>,
     document.body,

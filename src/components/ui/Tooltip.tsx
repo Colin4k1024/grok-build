@@ -8,12 +8,15 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Tooltip (R4-02 #235): hover (with a short delay, 400 ms by default) and
  * keyboard focus both reveal the tip; Escape or blur hides it. The child's
- * own event handlers are composed, never overwritten. Tooltips annotate —
- * they never carry critical actions.
+ * own event handlers are composed, never overwritten. The tip is portaled
+ * to <body> and positioned from the trigger rect, so overflow-hidden
+ * ancestors never clip it. Tooltips annotate — they never carry actions.
+ * Designed for inline interactive triggers (buttons, links).
  */
 
 export interface TooltipProps {
@@ -36,6 +39,8 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const tooltipId = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
 
   const clearTimer = () => {
     if (timer.current) {
@@ -47,13 +52,18 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   // No timer may survive unmount.
   useEffect(() => clearTimer, []);
 
+  const show = () => {
+    const box = anchorRef.current?.getBoundingClientRect();
+    if (box) setRect({ top: box.top, left: box.left + box.width / 2 });
+    setVisible(true);
+  };
   const showDelayed = () => {
     clearTimer();
-    timer.current = setTimeout(() => setVisible(true), delay);
+    timer.current = setTimeout(show, delay);
   };
   const showNow = () => {
     clearTimer();
-    setVisible(true);
+    show();
   };
   const hide = () => {
     clearTimer();
@@ -77,7 +87,11 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
     onBlur: compose(hide, childProps.onBlur),
     onKeyDown: (e: unknown) => {
       childProps.onKeyDown?.(e);
-      if ((e as { key?: string }).key === "Escape") hide();
+      if ((e as { key?: string }).key === "Escape" && visible) {
+        // Topmost-layer rule: hiding the tooltip must not close a dialog.
+        (e as { stopPropagation?: () => void }).stopPropagation?.();
+        hide();
+      }
     },
     "aria-describedby": [childProps["aria-describedby"], visible ? tooltipId : null]
       .filter(Boolean)
@@ -85,17 +99,23 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   });
 
   return (
-    <span className="relative inline-flex">
-      {child}
-      {visible ? (
-        <span
-          role="tooltip"
-          id={tooltipId}
-          className="gb-motion-popover-enter pointer-events-none absolute bottom-full left-1/2 z-gb-popover mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-gb-sm border gb-border-hairline bg-gb-surface-2 px-2 py-1 text-gb-xs text-gb-text-primary shadow-gb-low"
-        >
-          {content}
-        </span>
-      ) : null}
-    </span>
+    <>
+      <span ref={anchorRef} className="relative inline-flex">
+        {child}
+      </span>
+      {visible && rect
+        ? createPortal(
+            <span
+              role="tooltip"
+              id={tooltipId}
+              style={{ bottom: window.innerHeight - rect.top + 6, left: rect.left }}
+              className="gb-motion-popover-enter pointer-events-none fixed z-gb-popover -translate-x-1/2 whitespace-nowrap rounded-gb-sm border gb-border-hairline bg-gb-surface-2 px-2 py-1 text-gb-xs text-gb-text-primary shadow-gb-low"
+            >
+              {content}
+            </span>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }

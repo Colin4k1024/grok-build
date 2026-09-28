@@ -37,7 +37,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       <input
         ref={ref}
         id={fieldId}
-        className={[FIELD_CLASSES, error ? "border-gb-danger/60" : "", className]
+        className={[FIELD_CLASSES, error ? "gb-border-danger" : "", className]
           .filter(Boolean)
           .join(" ")}
         aria-invalid={error ? true : undefined}

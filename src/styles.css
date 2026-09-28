@@ -38,13 +38,13 @@
   --gb-accent-text: 165 168 245;  /* #a5a8f5 — 6.3:1 on accent/15 tint */
   --gb-accent-hover: 80 84 190;   /* darker for hover — white on it: 6.2:1 */
   --gb-focus: 165 168 245;        /* 7.4:1 on canvas — WCAG 1.4.11 */
-  --gb-control-track: 110 110 110;/* switch off-track — 3.1:1 vs canvas */
+  --gb-control-track: 128 128 128;/* switch off-track — 3.4:1 vs surface-2 */
   --gb-success: 63 185 130;
   --gb-success-text: 63 185 130;
   --gb-warning: 250 191 36;
   --gb-warning-text: 250 191 36;
   --gb-danger: 248 113 113;
-  --gb-danger-text: 248 113 113;
+  --gb-danger-text: 252 165 165;  /* #fca5a5 — 7.0:1 on surface-2, 6.1:1 on danger/10 */
   --gb-info: 96 165 250;
   --gb-info-text: 96 165 250;
 
@@ -106,7 +106,7 @@
   --gb-warning: 154 103 0;
   --gb-warning-text: 122 82 0;
   --gb-danger: 207 34 46;
-  --gb-danger-text: 207 34 46;
+  --gb-danger-text: 185 28 28;    /* #b91c1c — 6.5:1 on white, 6.0:1 on danger/10 */
   --gb-info: 37 99 235;
   --gb-info-text: 29 78 216;
 
@@ -156,6 +156,10 @@
    variant for the CSS-only tier classes, so this is the hover tier). */
 .gb-hover-border-control:hover { border-color: rgb(var(--gb-border-control) / 0.35); }
 .light .gb-hover-border-control:hover { border-color: rgb(var(--gb-border-emphasized)); }
+
+/* Field-level error border. Defined AFTER the tier utilities so it wins
+   the equal-specificity cascade against .gb-border-control. */
+.gb-border-danger { border-color: rgb(var(--gb-danger) / 0.6); }
 
 html, body, #root {
   height: 100%;

@@ -163,29 +163,25 @@ function ToastCard({ item }: { item: ToastItem }) {
   );
 }
 
-/** Mount once near the app root. Two flat regions — never nested. */
+/** Mount once near the app root. One fixed stack containing two flat live
+ *  regions (assertive errors render above polite items) — never nested,
+ *  never overlapping. */
 export function ToastViewport() {
   const toasts = useToastStore((s) => s.toasts);
   const polite = toasts.filter((t) => t.tone !== "error");
   const assertive = toasts.filter((t) => t.tone === "error");
   return (
-    <>
-      <div
-        aria-live="polite"
-        className="pointer-events-none fixed bottom-4 right-4 z-gb-toast flex w-80 flex-col gap-2"
-      >
-        {polite.map((t) => (
-          <ToastCard key={t.id} item={t} />
-        ))}
-      </div>
-      <div
-        aria-live="assertive"
-        className="pointer-events-none fixed bottom-4 right-4 z-gb-toast flex w-80 flex-col gap-2"
-      >
+    <div className="pointer-events-none fixed bottom-4 right-4 z-gb-toast flex w-80 flex-col gap-2">
+      <div aria-live="assertive" className="flex flex-col gap-2">
         {assertive.map((t) => (
           <ToastCard key={t.id} item={t} />
         ))}
       </div>
-    </>
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {polite.map((t) => (
+          <ToastCard key={t.id} item={t} />
+        ))}
+      </div>
+    </div>
   );
 }

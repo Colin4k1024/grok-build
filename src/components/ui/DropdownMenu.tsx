@@ -3,12 +3,38 @@ import { createPortal } from "react-dom";
 
 /**
  * DropdownMenu (R4-02 #235): arrow-key navigation with disabled-item
- * skipping, Enter/Space select, Escape closes and refocuses the trigger.
- * Focus is real DOM focus (roving), not aria-activedescendant, so screen
- * readers announce the active item. The menu is portaled to <body> and
- * positioned from the trigger's rect, so overflow-hidden ancestors in
- * pages never clip it.
+ * skipping, Enter/Space select, Escape closes (without propagating to an
+ * enclosing Dialog) and refocuses the trigger. The menu is portaled to
+ * <body> and tracks its trigger across scroll/resize, flipping above the
+ * trigger when there is no room below.
  */
+
+export interface MenuPlacement {
+  top: number;
+  left?: number;
+  right?: number;
+  /** True when flipped above the trigger (no room below). */
+  flipped: boolean;
+}
+
+/** Pure placement math, exported for tests. Viewport units throughout. */
+export function computeMenuPlacement(
+  trigger: { top: number; bottom: number; left: number; right: number },
+  menuHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  align: "left" | "right",
+): MenuPlacement {
+  const gap = 4;
+  const below = trigger.bottom + gap;
+  const flipped = below + menuHeight > viewportHeight - 8 && trigger.top - gap - menuHeight > 0;
+  return {
+    top: flipped ? Math.max(8, trigger.top - gap - menuHeight) : below,
+    left: align === "left" ? trigger.left : undefined,
+    right: align === "right" ? viewportWidth - trigger.right : undefined,
+    flipped,
+  };
+}
 
 export interface DropdownMenuItem {
   key: string;
@@ -29,7 +55,7 @@ export interface DropdownMenuProps {
 
 export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number; right?: number }>({ top: 0, left: 0 });
+  const [pos, setPos] = useState<MenuPlacement>({ top: 0, left: 0, flipped: false });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -51,27 +77,40 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
     if (enabledIndexes.length > 0) focusItem(enabledIndexes[0]);
   };
 
-  // Position from the trigger rect (viewport coordinates; portal at body).
+  // Position from the trigger rect; track scroll/resize while open.
   useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    setPos(
-      align === "right"
-        ? { top: rect.bottom + 4, left: 0, right: window.innerWidth - rect.right }
-        : { top: rect.bottom + 4, left: rect.left },
-    );
-  }, [open, align]);
-
-  // Move focus into the menu when it opens, and re-anchor if the item set
-  // changes while open (async-loaded items): if focus is still on the
-  // trigger or the previously focused item vanished, focus the first
-  // enabled item.
-  useEffect(() => {
     if (!open) return;
+    const update = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuHeight = menuRef.current?.offsetHeight ?? items.length * 30 + 8;
+      setPos(computeMenuPlacement(rect, menuHeight, window.innerWidth, window.innerHeight, align));
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, align, items.length]);
+
+  // Focus discipline: when the menu opens, focus moves to the first enabled
+  // item; if the item set changes while open (async load, shrink) and the
+  // active element fell out of the menu, re-anchor to the first item.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    const justOpened = !wasOpen.current;
+    wasOpen.current = true;
     const active = document.activeElement;
-    const focusInside = menuRef.current?.contains(active) ?? false;
-    if (!focusInside) focusFirst();
-  });
+    const inside = menuRef.current?.contains(active) ?? false;
+    const anchorDisconnected = inside && active instanceof HTMLElement && !active.isConnected;
+    if (justOpened || !inside || anchorDisconnected) focusFirst();
+  }, [open, items]);
 
   // Click-away closes the menu.
   useEffect(() => {
@@ -95,7 +134,9 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
     const currentIndex = itemRefs.current.findIndex((el) => el === document.activeElement);
     const currentEnabledPos = enabledIndexes.indexOf(currentIndex);
     if (e.key === "Escape") {
+      // Topmost-layer rule: closing the menu must not close an enclosing dialog.
       e.preventDefault();
+      e.stopPropagation();
       close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -154,8 +195,8 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
               onKeyDown={onMenuKeyDown}
               style={{
                 top: pos.top,
-                left: align === "right" ? undefined : pos.left,
-                right: align === "right" ? pos.right : undefined,
+                left: pos.left,
+                right: pos.right,
               }}
               className="gb-motion-popover-enter fixed z-gb-dropdown min-w-[10rem] rounded-gb-md border gb-border-hairline bg-gb-surface-2 p-1 shadow-gb-medium"
             >

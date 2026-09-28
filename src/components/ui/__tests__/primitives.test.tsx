@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Button, IconButton } from "../Button";
 import { Dialog, Sheet } from "../Dialog";
-import { DropdownMenu } from "../DropdownMenu";
+import { DropdownMenu, computeMenuPlacement } from "../DropdownMenu";
 import { InlineNotice, EmptyState, Skeleton } from "../Feedback";
 import { Input, SearchField } from "../Input";
 import { SegmentedControl, Select, Switch } from "../FormControls";
@@ -571,6 +571,155 @@ describe("Toast", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("layer composition", () => {
+  it("Escape inside a menu-in-dialog closes only the menu; the next Escape closes the dialog", async () => {
+    function Nested() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>打开</button>
+          <Dialog open={open} onClose={() => setOpen(false)} title="嵌套">
+            <DropdownMenu
+              triggerLabel="对话框内菜单"
+              items={[{ key: "a", label: "甲", onSelect: () => {} }]}
+            />
+          </Dialog>
+        </>
+      );
+    }
+    render(<Nested />);
+    await userEvent.click(screen.getByRole("button", { name: "打开" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(screen.getByRole("button", { name: "对话框内菜单" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    // menu closed, dialog STILL open
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("menu portals to document.body and sits on the dropdown layer", async () => {
+    render(
+      <DropdownMenu
+        triggerLabel="层级"
+        items={[{ key: "a", label: "甲", onSelect: () => {} }]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "层级" }));
+    const menu = await screen.findByRole("menu");
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.className).toContain("z-gb-dropdown");
+  });
+});
+
+describe("computeMenuPlacement", () => {
+  const trigger = { top: 100, bottom: 132, left: 40, right: 120 };
+
+  it("opens below the trigger by default", () => {
+    const p = computeMenuPlacement(trigger, 160, 1280, 800, "left");
+    expect(p).toEqual({ top: 136, left: 40, right: undefined, flipped: false });
+  });
+
+  it("flips above when there is no room below", () => {
+    const low = { top: 700, bottom: 732, left: 40, right: 120 };
+    const p = computeMenuPlacement(low, 160, 1280, 800, "left");
+    expect(p.flipped).toBe(true);
+    expect(p.top).toBe(700 - 4 - 160);
+  });
+
+  it("never flips into negative space", () => {
+    const cramped = { top: 60, bottom: 92, left: 40, right: 120 };
+    const p = computeMenuPlacement(cramped, 200, 1280, 130, "left");
+    expect(p.top).toBeGreaterThanOrEqual(8);
+  });
+
+  it("right-aligns via viewport-relative right offset", () => {
+    const p = computeMenuPlacement(trigger, 160, 1280, 800, "right");
+    expect(p.right).toBe(1280 - 120);
+    expect(p.left).toBeUndefined();
+  });
+});
+
+describe("menu item shrink while open", () => {
+  it("End lands on the remaining last item after items shrink", async () => {
+    function Shrinking() {
+      const [items, setItems] = useState([
+        { key: "a", label: "甲", onSelect: () => {} },
+        { key: "b", label: "乙", onSelect: () => {} },
+        { key: "c", label: "丙", onSelect: () => {} },
+      ]);
+      return (
+        <>
+          <button onClick={() => setItems((prev) => prev.slice(0, 1))}>收缩</button>
+          <DropdownMenu triggerLabel="收缩菜单" items={items} />
+        </>
+      );
+    }
+    render(<Shrinking />);
+    await userEvent.click(screen.getByRole("button", { name: "收缩菜单" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+    // shrink to a single item (menu stays open; 收缩 is inside document but the
+    // click-away listener closes on outside mousedown — so shrink via keyboard
+    // would close; instead call the store path: use fireEvent on the button
+    // after closing focus… simplest: rerender through the button with the menu
+    // reopened)
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "收缩" }));
+    await userEvent.click(screen.getByRole("button", { name: "收缩菜单" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+    await userEvent.keyboard("{End}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" }));
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+  });
+});
+
+describe("toast layout", () => {
+  it("polite and assertive regions share one fixed stack (no overlap)", () => {
+    render(<ToastViewport />);
+    act(() => {
+      toast.success("普通");
+      toast.error("严重");
+    });
+    const polite = screen.getByText("普通").closest("[aria-live]")!;
+    const assertive = screen.getByText("严重").closest("[aria-live]")!;
+    expect(polite).not.toBe(assertive);
+    expect(polite.parentElement).toBe(assertive.parentElement);
+    expect(polite.parentElement?.className).toContain("fixed");
+  });
+});
+
+describe("Input invalid state", () => {
+  it("renders the error border utility that wins over the control tier", () => {
+    render(<Input label="主机" error="必填" value="" onChange={() => {}} />);
+    expect(screen.getByLabelText("主机").className).toContain("gb-border-danger");
+  });
+});
+
+describe("Dialog hidden-attribute exclusion", () => {
+  it("skips [hidden] elements when moving initial focus", async () => {
+    render(
+      <Dialog open onClose={() => {}} title="隐藏属性">
+        <button hidden>藏</button>
+        <button>可见</button>
+      </Dialog>,
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "可见" })),
+    );
   });
 });
 

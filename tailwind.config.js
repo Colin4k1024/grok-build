@@ -73,13 +73,14 @@ export default {
         "gb-lg": ["var(--gb-font-lg)", { lineHeight: "1.35" }],
       },
       /* Named z-index scale — arbitrary z-[NNN] values must not appear in
-         shared primitives; layers are ordered popover < viewer < modal < toast. */
+         shared primitives; layers: viewer < modal < popover/dropdown < toast
+         (popovers must stay usable INSIDE dialogs). */
       zIndex: {
-        "gb-dropdown": "40",
-        "gb-popover": "50",
         "gb-viewer": "100",
         "gb-modal": "110",
-        "gb-toast": "120",
+        "gb-dropdown": "120",
+        "gb-popover": "120",
+        "gb-toast": "130",
       },
     },
   },

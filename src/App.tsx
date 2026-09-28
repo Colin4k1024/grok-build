@@ -18,6 +18,7 @@ import { CommandPalette } from "./components/layout/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
+import { ToastViewport } from "./components/ui";
 
 // Surfaces that are never part of the first paint. Splitting them out keeps the
 // entry chunk (and therefore app-launch parse time) down; in a packaged
@@ -1196,6 +1197,7 @@ export default function App() {
       )}
       <Onboarding onComplete={() => {}} />
       <ShortcutCheatSheet />
+      <ToastViewport />
     </div>
     </ErrorBoundary>
   );
