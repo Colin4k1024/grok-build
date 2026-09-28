@@ -10,11 +10,11 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md";
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-gb-accent text-gb-accent-fg hover:opacity-90",
+  primary: "bg-gb-accent text-gb-accent-fg hover:bg-gb-accent-hover",
   secondary:
-    "border border-gb-border bg-gb-surface-2 text-gb-text-primary hover:bg-gb-surface-hover",
+    "border gb-border-control gb-hover-border-control bg-gb-surface-2 text-gb-text-primary hover:bg-gb-surface-hover",
   ghost: "text-gb-text-secondary hover:bg-gb-surface-hover hover:text-gb-text-primary",
-  danger: "border border-gb-danger/30 bg-gb-danger/10 text-gb-danger-text hover:bg-gb-danger/20",
+  danger: "border border-gb-danger/30 bg-gb-danger/10 text-gb-danger-text hover:bg-gb-danger/15 hover:border-gb-danger/50",
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
@@ -35,12 +35,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "primary", size = "md", loading = false, icon, className, children, disabled, ...rest },
+  { variant = "primary", size = "md", loading = false, icon, className, children, disabled, type = "button", ...rest },
   ref,
 ) {
   return (
     <button
       ref={ref}
+      type={type}
       className={[BASE_CLASSES, VARIANT_CLASSES[variant], SIZE_CLASSES[size], className]
         .filter(Boolean)
         .join(" ")}
@@ -72,13 +73,14 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 
 /** Icon-only button: 32px desktop target with a required accessible label. */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, icon, size = "md", className, ...rest },
+  { label, icon, size = "md", className, type = "button", ...rest },
   ref,
 ) {
   const sizeClass = size === "sm" ? "h-7 w-7" : "h-8 w-8";
   return (
     <button
       ref={ref}
+      type={type}
       aria-label={label}
       title={rest.title ?? label}
       className={[

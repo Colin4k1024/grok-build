@@ -9,6 +9,18 @@ import { createPortal } from "react-dom";
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Visible-focusable filter that also works in jsdom (no layout there, so
+ * offsetParent is useless). Excludes hidden attributes, hidden inputs,
+ * inline display/visibility hiding and inert subtrees.
+ */
+function isActuallyFocusable(el: HTMLElement): boolean {
+  if (el.closest("[hidden], [inert]")) return false;
+  if (el.getAttribute("type") === "hidden") return false;
+  if (el.style.display === "none" || el.style.visibility === "hidden") return false;
+  return true;
+}
+
 export interface DialogProps {
   open: boolean;
   onClose: () => void;
@@ -28,14 +40,16 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
   const dialogRef = useRef<HTMLDivElement>(null);
 
   // Focus management: move focus inside on open, restore it on close.
+  // If the trigger unmounted meanwhile (e.g. row action deleted its row),
+  // leave focus where the browser put it instead of forcing it to <body>.
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = dialogRef.current;
-    const first = root?.querySelector<HTMLElement>(FOCUSABLE);
+    const first = root && Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).find(isActuallyFocusable);
     (first ?? root)?.focus();
     return () => {
-      previous?.focus();
+      if (previous?.isConnected) previous.focus();
     };
   }, [open]);
 
@@ -50,7 +64,7 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
     if (e.key !== "Tab") return;
     const root = dialogRef.current;
     if (!root) return;
-    const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+    const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isActuallyFocusable);
     if (focusables.length === 0) {
       e.preventDefault();
       root.focus();
@@ -72,12 +86,12 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
 
   const frameClass =
     variant === "modal"
-      ? "fixed inset-0 z-50 flex items-center justify-center"
-      : "fixed inset-0 z-50 flex justify-end";
+      ? "fixed inset-0 z-gb-modal flex items-center justify-center"
+      : "fixed inset-0 z-gb-modal flex justify-end";
   const panelClass =
     variant === "modal"
-      ? "gb-motion-panel-enter relative mx-4 w-full max-w-lg rounded-gb-lg border border-gb-border bg-gb-surface-1 shadow-gb-modal outline-none"
-      : "gb-motion-panel-enter relative h-full w-full max-w-md border-l border-gb-border bg-gb-surface-1 shadow-gb-modal outline-none";
+      ? "gb-motion-modal-enter relative mx-4 w-full max-w-lg rounded-gb-lg border gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none"
+      : "gb-motion-panel-enter relative h-full w-full max-w-md border-l gb-border-hairline bg-gb-surface-1 shadow-gb-modal outline-none";
 
   return createPortal(
     <div className={frameClass} onKeyDown={onKeyDown}>
@@ -95,13 +109,12 @@ function Layer({ open, onClose, title, children, headerActions, variant }: Layer
         tabIndex={-1}
         className={panelClass}
       >
-        <div className="flex items-center justify-between border-b border-gb-border/10 px-4 py-2.5">
+        <div className="flex items-center justify-between border-b gb-border-hairline px-4 py-2.5">
           <h2 id={titleId} className="text-gb-sm font-semibold text-gb-text-primary">
             {title}
           </h2>
           {headerActions}
-        </div>
-        <div className="px-4 py-3">{children}</div>
+        </div>        <div className="px-4 py-3">{children}</div>
       </div>
     </div>,
     document.body,

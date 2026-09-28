@@ -15,7 +15,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 const FIELD_CLASSES =
-  "w-full rounded-gb-md border border-gb-border bg-gb-canvas px-3 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb placeholder:text-gb-text-muted hover:border-gb-border-control focus:border-gb-accent disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-gb-md border gb-border-control gb-hover-border-control bg-gb-canvas px-3 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb placeholder:text-gb-text-muted focus:border-gb-accent disabled:cursor-not-allowed disabled:opacity-50";
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, description, error, id, className, ...rest },

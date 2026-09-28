@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Button, IconButton } from "../Button";
-import { Dialog } from "../Dialog";
+import { Dialog, Sheet } from "../Dialog";
 import { DropdownMenu } from "../DropdownMenu";
 import { InlineNotice, EmptyState, Skeleton } from "../Feedback";
 import { Input, SearchField } from "../Input";
@@ -32,15 +32,21 @@ describe("Button", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it("does not fire while loading", async () => {
+  it("does not fire the click handler while loading", async () => {
     const onClick = vi.fn();
     render(
       <Button loading onClick={onClick}>
         保存
       </Button>,
     );
-    await userEvent.click(screen.getByRole("button"));
+    const btn = screen.getByRole("button");
+    fireEvent.click(btn);
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("defaults to type=button so it never submits surrounding forms", () => {
+    render(<Button>提交?</Button>);
+    expect(screen.getByRole("button")).toHaveAttribute("type", "button");
   });
 });
 
@@ -134,6 +140,40 @@ describe("SegmentedControl", () => {
     await userEvent.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledWith("light");
   });
+
+  it("uses roving tabindex — only the selected option is in the tab order", () => {
+    render(
+      <SegmentedControl
+        label="密度"
+        value="a"
+        onChange={() => {}}
+        options={[
+          { value: "a", label: "甲" },
+          { value: "b", label: "乙" },
+          { value: "c", label: "丙" },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("radio", { name: "乙" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("radio", { name: "丙" })).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("keeps the first option tabbable when value matches nothing", () => {
+    render(
+      <SegmentedControl
+        label="密度"
+        value="missing"
+        onChange={() => {}}
+        options={[
+          { value: "a", label: "甲" },
+          { value: "b", label: "乙" },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("radio", { name: "乙" })).toHaveAttribute("tabindex", "-1");
+  });
 });
 
 describe("Select", () => {
@@ -177,10 +217,8 @@ describe("Dialog", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("aria-modal", "true");
-    // focus moved inside
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
 
-    // Tab wraps: from last focusable back to first
     const buttons = screen.getAllByRole("button", { name: /取消|删除/ });
     buttons[buttons.length - 1].focus();
     await userEvent.keyboard("{Tab}");
@@ -193,6 +231,40 @@ describe("Dialog", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
+  it("skips hidden focusables when moving initial focus", async () => {
+    render(
+      <Dialog open onClose={() => {}} title="带隐藏控件">
+        <input type="hidden" value="x" readOnly />
+        <button style={{ display: "none" }}>不可见</button>
+        <button>可见按钮</button>
+      </Dialog>,
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "可见按钮" })),
+    );
+  });
+
+  it("does not throw when the trigger unmounted before close", async () => {
+    function VanishingTrigger() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          {!open && <button onClick={() => setOpen(true)}>临时触发</button>}
+          <Dialog open={open} onClose={() => setOpen(false)} title="框">
+            <button>内部</button>
+          </Dialog>
+        </>
+      );
+    }
+    render(<VanishingTrigger />);
+    await userEvent.click(screen.getByRole("button", { name: "临时触发" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // no crash; focus is not forced onto a detached node
+  });
+
   it("does not render when closed", () => {
     render(
       <Dialog open={false} onClose={() => {}} title="隐藏">
@@ -201,22 +273,30 @@ describe("Dialog", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("Sheet renders as a right-docked dialog with the same a11y contract", async () => {
+    function SheetDemo() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>打开面板</button>
+          <Sheet open={open} onClose={() => setOpen(false)} title="编辑自动化">
+            <button>保存</button>
+          </Sheet>
+        </>
+      );
+    }
+    render(<SheetDemo />);
+    await userEvent.click(screen.getByRole("button", { name: "打开面板" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });
 
 describe("DropdownMenu", () => {
-  function Demo() {
-    return (
-      <DropdownMenu
-        triggerLabel="操作"
-        items={[
-          { key: "rename", label: "重命名", onSelect: () => {} },
-          { key: "pin", label: "置顶", onSelect: () => {} },
-          { key: "delete", label: "删除", danger: true, onSelect: () => {} },
-        ]}
-      />
-    );
-  }
-
   it("opens with keyboard, navigates with arrows, selects with Enter", async () => {
     const onSelect = vi.fn();
     render(
@@ -238,8 +318,29 @@ describe("DropdownMenu", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("selects with Space as well", async () => {
+    const onSelect = vi.fn();
+    render(
+      <DropdownMenu
+        triggerLabel="操作"
+        items={[{ key: "a", label: "甲", onSelect }]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "操作" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+    await userEvent.keyboard(" ");
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
   it("Escape closes and refocuses the trigger", async () => {
-    render(<Demo />);
+    render(
+      <DropdownMenu
+        triggerLabel="操作"
+        items={[{ key: "rename", label: "重命名", onSelect: () => {} }]}
+      />,
+    );
     const trigger = screen.getByRole("button", { name: "操作" });
     await userEvent.click(trigger);
     expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -263,6 +364,85 @@ describe("DropdownMenu", () => {
       expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "乙" })),
     );
   });
+
+  it("Home/End jump to first/last enabled item", async () => {
+    render(
+      <DropdownMenu
+        triggerLabel="菜单"
+        items={[
+          { key: "a", label: "甲", onSelect: () => {} },
+          { key: "b", label: "乙", onSelect: () => {} },
+          { key: "c", label: "丙", onSelect: () => {} },
+        ]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "菜单" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+    await userEvent.keyboard("{End}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "丙" }));
+    await userEvent.keyboard("{Home}");
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" }));
+  });
+
+  it("closes on click-away without stealing focus", async () => {
+    render(
+      <div>
+        <DropdownMenu
+          triggerLabel="菜单"
+          items={[{ key: "a", label: "甲", onSelect: () => {} }]}
+        />
+        <button>外部</button>
+      </div>,
+    );
+    const trigger = screen.getByRole("button", { name: "菜单" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    // click-away closes without yanking focus back to the trigger
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("closes on Tab and moves focus onward", async () => {
+    render(
+      <div>
+        <DropdownMenu
+          triggerLabel="菜单"
+          items={[{ key: "a", label: "甲", onSelect: () => {} }]}
+        />
+        <button>下一个</button>
+      </div>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "菜单" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "甲" })),
+    );
+    await userEvent.keyboard("{Tab}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("moves focus into items that arrive asynchronously while open", async () => {
+    function AsyncMenu() {
+      const [items, setItems] = useState<Array<{ key: string; label: string; onSelect: () => void }>>([]);
+      useEffect(() => {
+        const t = setTimeout(
+          () => setItems([{ key: "x", label: "迟到项", onSelect: () => {} }]),
+          50,
+        );
+        return () => clearTimeout(t);
+      }, []);
+      return <DropdownMenu triggerLabel="异步" items={items} />;
+    }
+    render(<AsyncMenu />);
+    await userEvent.click(screen.getByRole("button", { name: "异步" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    // items arrive ~50ms after the menu is already open
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "迟到项" })),
+    );
+  });
 });
 
 describe("Tooltip", () => {
@@ -279,35 +459,114 @@ describe("Tooltip", () => {
     trigger.blur();
     await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
   });
+
+  it("hides on Escape", async () => {
+    render(
+      <Tooltip content="提示">
+        <button>触发</button>
+      </Tooltip>,
+    );
+    screen.getByRole("button", { name: "触发" }).focus();
+    await waitFor(() => expect(screen.getByRole("tooltip")).toBeInTheDocument());
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+  });
+
+  it("composes the child's own handlers instead of overwriting them", async () => {
+    const onFocus = vi.fn();
+    const onBlur = vi.fn();
+    render(
+      <Tooltip content="提示">
+        <button onFocus={onFocus} onBlur={onBlur}>
+          组合
+        </button>
+      </Tooltip>,
+    );
+    const trigger = screen.getByRole("button", { name: "组合" });
+    trigger.focus();
+    expect(onFocus).toHaveBeenCalledOnce();
+    trigger.blur();
+    expect(onBlur).toHaveBeenCalledOnce();
+  });
+
+  it("delays hover display and clears the timer on unmount", async () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(
+        <Tooltip content="悬停提示" delay={400}>
+          <button>悬停</button>
+        </Tooltip>,
+      );
+      fireEvent.mouseEnter(screen.getByRole("button", { name: "悬停" }));
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(250));
+      expect(screen.getByRole("tooltip")).toBeInTheDocument();
+      fireEvent.mouseLeave(screen.getByRole("button", { name: "悬停" }));
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+      // unmount with a pending timer must not warn or resurrect the tooltip
+      fireEvent.mouseEnter(screen.getByRole("button", { name: "悬停" }));
+      unmount();
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Toast", () => {
-  it("announces success in a polite live region and error via alert", async () => {
+  it("announces success in the polite region and error in the assertive one", async () => {
     render(<ToastViewport />);
-    toast.success("已保存");
-    toast.error("保存失败");
-    expect(await screen.findByRole("status")).toHaveTextContent("已保存");
-    expect(screen.getByRole("alert")).toHaveTextContent("保存失败");
+    act(() => {
+      toast.success("已保存");
+      toast.error("保存失败");
+    });
+    const success = await screen.findByText("已保存");
+    const failure = screen.getByText("保存失败");
+    expect(success.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
+    expect(failure.closest("[aria-live]")).toHaveAttribute("aria-live", "assertive");
+    // flat regions: no role on items, no nesting
+    expect(success.closest("[aria-live]")?.querySelector("[aria-live]")).toBeNull();
+  });
+
+  it("auto-dismisses success after its TTL with a short exit transition", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ToastViewport />);
+      act(() => {
+        toast.success("已保存");
+      });
+      expect(screen.getByText("已保存")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(4000));
+      // exit transition in flight — still mounted, marked exiting
+      expect(screen.getByText("已保存")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(200));
+      expect(screen.queryByText("已保存")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("dismisses via its close button", async () => {
     render(<ToastViewport />);
-    toast.error("连接断开");
-    const alert = await screen.findByRole("alert");
-    await userEvent.click(screen.getByRole("button", { name: /关闭通知/ }));
-    await waitFor(() => expect(alert).not.toBeInTheDocument());
+    act(() => {
+      toast.error("连接断开");
+    });
+    expect(screen.getByText("连接断开")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "关闭通知" }));
+    await waitFor(() => expect(screen.queryByText("连接断开")).not.toBeInTheDocument());
   });
 
-  it("progress toasts stay until dismissed programmatically", async () => {
+  it("progress toasts stay until dismissed programmatically", () => {
     vi.useFakeTimers();
     try {
       render(<ToastViewport />);
-      const { act } = await import("@testing-library/react");
       act(() => {
         toast.progress("正在同步");
       });
       expect(screen.getByText("正在同步")).toBeInTheDocument();
-      vi.advanceTimersByTime(30_000);
+      act(() => vi.advanceTimersByTime(30_000));
       expect(screen.getByText("正在同步")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -321,10 +580,27 @@ describe("InlineNotice / EmptyState / Skeleton", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("磁盘空间不足");
   });
 
+  it("InlineNotice renders distinct glyphs per tone", () => {
+    const { container, rerender } = render(<InlineNotice tone="info">i</InlineNotice>);
+    const infoPath = container.querySelector("path")?.getAttribute("d");
+    rerender(<InlineNotice tone="danger">d</InlineNotice>);
+    const dangerPath = container.querySelector("path")?.getAttribute("d");
+    expect(infoPath).toBeTruthy();
+    expect(dangerPath).toBeTruthy();
+    expect(infoPath).not.toBe(dangerPath);
+  });
+
   it("EmptyState renders guidance and action", () => {
-    render(<EmptyState title="暂无自动化" description="创建第一个定时任务" />);
+    render(
+      <EmptyState
+        title="暂无自动化"
+        description="创建第一个定时任务"
+        action={<button>新建</button>}
+      />,
+    );
     expect(screen.getByText("暂无自动化")).toBeInTheDocument();
     expect(screen.getByText("创建第一个定时任务")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "新建" })).toBeInTheDocument();
   });
 
   it("Skeleton is decorative", () => {

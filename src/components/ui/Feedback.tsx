@@ -15,10 +15,10 @@ const NOTICE_CLASSES: Record<NoticeTone, string> = {
 };
 
 const NOTICE_ICONS: Record<NoticeTone, string> = {
-  info: "M8 7v4m0-7h.01M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z",
+  info: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12ZM8 7v4m0-6.5h.01",
   success: "m4 8.5 2.5 2.5L12 5",
   warning: "M8 5v3m0 3h.01M7.1 2.3 1.9 12a1 1 0 0 0 .9 1.5h10.4a1 1 0 0 0 .9-1.5L8.9 2.3a1 1 0 0 0-1.8 0Z",
-  danger: "M8 5v3m0 3h.01M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12Z",
+  danger: "M5.5 2h5L14 5.5v5L10.5 14h-5L2 10.5v-5L5.5 2ZM8 5.5v3m0 2.5h.01",
 };
 
 export function InlineNotice({

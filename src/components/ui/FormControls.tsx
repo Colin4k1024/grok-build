@@ -38,14 +38,14 @@ export function Switch({ label, checked, onCheckedChange, disabled, description 
         aria-describedby={description ? descId : undefined}
         disabled={disabled}
         onClick={() => onCheckedChange(!checked)}
-        className="gb-motion-press relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-40"
-        style={{
-          background: checked ? "rgb(var(--gb-accent))" : "rgb(var(--gb-border-control) / 0.25)",
-        }}
+        className={[
+          "gb-motion-press relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-40",
+          checked ? "bg-gb-accent" : "bg-gb-control-track",
+        ].join(" ")}
       >
         <span
           aria-hidden="true"
-          className="inline-block h-4 w-4 rounded-full bg-gb-accent-fg transition-transform duration-gb-fast ease-gb"
+          className="inline-block h-4 w-4 rounded-full bg-white transition-transform duration-gb-fast ease-gb"
           style={{ transform: checked ? "translateX(18px)" : "translateX(2px)" }}
         />
       </button>
@@ -81,7 +81,7 @@ export function Select({ label, value, onChange, options, disabled, id }: Select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-gb-md border border-gb-border bg-gb-canvas px-2.5 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb hover:border-gb-border-control focus:border-gb-accent disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-gb-md border gb-border-control gb-hover-border-control bg-gb-canvas px-2.5 py-1.5 text-gb-sm text-gb-text-primary outline-none transition-colors duration-gb-fast ease-gb focus:border-gb-accent disabled:cursor-not-allowed disabled:opacity-50"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -141,10 +141,15 @@ export function SegmentedControl({ label, value, onChange, options, disabled }: 
         role="radiogroup"
         aria-labelledby={labelId}
         onKeyDown={onKeyDown}
-        className="inline-flex gap-0.5 rounded-gb-md border border-gb-border bg-gb-canvas p-0.5"
+        className="inline-flex gap-0.5 rounded-gb-md border gb-border-hairline bg-gb-canvas p-0.5"
       >
         {options.map((o, i) => {
           const selected = o.value === value;
+          // Roving tabindex with a first-item fallback: if `value` matches
+          // no option, index 0 stays keyboard-reachable instead of the
+          // whole group becoming unreachable.
+          const anySelected = options.some((opt) => opt.value === value);
+          const tabbable = anySelected ? selected : i === 0;
           return (
             <button
               key={o.value}
@@ -154,7 +159,7 @@ export function SegmentedControl({ label, value, onChange, options, disabled }: 
               type="button"
               role="radio"
               aria-checked={selected}
-              tabIndex={selected ? 0 : -1}
+              tabIndex={tabbable ? 0 : -1}
               disabled={disabled}
               onClick={() => onChange(o.value)}
               className={[

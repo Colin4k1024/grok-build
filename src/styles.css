@@ -36,7 +36,9 @@
   --gb-accent: 95 99 214;         /* #5f63d6 — white text on it: 4.95:1 */
   --gb-accent-fg: 255 255 255;
   --gb-accent-text: 165 168 245;  /* #a5a8f5 — 6.3:1 on accent/15 tint */
+  --gb-accent-hover: 80 84 190;   /* darker for hover — white on it: 6.2:1 */
   --gb-focus: 165 168 245;        /* 7.4:1 on canvas — WCAG 1.4.11 */
+  --gb-control-track: 110 110 110;/* switch off-track — 3.1:1 vs canvas */
   --gb-success: 63 185 130;
   --gb-success-text: 63 185 130;
   --gb-warning: 250 191 36;
@@ -95,8 +97,10 @@
 
   --gb-accent: 94 106 210;        /* #5e6ad2 — white text on it: 4.70:1 */
   --gb-accent-fg: 255 255 255;
-  --gb-accent-text: 63 71 160;    /* #3f47a0 — 6.4:1 on accent/15 tint */
+  --gb-accent-text: 63 71 160;    /* #3f47a0 — 6.6:1 on accent/15 tint */
+  --gb-accent-hover: 76 86 184;   /* #4c56b8 — white on it: 6.3:1 */
   --gb-focus: 94 106 210;         /* 4.70:1 on canvas — WCAG 1.4.11 */
+  --gb-control-track: 138 138 138;/* switch off-track — 3.5:1 vs white */
   --gb-success: 26 127 55;
   --gb-success-text: 20 108 46;
   --gb-warning: 154 103 0;
@@ -147,6 +151,11 @@
 .light .gb-border-hairline { border-color: rgb(var(--gb-border-hairline)); }
 .light .gb-border-control { border-color: rgb(var(--gb-border-control)); }
 .light .gb-border-emphasized { border-color: rgb(var(--gb-border-emphasized)); }
+
+/* Hover border affordance for interactive fields/cards (Tailwind has no
+   variant for the CSS-only tier classes, so this is the hover tier). */
+.gb-hover-border-control:hover { border-color: rgb(var(--gb-border-control) / 0.35); }
+.light .gb-hover-border-control:hover { border-color: rgb(var(--gb-border-emphasized)); }
 
 html, body, #root {
   height: 100%;
@@ -235,6 +244,13 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 /* Toast entry: subtle rise, exits handled by JS at ~65% of entry duration */
 @keyframes gb-toast-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .gb-motion-toast-enter { animation: gb-toast-enter var(--gb-motion-normal) var(--gb-motion-easing) both; }
+
+/* Modal entry: gentle rise (page-style) — NOT the leading-edge slide */
+.gb-motion-modal-enter { animation: gb-page-enter var(--gb-motion-normal) var(--gb-motion-easing) both; }
+
+/* Popover/menu/tooltip entry: fast fade + 4px rise */
+@keyframes gb-popover-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.gb-motion-popover-enter { animation: gb-popover-enter var(--gb-motion-fast) var(--gb-motion-easing) both; }
 
 /* Reduced motion: zero the token durations and collapse legacy animations
    to an instant state change. Spatial translation and scaling are removed;

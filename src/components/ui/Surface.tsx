@@ -14,9 +14,9 @@ export function Card({
   return (
     <div
       className={[
-        "rounded-gb-md border border-gb-border bg-gb-surface-1 shadow-gb-low",
+        "rounded-gb-md border gb-border-hairline bg-gb-surface-1 shadow-gb-low",
         interactive
-          ? "transition-colors duration-gb-fast ease-gb hover:border-gb-border-control hover:bg-gb-surface-hover"
+          ? "gb-hover-border-control transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover"
           : "",
         className,
       ]
@@ -42,12 +42,12 @@ export function Panel({
 }) {
   return (
     <section
-      className={["rounded-gb-md border border-gb-border bg-gb-surface-1", className]
+      className={["rounded-gb-md border gb-border-hairline bg-gb-surface-1", className]
         .filter(Boolean)
         .join(" ")}
     >
       {title || actions ? (
-        <header className="flex items-center justify-between border-b border-gb-border/10 px-3 py-2">
+        <header className="flex items-center justify-between border-b gb-border-hairline px-3 py-2">
           <h3 className="text-gb-xs font-semibold text-gb-text-secondary">{title}</h3>
           {actions}
         </header>

@@ -1,10 +1,13 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * DropdownMenu (R4-02 #235): arrow-key navigation with disabled-item
  * skipping, Enter/Space select, Escape closes and refocuses the trigger.
  * Focus is real DOM focus (roving), not aria-activedescendant, so screen
- * readers announce the active item.
+ * readers announce the active item. The menu is portaled to <body> and
+ * positioned from the trigger's rect, so overflow-hidden ancestors in
+ * pages never clip it.
  */
 
 export interface DropdownMenuItem {
@@ -26,11 +29,13 @@ export interface DropdownMenuProps {
 
 export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; right?: number }>({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
+  itemRefs.current.length = items.length;
   const enabledIndexes = items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0);
 
   const close = (refocus = true) => {
@@ -46,12 +51,27 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
     if (enabledIndexes.length > 0) focusItem(enabledIndexes[0]);
   };
 
-  // Focus the first enabled item once the menu mounts (works in jsdom,
-  // unlike requestAnimationFrame).
+  // Position from the trigger rect (viewport coordinates; portal at body).
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos(
+      align === "right"
+        ? { top: rect.bottom + 4, left: 0, right: window.innerWidth - rect.right }
+        : { top: rect.bottom + 4, left: rect.left },
+    );
+  }, [open, align]);
+
+  // Move focus into the menu when it opens, and re-anchor if the item set
+  // changes while open (async-loaded items): if focus is still on the
+  // trigger or the previously focused item vanished, focus the first
+  // enabled item.
   useEffect(() => {
-    if (open) focusFirst();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (!open) return;
+    const active = document.activeElement;
+    const focusInside = menuRef.current?.contains(active) ?? false;
+    if (!focusInside) focusFirst();
+  });
 
   // Click-away closes the menu.
   useEffect(() => {
@@ -62,7 +82,6 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
     };
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const onTriggerKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
@@ -125,46 +144,51 @@ export function DropdownMenu({ triggerLabel, items, trigger, align = "left" }: D
           <path d="m3 4.5 3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
-          aria-label={triggerLabel}
-          onKeyDown={onMenuKeyDown}
-          className={[
-            "gb-motion-panel-enter absolute z-40 mt-1 min-w-[10rem] rounded-gb-md border border-gb-border bg-gb-surface-2 p-1 shadow-gb-medium",
-            align === "right" ? "right-0" : "left-0",
-          ].join(" ")}
-        >
-          {items.map((item, i) => (
-            <button
-              key={item.key}
-              ref={(el) => {
-                itemRefs.current[i] = el;
+      {open
+        ? createPortal(
+            <div
+              ref={menuRef}
+              id={menuId}
+              role="menu"
+              aria-label={triggerLabel}
+              onKeyDown={onMenuKeyDown}
+              style={{
+                top: pos.top,
+                left: align === "right" ? undefined : pos.left,
+                right: align === "right" ? pos.right : undefined,
               }}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              tabIndex={-1}
-              onClick={() => {
-                if (item.disabled) return;
-                close();
-                item.onSelect();
-              }}
-              className={[
-                "flex w-full items-center rounded-gb-sm px-2.5 py-1.5 text-left text-gb-xs transition-colors duration-gb-fast ease-gb",
-                item.danger
-                  ? "text-gb-danger-text hover:bg-gb-danger/15"
-                  : "text-gb-text-primary hover:bg-gb-surface-hover",
-                "disabled:cursor-not-allowed disabled:opacity-40",
-              ].join(" ")}
+              className="gb-motion-popover-enter fixed z-gb-dropdown min-w-[10rem] rounded-gb-md border gb-border-hairline bg-gb-surface-2 p-1 shadow-gb-medium"
             >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {items.map((item, i) => (
+                <button
+                  key={item.key}
+                  ref={(el) => {
+                    itemRefs.current[i] = el;
+                  }}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.disabled}
+                  tabIndex={-1}
+                  onClick={() => {
+                    if (item.disabled) return;
+                    close();
+                    item.onSelect();
+                  }}
+                  className={[
+                    "flex w-full items-center rounded-gb-sm px-2.5 py-1.5 text-left text-gb-xs transition-colors duration-gb-fast ease-gb",
+                    item.danger
+                      ? "text-gb-danger-text hover:bg-gb-danger/15"
+                      : "text-gb-text-primary hover:bg-gb-surface-hover",
+                    "disabled:cursor-not-allowed disabled:opacity-40",
+                  ].join(" ")}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

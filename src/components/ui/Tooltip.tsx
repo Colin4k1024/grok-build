@@ -1,6 +1,7 @@
 import {
   cloneElement,
   isValidElement,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -9,9 +10,10 @@ import {
 } from "react";
 
 /**
- * Tooltip (R4-02 #235): hover (400ms delay) and keyboard focus both reveal
- * the tip; Escape/Escape-blur hides it. Tooltips never carry critical
- * actions — they annotate, they don't gate.
+ * Tooltip (R4-02 #235): hover (with a short delay, 400 ms by default) and
+ * keyboard focus both reveal the tip; Escape or blur hides it. The child's
+ * own event handlers are composed, never overwritten. Tooltips annotate —
+ * they never carry critical actions.
  */
 
 export interface TooltipProps {
@@ -20,6 +22,15 @@ export interface TooltipProps {
   /** Hover delay in ms; keyboard focus shows immediately. */
   delay?: number;
 }
+
+type ChildHandlers = {
+  onMouseEnter?: (e: unknown) => void;
+  onMouseLeave?: (e: unknown) => void;
+  onFocus?: (e: unknown) => void;
+  onBlur?: (e: unknown) => void;
+  onKeyDown?: (e: unknown) => void;
+  "aria-describedby"?: string;
+};
 
 export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
@@ -32,6 +43,10 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
       timer.current = null;
     }
   };
+
+  // No timer may survive unmount.
+  useEffect(() => clearTimer, []);
+
   const showDelayed = () => {
     clearTimer();
     timer.current = setTimeout(() => setVisible(true), delay);
@@ -47,12 +62,26 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
 
   if (!isValidElement(children)) return children;
 
-  const child = cloneElement(children as ReactElement<Record<string, unknown>>, {
-    onMouseEnter: showDelayed,
-    onMouseLeave: hide,
-    onFocus: showNow,
-    onBlur: hide,
-    "aria-describedby": visible ? tooltipId : undefined,
+  const childProps = (children as ReactElement<ChildHandlers>).props;
+  const compose =
+    (ours: () => void, theirs?: (e: unknown) => void) =>
+    (e: unknown) => {
+      theirs?.(e);
+      ours();
+    };
+
+  const child = cloneElement(children as ReactElement<ChildHandlers>, {
+    onMouseEnter: compose(showDelayed, childProps.onMouseEnter),
+    onMouseLeave: compose(hide, childProps.onMouseLeave),
+    onFocus: compose(showNow, childProps.onFocus),
+    onBlur: compose(hide, childProps.onBlur),
+    onKeyDown: (e: unknown) => {
+      childProps.onKeyDown?.(e);
+      if ((e as { key?: string }).key === "Escape") hide();
+    },
+    "aria-describedby": [childProps["aria-describedby"], visible ? tooltipId : null]
+      .filter(Boolean)
+      .join(" ") || undefined,
   });
 
   return (
@@ -62,7 +91,7 @@ export function Tooltip({ content, children, delay = 400 }: TooltipProps) {
         <span
           role="tooltip"
           id={tooltipId}
-          className="gb-motion-toast-enter pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-gb-sm border border-gb-border bg-gb-surface-2 px-2 py-1 text-gb-xs text-gb-text-primary shadow-gb-low"
+          className="gb-motion-popover-enter pointer-events-none absolute bottom-full left-1/2 z-gb-popover mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-gb-sm border gb-border-hairline bg-gb-surface-2 px-2 py-1 text-gb-xs text-gb-text-primary shadow-gb-low"
         >
           {content}
         </span>

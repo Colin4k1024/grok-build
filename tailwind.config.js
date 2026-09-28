@@ -14,6 +14,8 @@ export default {
         "gb-text-disabled": "rgb(var(--gb-text-disabled) / <alpha-value>)",
         "gb-accent-fg": "rgb(var(--gb-accent-fg) / <alpha-value>)",
         "gb-accent-text": "rgb(var(--gb-accent-text) / <alpha-value>)",
+        "gb-accent-hover": "rgb(var(--gb-accent-hover) / <alpha-value>)",
+        "gb-control-track": "rgb(var(--gb-control-track) / <alpha-value>)",
         "gb-focus": "rgb(var(--gb-focus) / <alpha-value>)",
         "gb-success": "rgb(var(--gb-success) / <alpha-value>)",
         "gb-success-text": "rgb(var(--gb-success-text) / <alpha-value>)",
@@ -69,6 +71,15 @@ export default {
         "gb-sm": ["var(--gb-font-sm)", { lineHeight: "1.4" }],
         "gb-md": ["var(--gb-font-md)", { lineHeight: "1.45" }],
         "gb-lg": ["var(--gb-font-lg)", { lineHeight: "1.35" }],
+      },
+      /* Named z-index scale — arbitrary z-[NNN] values must not appear in
+         shared primitives; layers are ordered popover < viewer < modal < toast. */
+      zIndex: {
+        "gb-dropdown": "40",
+        "gb-popover": "50",
+        "gb-viewer": "100",
+        "gb-modal": "110",
+        "gb-toast": "120",
       },
     },
   },
