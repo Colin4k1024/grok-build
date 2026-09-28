@@ -925,6 +925,12 @@ import {
   type SettingsFile,
 } from "./settings-store";
 import {
+  sanitizeTransferFileName,
+  validateTransferContent,
+  writeTransferFile,
+  readTransferFile,
+} from "./settings-transfer";
+import {
   registerWorktree, unregisterWorktree, touchWorktree,
   listOrphans, pruneOrphans, worktreeCount, readRegistry,
 } from "./worktree-registry";
@@ -1357,6 +1363,36 @@ ipcMain.handle("pick_directory", async () => {
   });
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
 });
+
+// --- Settings transfer file dialogs (R4-06 #239) ---
+// Save/open a settings export document at a user-chosen path. Content
+// validation lives in the renderer (src/config/transfer.ts); these handlers
+// only do the OS file dance. Size is bounded on read.
+ipcMain.handle("settings_transfer_save", async (_e, args: { content: string; defaultPath?: string }) => {
+  if (!mainWindow) return { path: null, reason: "no-window" };
+  const content = validateTransferContent(args?.content);
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: "导出设置",
+    defaultPath: sanitizeTransferFileName(args?.defaultPath),
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (r.canceled || !r.filePath) return { path: null, reason: "canceled" };
+  writeTransferFile(r.filePath, content);
+  return { path: r.filePath };
+});
+
+ipcMain.handle("settings_transfer_open", async () => {
+  if (!mainWindow) return { content: null, reason: "no-window" };
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: "导入设置",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (r.canceled || r.filePaths.length === 0) return { content: null, reason: "canceled" };
+  const content = readTransferFile(r.filePaths[0]);
+  return { content, path: r.filePaths[0] };
+});
+
 
 ipcMain.handle("projects_list", () =>
   ok(readProjects().sort((a, b) => b.lastUsedAt - a.lastUsedAt))

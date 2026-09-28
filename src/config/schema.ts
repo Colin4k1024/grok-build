@@ -172,6 +172,9 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     scopes: ["global", "project"],
     keywords: ["trusted", "folders", "信任", "目录"],
     advanced: true,
+    // Absolute paths reveal the user's filesystem layout — excluded from
+    // exports by default (R4-06 privacy review).
+    sensitive: true,
     saveMode: "staged",
     validate: isStringArray,
   },

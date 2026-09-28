@@ -1,4 +1,5 @@
 import { getSetting, listSettings, resolveSetting } from "./index";
+import { getPreset } from "./presets";
 import type { ResolvedSetting } from "./types";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -114,4 +115,40 @@ export function resetScopedValue(settingId: string | null, projectId: string): v
 
 export function listStoreBindings(): Record<string, string> {
   return { ...STORE_KEYS };
+}
+
+export interface ApplyResult {
+  applied: string[];
+  failed: string[];
+}
+
+/**
+ * Apply a builtin or user preset at a scope (R4-06 #239). Every value goes
+ * through the validated typed path; per-key failures are reported, never
+ * silently swallowed. Throws on an unknown preset id.
+ */
+export function applyPreset(
+  presetId: string,
+  scope: "global" | "project",
+  projectId?: string,
+): ApplyResult {
+  const builtin = getPreset(presetId);
+  const user = useSettingsStore.getState().userPresets[presetId];
+  const source = builtin ?? user;
+  if (!source) throw new Error(`unknown preset: ${presetId}`);
+  const values = builtin ? builtin.values : user!.values;
+  const applied: string[] = [];
+  const failed: string[] = [];
+  for (const [settingId, value] of Object.entries(values)) {
+    try {
+      // No-op writes are not "applied" (consistent with applyImport).
+      const cur = resolveFromStore(settingId, projectId);
+      if (JSON.stringify(cur.value) === JSON.stringify(value)) continue;
+      setScopedValue(settingId, value, scope, projectId);
+      applied.push(settingId);
+    } catch (e) {
+      failed.push(`${settingId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return { applied, failed };
 }

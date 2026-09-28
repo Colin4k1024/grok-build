@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useSettingsStore } from "../settingsStore";
+import { CURRENT_SETTINGS_VERSION } from "../../config/version";
 
 beforeEach(() => {
   localStorage.clear();
@@ -96,6 +97,46 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect(s.sandboxMode).toBe("full"); // valid value preserved
     expect(s.projectOverrides["/p1"]).toEqual({ "appearance.theme": "light" });
     expect(s.projectOverrides["/p2"]).toBeUndefined();
+  });
+
+  it("a v1 persisted blob migrates to the current version (R4-06 #239)", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: { theme: "light", zoom: "bogus" }, version: 1 }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    const s = useSettingsStore.getState();
+    expect(s.theme).toBe("light"); // valid v1 value survives migration
+    expect(s.zoom).toBe(1.0); // invalid v1 value sanitized by the pipeline
+    expect(s.projectOverrides).toEqual({}); // layer guaranteed by migration
+  });
+
+  it("the persist layer is wired to the migration pipeline (M1 regression)", async () => {
+    // A passthrough migrate hook must fail this test — it pins the wiring,
+    // not just the sanitizer outcome.
+    const opts = useSettingsStore.persist.getOptions();
+    expect(opts.version).toBe(CURRENT_SETTINGS_VERSION);
+    expect(typeof opts.migrate).toBe("function");
+    // and the pipeline itself runs (v1 fixture through the real hook)
+    const migrated = await opts.migrate!({ theme: "banana" } as never, 1);
+    expect((migrated as { theme: string }).theme).toBe("dark");
+    expect((migrated as { projectOverrides: unknown }).projectOverrides).toEqual({});
+  });
+
+  it("a NEWER persisted version is quarantined, not adopted (no silent downgrade)", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: { theme: "light" }, version: CURRENT_SETTINGS_VERSION + 1 }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    // the newer blob was NOT adopted — defaults instead
+    expect(useSettingsStore.getState().theme).toBe("dark");
+    // and the original was quarantined to a backup key
+    const backups = Object.keys(localStorage).filter((k) => k.startsWith("gb-settings.backup-"));
+    expect(backups.length).toBeGreaterThan(0);
+    expect(localStorage.getItem(backups[0])).toContain('"light"');
   });
 });
 

@@ -18,6 +18,10 @@ import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { getSettingsBridge } from "../config/fileSync";
 import { getSetting, listSettings } from "../config/registry";
+import { migratePersisted } from "../config/migrations";
+import { CURRENT_SETTINGS_VERSION } from "../config/version";
+import { sanitizePersistedState } from "../config/sanitize";
+import { getPreset } from "../config/presets";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -47,22 +51,26 @@ function legacyJson<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
+/** storeKey → legacy localStorage key (still mirrored for unmigrated
+ *  consumers). Exported so transfers can snapshot/restore them (R4-06). */
+export const LEGACY_KEYS: Record<string, string> = {
+  theme: LEGACY_THEME,
+  fontSize: LEGACY_FONT_SIZE,
+  zoom: LEGACY_ZOOM,
+  sandboxMode: LEGACY_SANDBOX,
+  agentMode: LEGACY_AGENT_MODE,
+  agentAutonomous: LEGACY_AGENT_AUTONOMOUS,
+  voiceLanguage: LEGACY_VOICE_LANG,
+  notificationsEnabled: LEGACY_NOTIFICATIONS,
+  trustedFolders: LEGACY_TRUSTED,
+};
+
 // ---- Types ----
 
 export type ThemeMode = "light" | "dark" | "auto";
 export type FontSizeId = "small" | "medium" | "large" | "xlarge";
 export type AgentMode = "code" | "architect" | "debug";
 export type VoiceLanguage = "auto" | "zh-CN" | "en-US";
-
-/** Flat data keys that may hydrate from the persisted blob — derived from
- *  the registry (single declaration site) plus the overrides layer, so a
- *  blob can never overwrite store actions or inject unknown state. */
-const HYDRATABLE_KEYS = new Set<string>([
-  ...listSettings()
-    .map((d) => d.storeKey)
-    .filter((k): k is string => !!k),
-  "projectOverrides",
-]);
 
 /** Registry default for a store key (the schema is the only place defaults
  *  are declared — even this store's fallbacks come from it). */
@@ -129,6 +137,12 @@ export interface SettingsState {
    *  src/config/resolve.ts — this store only persists the layers. */
   projectOverrides: Record<string, Record<string, unknown>>;
 
+  /** R4-06 (#239): user-saved presets (validated at save time). */
+  userPresets: Record<string, { label: string; values: Record<string, unknown> }>;
+  saveUserPreset: (id: string, label: string, values: Record<string, unknown>) => void;
+  renameUserPreset: (id: string, label: string) => void;
+  deleteUserPreset: (id: string) => void;
+
   /** R4-05: generic typed-setter dispatch by flat store key ("theme", …).
    *  Unknown keys throw instead of silently persisting garbage. */
   setGlobalByKey: (storeKey: string, value: unknown) => void;
@@ -186,6 +200,7 @@ export const useSettingsStore = create<SettingsState>()(
       notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
       trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
       projectOverrides: {},
+      userPresets: {},
 
       // Every setter validates against the registry BEFORE writing —
       // direct UI use and the storeBridge path share the same gate, so an
@@ -318,48 +333,81 @@ export const useSettingsStore = create<SettingsState>()(
           delete next[projectId];
           return { projectOverrides: next };
         }),
+
+      // ---- User presets (R4-06 #239) — validated at save time ----
+      saveUserPreset: (id, label, values) => {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new Error(`invalid preset id: ${id}`);
+        if (["__proto__", "constructor", "prototype"].includes(id)) {
+          throw new Error(`invalid preset id: ${id}`);
+        }
+        if (!label.trim()) throw new Error("preset label must not be empty");
+        // Builtin ids are reserved — a user preset must not shadow them.
+        if (getPreset(id)) throw new Error(`preset id "${id}" is reserved by a builtin preset`);
+        for (const [settingId, value] of Object.entries(values)) {
+          const def = getSetting(settingId);
+          if (!def) throw new Error(`invalid preset: unknown setting ${settingId}`);
+          if (def.sensitive) throw new Error(`invalid preset: ${settingId} is sensitive`);
+          if (!def.validate(value)) {
+            throw new Error(`invalid preset: bad value for ${settingId}: ${JSON.stringify(value)}`);
+          }
+        }
+        set((s) => ({ userPresets: { ...s.userPresets, [id]: { label, values: { ...values } } } }));
+      },
+      renameUserPreset: (id, label) => {
+        const cur = get().userPresets[id];
+        if (!cur) throw new Error(`unknown preset: ${id}`);
+        if (!label.trim()) throw new Error("preset label must not be empty");
+        set((s) => ({ userPresets: { ...s.userPresets, [id]: { ...cur, label } } }));
+      },
+      deleteUserPreset: (id) => {
+        if (!get().userPresets[id]) throw new Error(`unknown preset: ${id}`);
+        set((s) => {
+          const next = { ...s.userPresets };
+          delete next[id];
+          return { userPresets: next };
+        });
+      },
     }),
     {
       name: "gb-settings",
       storage: createJSONStorage(() => dualWriteStorage),
-      version: 1,
+      version: CURRENT_SETTINGS_VERSION,
+      // R4-06: version-gated migration pipeline. A failed migration does
+      // NOT adopt the foreign payload (a newer install's blob must never
+      // be silently downgraded): the original is quarantined to a backup
+      // key and the app boots on registry defaults.
+      migrate: (persistedState, version) => {
+        const r = migratePersisted({ state: persistedState, version });
+        if (!r.ok) {
+          console.error(`[settings] migration failed: ${r.error}`);
+          try {
+            // Quarantine the foreign payload, keeping only the newest 3
+            // backups (no unbounded accumulation).
+            localStorage.setItem(
+              `gb-settings.backup-${Date.now()}`,
+              JSON.stringify({ state: persistedState, version }),
+            );
+            const keys = Object.keys(localStorage)
+              .filter((k) => k.startsWith("gb-settings.backup-"))
+              .sort();
+            for (const k of keys.slice(0, Math.max(0, keys.length - 3))) {
+              localStorage.removeItem(k);
+            }
+          } catch {
+            /* storage unavailable */
+          }
+          return undefined as never; // fall back to initial (defaults)
+        }
+        return r.state as never;
+      },
       // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
-      // only on version bumps. Two layers of defense:
-      //   1. allowlist — only known DATA keys may hydrate (a blob can never
-      //      overwrite store actions or inject unknown state);
-      //   2. per-field registry validation — invalid values fall back to
-      //      the schema default; invalid override entries are dropped.
+      // only on version bumps. Implementation shared with the migration
+      // pipeline (src/config/sanitize.ts): allowlist + per-field registry
+      // validation + override/preset entry cleaning.
       merge: (persisted, current) => {
         const state = persisted as Record<string, unknown> | undefined;
         if (!state || typeof state !== "object") return current;
-        const out: Record<string, unknown> = {};
-        for (const key of Object.keys(state)) {
-          if (HYDRATABLE_KEYS.has(key)) out[key] = state[key];
-        }
-        for (const def of listSettings()) {
-          if (!def.storeKey) continue;
-          const key = def.storeKey;
-          if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
-        }
-        // Normalize projectOverrides: always an object of objects with
-        // validated entries (never null / array / garbage).
-        const raw = out.projectOverrides;
-        const cleaned: Record<string, Record<string, unknown>> = {};
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
-            if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
-            const kept: Record<string, unknown> = {};
-            for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
-              const def = getSetting(settingId);
-              if (def && def.scopes.includes("project") && def.validate(value)) {
-                kept[settingId] = value;
-              }
-            }
-            if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
-          }
-        }
-        out.projectOverrides = cleaned;
-        return { ...current, ...out };
+        return { ...current, ...sanitizePersistedState(state) };
       },
     }
   )
