@@ -30,16 +30,24 @@
   --gb-text-disabled: 110 110 110;
 
   /* Accent & semantic status. The cool indigo accent is reserved for
-     focus, selection, progress and primary actions (Codex × Linear). */
-  --gb-accent: 124 126 234;       /* #7c7eea */
-  --gb-accent-fg: 255 255 255;    /* text placed on accent fills */
-  --gb-focus: var(--gb-accent);
+     focus, selection, progress and primary actions (Codex × Linear).
+     `-text` variants are tuned for >=4.5:1 contrast on tint/surface
+     backgrounds; `--gb-accent-fg` is text placed on solid accent fills. */
+  --gb-accent: 95 99 214;         /* #5f63d6 — white text on it: 4.95:1 */
+  --gb-accent-fg: 255 255 255;
+  --gb-accent-text: 165 168 245;  /* #a5a8f5 — 7.2:1 on accent/15 tint */
   --gb-success: 63 185 130;
+  --gb-success-text: 63 185 130;
   --gb-warning: 250 191 36;
+  --gb-warning-text: 250 191 36;
   --gb-danger: 248 113 113;
+  --gb-danger-text: 248 113 113;
   --gb-info: 96 165 250;
+  --gb-info-text: 96 165 250;
 
-  /* Borders — RGB triplets, always consumed with an alpha value */
+  /* Borders — RGB triplets, always consumed with the tier alpha encoded
+     by the .gb-border-* utility classes below (dark tiers differ by alpha;
+     light tiers are solid triplets). */
   --gb-border-hairline: 255 255 255;
   --gb-border-control: 255 255 255;
   --gb-border-emphasized: 255 255 255;
@@ -54,19 +62,62 @@
   --gb-elevation-medium: 0 4px 12px rgb(0 0 0 / 0.35);
   --gb-elevation-modal: 0 12px 32px rgb(0 0 0 / 0.45);
 
-  /* Motion — mirrors src/lib/motion.ts. Page-level motion only ever
+  /* Motion — mirrors src/lib/motion.ts (kept in sync by
+     src/lib/__tests__/designTokens.test.ts). Page-level motion only ever
      animates transform/opacity; the reduced-motion block at the end
      of this file zeroes these durations. */
   --gb-motion-fast: 140ms;
   --gb-motion-normal: 220ms;
   --gb-motion-deliberate: 320ms;
+  --gb-motion-press: 120ms;
   --gb-motion-easing: cubic-bezier(0.2, 0, 0, 1);
 
   /* Interface type steps (spacing stays on Tailwind's 4px scale) */
-  --gb-text-xs: 12px;
-  --gb-text-sm: 13px;
-  --gb-text-md: 15px;
-  --gb-text-lg: 20px;
+  --gb-font-xs: 12px;
+  --gb-font-sm: 13px;
+  --gb-font-md: 15px;
+  --gb-font-lg: 20px;
+}
+
+.light {
+  /* Codex desktop light — clean, warm-neutral */
+  --gb-canvas: 255 255 255;
+  --gb-sidebar: 247 247 245;
+  --gb-surface-1: 255 255 255;
+  --gb-surface-2: 255 255 255;
+  --gb-surface-hover: 242 242 240;
+
+  --gb-text-primary: 13 13 13;
+  --gb-text-secondary: 74 74 74;  /* 9.0:1 on white */
+  --gb-text-muted: 110 110 110;   /* 4.6:1 AA on white */
+  --gb-text-disabled: 160 160 160;
+
+  --gb-accent: 94 106 210;        /* #5e6ad2 — white text on it: 4.70:1 */
+  --gb-accent-fg: 255 255 255;
+  --gb-accent-text: 63 71 160;    /* #3f47a0 — 6.4:1 on accent/15 tint */
+  --gb-success: 26 127 55;
+  --gb-success-text: 20 108 46;
+  --gb-warning: 154 103 0;
+  --gb-warning-text: 122 82 0;
+  --gb-danger: 207 34 46;
+  --gb-danger-text: 207 34 46;
+  --gb-info: 37 99 235;
+  --gb-info-text: 29 78 216;
+
+  --gb-border-hairline: 230 230 227;
+  --gb-border-control: 212 212 208;
+  --gb-border-emphasized: 190 190 186;
+
+  --gb-elevation-low: 0 1px 2px rgb(0 0 0 / 0.08);
+  --gb-elevation-medium: 0 4px 12px rgb(0 0 0 / 0.1);
+  --gb-elevation-modal: 0 12px 32px rgb(0 0 0 / 0.16);
+}
+
+/* Derived tokens + legacy aliases. Declared under `:root, .light` (not
+   only :root) so they re-resolve against the nearest theme root — a
+   nested `.light`/`.dark` subtree must not inherit stale values (R4-01). */
+:root, .light {
+  --gb-focus: var(--gb-accent);
 
   /* ---- Legacy aliases (compat only; migration target is above) ---- */
   --gb-bg: var(--gb-canvas);
@@ -88,34 +139,14 @@
   --gb-tab-inactive: var(--gb-surface-1);
 }
 
-.light {
-  /* Codex desktop light — clean, warm-neutral */
-  --gb-canvas: 255 255 255;
-  --gb-sidebar: 247 247 245;
-  --gb-surface-1: 255 255 255;
-  --gb-surface-2: 255 255 255;
-  --gb-surface-hover: 242 242 240;
-
-  --gb-text-primary: 13 13 13;
-  --gb-text-secondary: 74 74 74;  /* 9.0:1 on white */
-  --gb-text-muted: 110 110 110;   /* 4.6:1 AA on white */
-  --gb-text-disabled: 160 160 160;
-
-  --gb-accent: 94 106 210;        /* #5e6ad2 */
-  --gb-accent-fg: 255 255 255;
-  --gb-success: 26 127 55;
-  --gb-warning: 154 103 0;
-  --gb-danger: 207 34 46;
-  --gb-info: 37 99 235;
-
-  --gb-border-hairline: 230 230 227;
-  --gb-border-control: 212 212 208;
-  --gb-border-emphasized: 190 190 186;
-
-  --gb-elevation-low: 0 1px 2px rgb(0 0 0 / 0.08);
-  --gb-elevation-medium: 0 4px 12px rgb(0 0 0 / 0.1);
-  --gb-elevation-modal: 0 12px 32px rgb(0 0 0 / 0.16);
-}
+/* Border tier utilities — dark tiers differ by alpha over a white
+   triplet; light tiers are solid triplets (full alpha). */
+.gb-border-hairline { border-color: rgb(var(--gb-border-hairline) / 0.09); }
+.gb-border-control { border-color: rgb(var(--gb-border-control) / 0.16); }
+.gb-border-emphasized { border-color: rgb(var(--gb-border-emphasized) / 0.32); }
+.light .gb-border-hairline { border-color: rgb(var(--gb-border-hairline)); }
+.light .gb-border-control { border-color: rgb(var(--gb-border-control)); }
+.light .gb-border-emphasized { border-color: rgb(var(--gb-border-emphasized)); }
 
 html, body, #root {
   height: 100%;
@@ -176,8 +207,8 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
 @keyframes gb-panel-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 .gb-motion-panel-enter { animation: gb-panel-enter var(--gb-motion-deliberate) var(--gb-motion-easing) both; }
 
-/* Press feedback: scale to 0.98 on the fast duration */
-.gb-motion-press { transition: transform var(--gb-motion-fast) var(--gb-motion-easing); }
+/* Press feedback: scale to 0.98 over the press duration (120ms) */
+.gb-motion-press { transition: transform var(--gb-motion-press) var(--gb-motion-easing); }
 .gb-motion-press:active { transform: scale(0.98); }
 
 /* Visible keyboard focus, shared by every interactive control */
@@ -206,6 +237,7 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
     --gb-motion-fast: 0ms;
     --gb-motion-normal: 0ms;
     --gb-motion-deliberate: 0ms;
+    --gb-motion-press: 0ms;
   }
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -242,19 +274,19 @@ code { font-family: "SF Mono", ui-monospace, monospace; font-size: 0.85em; }
   display: inline-block;
   padding: 0 4px;
   margin: 0 1px;
-  border-radius: 4px;
-  background: rgba(34, 211, 238, 0.18);
-  color: rgb(var(--gb-accent));
+  border-radius: var(--gb-radius-sm);
+  background: rgb(var(--gb-accent) / 0.16);
+  color: rgb(var(--gb-accent-text));
   font-size: 0.92em;
   line-height: 1.4;
 }
-.gb-mention-file { background: rgba(34, 211, 238, 0.18); }
-.gb-mention-project { background: rgba(52, 211, 153, 0.18); color: rgb(var(--gb-green)); }
-.gb-mention-skill { background: rgba(251, 191, 36, 0.18); color: rgb(var(--gb-yellow)); }
+.gb-mention-file { background: rgb(var(--gb-accent) / 0.16); }
+.gb-mention-project { background: rgb(var(--gb-success) / 0.16); color: rgb(var(--gb-success-text)); }
+.gb-mention-skill { background: rgb(var(--gb-warning) / 0.16); color: rgb(var(--gb-warning-text)); }
 
 /* Jump-to-message highlight (ISS-009) */
 @keyframes gb-jump-flash {
-  0% { background: rgba(34, 211, 238, 0.18); }
+  0% { background: rgb(var(--gb-accent) / 0.18); }
   100% { background: transparent; }
 }
 .gb-jump-highlight {

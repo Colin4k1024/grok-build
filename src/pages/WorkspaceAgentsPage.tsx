@@ -105,7 +105,7 @@ export function WorkspaceAgentsPage({ onClose, onOpenSession }: WorkspaceAgentsP
                   Session:{" "}
                   <button
                     onClick={() => onOpenSession(selected.sessionId)}
-                    className="text-gb-accent hover:underline"
+                    className="text-gb-accent-text hover:underline"
                   >
                     {selected.sessionTitle}
                   </button>

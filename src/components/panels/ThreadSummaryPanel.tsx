@@ -83,7 +83,7 @@ export function ThreadSummaryPanel() {
               <li>{summary.messageCount} messages ({summary.userCount} from you)</li>
               <li>{summary.toolCallCount} tool calls</li>
               {summary.editCount > 0 && (
-                <li className="text-gb-accent">{summary.editCount} file edits</li>
+                <li className="text-gb-accent-text">{summary.editCount} file edits</li>
               )}
             </ul>
           </div>

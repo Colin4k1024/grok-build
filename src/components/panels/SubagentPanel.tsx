@@ -96,7 +96,7 @@ export function SubagentPanel() {
           Subagents ({sessionSubagents.length})
         </span>
         {runningCount > 0 && (
-          <span className="flex items-center gap-1 text-[10px] text-gb-accent">
+          <span className="flex items-center gap-1 text-[10px] text-gb-accent-text">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gb-accent" />
             {runningCount} running
           </span>

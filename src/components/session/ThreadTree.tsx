@@ -141,7 +141,7 @@ const ThreadRow = memo(function ThreadRow({
         <span className="h-1.5 w-1.5 shrink-0" />
       )}
       <span className="min-w-0 flex-1 truncate">{e.title}</span>
-      {isPinned && <span className="shrink-0 text-[9px] text-gb-accent">•</span>}
+      {isPinned && <span className="shrink-0 text-[9px] text-gb-accent-text">•</span>}
       <span className="hidden shrink-0 group-hover:block">
         <button
           className="rounded p-0.5 text-[9px] text-gb-muted hover:bg-gb-bg hover:text-gb-text"
@@ -570,7 +570,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
               >
                 <span className="min-w-0 flex-1 truncate">{e.title}</span>
                 <button
-                  className="shrink-0 rounded px-1 py-0.5 text-[10px] text-gb-accent opacity-0 hover:bg-gb-bg group-hover:opacity-100"
+                  className="shrink-0 rounded px-1 py-0.5 text-[10px] text-gb-accent-text opacity-0 hover:bg-gb-bg group-hover:opacity-100"
                   onClick={(ev) => {
                     ev.stopPropagation();
                     unarchiveEntry(e);

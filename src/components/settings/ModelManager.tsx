@@ -213,7 +213,7 @@ export function ModelManager() {
               />
             </label>
             <button
-              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg hover:opacity-80"
+              className="rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-accent-fg hover:opacity-80"
               onClick={() => setIsAdding(true)}
             >
               + Add Model
@@ -313,7 +313,7 @@ export function ModelManager() {
 
       {/* Save button */}
       <button
-        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
+        className="rounded-lg bg-gb-accent px-4 py-2 text-sm font-medium text-gb-accent-fg hover:opacity-80 disabled:opacity-40"
         onClick={handleSave}
         disabled={saving}
       >
@@ -396,7 +396,7 @@ function ModelEditor({ model, onSave, onCancel }: {
             Cancel
           </button>
           <button
-            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
+            className="rounded-lg bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-accent-fg hover:opacity-80 disabled:opacity-40"
             onClick={() => form.id && form.name && onSave(form)}
             disabled={!form.id || !form.name}
           >

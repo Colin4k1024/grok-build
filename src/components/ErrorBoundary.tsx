@@ -52,7 +52,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 onClick={this.handleReload}
-                className="rounded bg-gb-accent px-4 py-2 text-xs text-gb-bg"
+                className="rounded bg-gb-accent px-4 py-2 text-xs text-gb-accent-fg"
               >
                 Reload App
               </button>

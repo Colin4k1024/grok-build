@@ -350,7 +350,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
           {action === "none" ? (
             <div className="flex gap-1">
               <button onClick={runApprove} className="flex-1 rounded bg-gb-green/15 px-2 py-1 text-[10px] font-medium text-gb-green hover:bg-gb-green/25" title="暂存全部并提交">批准</button>
-              <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent hover:bg-gb-accent/25" title="将修改意见发回会话">打回修改</button>
+              <button onClick={() => setAction("revise")} className="flex-1 rounded bg-gb-accent/15 px-2 py-1 text-[10px] font-medium text-gb-accent-text hover:bg-gb-accent/25" title="将修改意见发回会话">打回修改</button>
               <button onClick={runReject} className="flex-1 rounded bg-gb-red/15 px-2 py-1 text-[10px] font-medium text-gb-red hover:bg-gb-red/25" title="丢弃该 worktree">拒绝</button>
             </div>
           ) : (
@@ -364,7 +364,7 @@ function ReviewPanel({ cwd }: { cwd: string }) {
                 className="w-full rounded border border-gb-border/10 bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
               />
               <div className="flex gap-1">
-                <button onClick={action === "approve" ? runApprove : runRevise} className="flex-1 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg disabled:opacity-40" disabled={!input.trim()}>
+                <button onClick={action === "approve" ? runApprove : runRevise} className="flex-1 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-accent-fg disabled:opacity-40" disabled={!input.trim()}>
                   {action === "approve" ? "提交" : "发送"}
                 </button>
                 <button onClick={() => setAction("none")} className="flex-1 rounded border border-gb-border/20 px-2 py-1 text-[10px] text-gb-muted hover:bg-gb-surface-hover">取消</button>
@@ -385,14 +385,14 @@ function ReviewPanel({ cwd }: { cwd: string }) {
         {/* Scope toggle: working-tree vs staged */}
         <button
           onClick={() => setScope("working")}
-          className={`rounded px-1.5 py-0.5 ${scope === "working" ? "bg-gb-accent/15 text-gb-accent" : "hover:bg-gb-surface-hover"}`}
+          className={`rounded px-1.5 py-0.5 ${scope === "working" ? "bg-gb-accent/15 text-gb-accent-text" : "hover:bg-gb-surface-hover"}`}
           title="未暂存的修改"
         >
           工作区
         </button>
         <button
           onClick={() => setScope("staged")}
-          className={`rounded px-1.5 py-0.5 ${scope === "staged" ? "bg-gb-accent/15 text-gb-accent" : "hover:bg-gb-surface-hover"}`}
+          className={`rounded px-1.5 py-0.5 ${scope === "staged" ? "bg-gb-accent/15 text-gb-accent-text" : "hover:bg-gb-surface-hover"}`}
           title="已暂存的修改"
         >
           暂存区
@@ -460,7 +460,7 @@ function ViewToggle({ view, onChange }: { view: "all" | "last-turn"; onChange: (
           key={id}
           onClick={() => onChange(id)}
           className={`rounded px-2 py-0.5 text-[10px] font-medium ${
-            view === id ? "bg-gb-accent/15 text-gb-accent" : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+            view === id ? "bg-gb-accent/15 text-gb-accent-text" : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
           }`}
         >
           {label}
@@ -590,7 +590,7 @@ function LegacyTerminalPanel({ cwd }: { cwd: string }) {
         {output || "Commands run in the project directory. Output is capped; not an interactive PTY.\n"}
       </div>
       <div className="flex items-center gap-1 border-t border-gb-border/8 px-2 py-1.5">
-        <span className="shrink-0 font-mono text-[11px] text-gb-accent">$</span>
+        <span className="shrink-0 font-mono text-[11px] text-gb-accent-text">$</span>
         <input
           value={command}
           onChange={(e) => setCommand(e.target.value)}
@@ -719,7 +719,7 @@ function SideChatPanel({ cwd }: { cwd: string }) {
           placeholder="顺带提问…"
           className="flex-1 rounded border border-gb-border/10 bg-gb-bg px-2 py-1 text-[11px] text-gb-text outline-none focus:border-gb-accent/50"
         />
-        <button onClick={send} disabled={busy || !text.trim()} className="shrink-0 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-bg disabled:opacity-40">
+        <button onClick={send} disabled={busy || !text.trim()} className="shrink-0 rounded bg-gb-accent px-2 py-1 text-[10px] font-medium text-gb-accent-fg disabled:opacity-40">
           Send
         </button>
       </div>
@@ -869,7 +869,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
           </button>
         ))}
         <button
-          className={`px-1.5 py-2 text-[10px] transition-colors ${showExtras ? "text-gb-accent" : "text-gb-muted hover:text-gb-text"}`}
+          className={`px-1.5 py-2 text-[10px] transition-colors ${showExtras ? "text-gb-accent-text" : "text-gb-muted hover:text-gb-text"}`}
           onClick={() => setShowExtras((v) => !v)}
           title="计划、子代理、上下文、MCP"
         >
@@ -882,7 +882,7 @@ export function RightPanel({ collapsed }: RightPanelProps) {
             <button
               key={id}
               className={`flex-1 px-1 py-1 text-[10px] capitalize ${
-                extraTab === id ? "text-gb-accent" : "text-gb-muted hover:text-gb-text"
+                extraTab === id ? "text-gb-accent-text" : "text-gb-muted hover:text-gb-text"
               }`}
               onClick={() => setExtraTab(id)}
             >

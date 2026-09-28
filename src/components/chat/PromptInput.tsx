@@ -422,7 +422,7 @@ export function PromptInput({
           <div className="flex-1" />
 
           {queuedCount > 0 && (
-            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent" title="已排队的追问（Tab）">
+            <span className="rounded-full bg-gb-accent/10 px-1.5 py-0.5 text-[10px] text-gb-accent-text" title="已排队的追问（Tab）">
               {queuedCount} 排队中
             </span>
           )}

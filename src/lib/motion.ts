@@ -8,6 +8,8 @@
  */
 
 export const MOTION_DURATIONS = {
+  /** Button/control press feedback. */
+  press: 120,
   /** Hover/focus color or opacity feedback. */
   fast: 140,
   /** Page entry: opacity + 6px translation. */
@@ -74,7 +76,12 @@ export function panelMotion(reduced: boolean): PanelMotionSpec {
 export function pressMotion(reduced: boolean): PressMotionSpec {
   return reduced
     ? { durationMs: 0, scale: 1, easing: MOTION_EASING, properties: MOTION_ALLOWED_PROPERTIES }
-    : { durationMs: 120, scale: 0.98, easing: MOTION_EASING, properties: MOTION_ALLOWED_PROPERTIES };
+    : {
+        durationMs: MOTION_DURATIONS.press,
+        scale: 0.98,
+        easing: MOTION_EASING,
+        properties: MOTION_ALLOWED_PROPERTIES,
+      };
 }
 
 /** Exit motion runs at ~65% of the entry duration. */
@@ -84,26 +91,54 @@ export function exitDuration(entryMs: number): number {
 
 /**
  * Build a `transition` declaration restricted to transform/opacity.
- * Throws on layout-affecting properties so violations fail loudly in dev
- * instead of shipping a janky animation.
+ * In development/test a policy violation throws so it surfaces immediately;
+ * in production builds the invalid properties are dropped with a warning
+ * instead of crashing the render.
  */
 export function transitionFor(
   properties: readonly MotionProperty[],
   durationMs: number,
   easing: string = MOTION_EASING,
 ): string {
-  for (const p of properties) {
-    if (!(MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p)) {
-      throw new Error(
-        `Motion policy: only ${MOTION_ALLOWED_PROPERTIES.join(" and ")} may be animated (got "${p}")`,
+  const invalid = properties.filter(
+    (p) => !(MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
+  );
+  if (invalid.length > 0) {
+    const msg = `Motion policy: only ${MOTION_ALLOWED_PROPERTIES.join(" and ")} may be animated (got ${invalid
+      .map((p) => `"${p}"`)
+      .join(", ")})`;
+    if (import.meta.env?.PROD) {
+      console.warn(msg);
+      properties = properties.filter((p) =>
+        (MOTION_ALLOWED_PROPERTIES as readonly string[]).includes(p),
       );
+    } else {
+      throw new Error(msg);
     }
   }
   return properties.map((p) => `${p} ${durationMs}ms ${easing}`).join(", ");
 }
 
-/** Live reduced-motion preference; fails safe to `false` outside the DOM. */
+/**
+ * One-shot read of the current reduced-motion preference.
+ * Fails safe to `false` outside the DOM. Components that need to react to
+ * OS-level changes should use `subscribeReducedMotion` instead.
+ */
 export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Subscribe to reduced-motion preference changes. The listener fires
+ * immediately with the current value and on every subsequent change.
+ * Returns an unsubscribe function. No-op outside the DOM.
+ */
+export function subscribeReducedMotion(listener: (reduced: boolean) => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const handler = () => listener(mql.matches);
+  handler();
+  mql.addEventListener("change", handler);
+  return () => mql.removeEventListener("change", handler);
 }

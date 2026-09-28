@@ -164,7 +164,7 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
                     disabled={s.imported}
                   />
                   <span className="min-w-0 flex-1 truncate text-gb-text">{s.title}</span>
-                  <span className={`shrink-0 text-[9px] ${s.imported ? "text-gb-accent" : "text-gb-muted"}`}>
+                  <span className={`shrink-0 text-[9px] ${s.imported ? "text-gb-accent-text" : "text-gb-muted"}`}>
                     {s.imported ? "已导入" : `${(s.size / 1024).toFixed(0)}k`}
                   </span>
                 </label>
@@ -184,7 +184,7 @@ export function ImportPanel({ onClose, projectRoot }: ImportPanelProps) {
               <button
                 onClick={runImport}
                 disabled={busy || !anySelected}
-                className="flex-1 rounded bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg disabled:opacity-40"
+                className="flex-1 rounded bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-accent-fg disabled:opacity-40"
               >
                 {busy ? "导入中…" : `导入所选（${selected.size} 会话${mergeInstructions ? " + 指令" : ""}）`}
               </button>

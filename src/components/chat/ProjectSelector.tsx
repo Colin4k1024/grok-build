@@ -143,7 +143,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                 aria-selected={wt.path === cwd}
                 onClick={() => handleSelect(wt.path)}
                 className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] hover:bg-gb-surface-hover ${
-                  wt.path === cwd ? "text-gb-accent" : "text-gb-text"
+                  wt.path === cwd ? "text-gb-accent-text" : "text-gb-text"
                 }`}
               >
                 <div className="flex min-w-0 flex-col">
@@ -155,7 +155,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                     </span>
                   )}
                 </div>
-                {wt.path === cwd && <span className="ml-2 shrink-0 text-gb-accent">✓</span>}
+                {wt.path === cwd && <span className="ml-2 shrink-0 text-gb-accent-text">✓</span>}
               </button>
             ))}
           </div>
@@ -179,7 +179,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
                   <button
                     onClick={handleCreate}
                     disabled={creating || !newBranch.trim() || !newPath.trim()}
-                    className="flex-1 rounded bg-gb-accent px-2 py-1 text-[11px] font-medium text-gb-bg disabled:opacity-40"
+                    className="flex-1 rounded bg-gb-accent px-2 py-1 text-[11px] font-medium text-gb-accent-fg disabled:opacity-40"
                   >
                     {creating ? "创建中…" : "创建"}
                   </button>
@@ -198,7 +198,7 @@ export function ProjectSelector({ cwd, onSwitchProject, variant = "full" }: Proj
             ) : (
               <button
                 onClick={() => setShowCreate(true)}
-                className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-accent hover:bg-gb-surface-hover"
+                className="w-full px-2.5 py-1.5 text-left text-[11px] text-gb-accent-text hover:bg-gb-surface-hover"
               >
                 + 新建 worktree…
               </button>

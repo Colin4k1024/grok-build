@@ -66,11 +66,11 @@ export function ModelEffortSelect({ config, model, effort, onChange }: Props) {
                 aria-selected={m.id === model}
                 onClick={() => onChange(m.id, effort)}
                 className={`flex w-full items-center justify-between px-2.5 py-1.5 text-left text-[12px] hover:bg-gb-surface-hover ${
-                  m.id === model ? "text-gb-accent" : "text-gb-text"
+                  m.id === model ? "text-gb-accent-text" : "text-gb-text"
                 }`}
               >
                 <span className="truncate">{m.name}</span>
-                {m.id === model && <span className="text-gb-accent">✓</span>}
+                {m.id === model && <span className="text-gb-accent-text">✓</span>}
               </button>
             ))}
           </div>
@@ -83,7 +83,7 @@ export function ModelEffortSelect({ config, model, effort, onChange }: Props) {
                   onClick={() => onChange(model, e.id)}
                   className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
                     e.id === effort
-                      ? "bg-gb-accent/15 text-gb-accent"
+                      ? "bg-gb-accent/15 text-gb-accent-text"
                       : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
                   }`}
                 >

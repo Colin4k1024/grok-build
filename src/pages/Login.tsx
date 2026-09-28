@@ -128,7 +128,7 @@ export function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         </div>
 
         <button
-          className="w-full rounded-lg bg-gb-accent px-4 py-3 text-sm font-medium text-gb-bg hover:opacity-80 disabled:opacity-40"
+          className="w-full rounded-lg bg-gb-accent px-4 py-3 text-sm font-medium text-gb-accent-fg hover:opacity-80 disabled:opacity-40"
           onClick={handleApiKeyLogin}
           disabled={loading}
         >

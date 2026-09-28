@@ -7,11 +7,13 @@ import {
   panelMotion,
   prefersReducedMotion,
   pressMotion,
+  subscribeReducedMotion,
   transitionFor,
 } from "../motion";
 
 describe("motion tokens", () => {
-  it("exposes fast/base/slow duration scale", () => {
+  it("exposes press/fast/base/slow duration scale", () => {
+    expect(MOTION_DURATIONS.press).toBe(120);
     expect(MOTION_DURATIONS.fast).toBe(140);
     expect(MOTION_DURATIONS.base).toBe(220);
     expect(MOTION_DURATIONS.slow).toBe(320);
@@ -118,5 +120,57 @@ describe("prefersReducedMotion", () => {
   it("fails safe to false without matchMedia", () => {
     vi.stubGlobal("matchMedia", undefined);
     expect(prefersReducedMotion()).toBe(false);
+  });
+});
+
+describe("subscribeReducedMotion", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function mockMql(initial: boolean) {
+    const listeners = new Set<() => void>();
+    const mql = {
+      matches: initial,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+      removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+    };
+    vi.stubGlobal("matchMedia", () => mql);
+    return {
+      mql,
+      fire(matches: boolean) {
+        mql.matches = matches;
+        for (const cb of [...listeners]) cb();
+      },
+      listenerCount: () => listeners.size,
+    };
+  }
+
+  it("fires immediately with the current value and on changes", () => {
+    const { fire } = mockMql(false);
+    const seen: boolean[] = [];
+    subscribeReducedMotion((v) => seen.push(v));
+    expect(seen).toEqual([false]);
+    fire(true);
+    expect(seen).toEqual([false, true]);
+  });
+
+  it("unsubscribes cleanly", () => {
+    const env = mockMql(true);
+    const seen: boolean[] = [];
+    const off = subscribeReducedMotion((v) => seen.push(v));
+    expect(env.listenerCount()).toBe(1);
+    off();
+    expect(env.listenerCount()).toBe(0);
+    env.fire(false);
+    expect(seen).toEqual([true]);
+  });
+
+  it("is a no-op without matchMedia", () => {
+    vi.stubGlobal("matchMedia", undefined);
+    const off = subscribeReducedMotion(() => {});
+    expect(typeof off).toBe("function");
+    expect(() => off()).not.toThrow();
   });
 });

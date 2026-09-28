@@ -50,7 +50,7 @@ export function GeneralSettings() {
               )}
               {updater.releaseNotes && (
                 <details className="mt-1">
-                  <summary className="cursor-pointer text-[11px] text-gb-accent hover:underline">
+                  <summary className="cursor-pointer text-[11px] text-gb-accent-text hover:underline">
                     Release notes
                   </summary>
                   <p className="mt-1 whitespace-pre-wrap rounded bg-gb-bg p-2 text-[10px] text-gb-text-secondary">
@@ -75,7 +75,7 @@ export function GeneralSettings() {
               <button
                 onClick={() => updater.downloadAndInstall()}
                 disabled={updater.downloading}
-                className="mt-2 rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
+                className="mt-2 rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-accent-fg disabled:opacity-50"
               >
                 {updater.downloading ? "下载中…" : "下载并安装"}
               </button>

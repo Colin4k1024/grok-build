@@ -248,7 +248,7 @@ function McpServerForm({ onSave, onCancel }: {
             enabled: true,
           })}
           disabled={!name || (type === "stdio" && !command) || (type === "http" && !url)}
-          className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
+          className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-accent-fg disabled:opacity-50"
         >
           Save Server
         </button>

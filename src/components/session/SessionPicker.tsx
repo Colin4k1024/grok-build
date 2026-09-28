@@ -195,7 +195,7 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
                     )}
                     <span>{session.num_messages} messages</span>
                     {restoring === session.id && (
-                      <span className="text-gb-accent">恢复中…</span>
+                      <span className="text-gb-accent-text">恢复中…</span>
                     )}
                   </div>
                 </div>

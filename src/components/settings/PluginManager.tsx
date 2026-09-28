@@ -269,7 +269,7 @@ export function PluginManager() {
                           handleInstall(entry);
                         }}
                         disabled={installing === entry.name}
-                        className="rounded bg-gb-accent px-2 py-1 text-[10px] text-gb-bg disabled:opacity-50"
+                        className="rounded bg-gb-accent px-2 py-1 text-[10px] text-gb-accent-fg disabled:opacity-50"
                       >
                         {installing === entry.name ? "安装中…" : "安装"}
                       </button>
@@ -442,7 +442,7 @@ function PluginDetailModal({
             <button
               onClick={() => onInstall(entry)}
               disabled={installing}
-              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-bg hover:opacity-85 disabled:opacity-40"
+              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-accent-fg hover:opacity-85 disabled:opacity-40"
             >
               {installing ? "安装中…" : "安装"}
             </button>

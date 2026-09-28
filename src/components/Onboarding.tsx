@@ -114,7 +114,7 @@ export function Onboarding({ onComplete }: Props) {
             )}
             <button
               onClick={handleNext}
-              className="rounded bg-gb-accent px-4 py-1.5 text-xs text-gb-bg"
+              className="rounded bg-gb-accent px-4 py-1.5 text-xs text-gb-accent-fg"
             >
               {isLast ? "开始使用" : "下一步"}
             </button>

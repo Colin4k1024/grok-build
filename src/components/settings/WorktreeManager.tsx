@@ -131,7 +131,7 @@ export function WorktreeManager() {
             <button
               onClick={handleCreate}
               disabled={creating || !selectedBranch || !worktreePath}
-              className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-bg disabled:opacity-50"
+              className="rounded bg-gb-accent px-3 py-1.5 text-xs text-gb-accent-fg disabled:opacity-50"
             >
               {creating ? "创建中…" : "创建并打开会话"}
             </button>
@@ -151,7 +151,7 @@ export function WorktreeManager() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gb-text">{wt.branch || "(detached)"}</span>
                   {wt.is_main && (
-                    <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[9px] text-gb-accent">主分支</span>
+                    <span className="rounded bg-gb-accent/15 px-1.5 py-0.5 text-[9px] text-gb-accent-text">主分支</span>
                   )}
                 </div>
                 {!wt.is_main && (

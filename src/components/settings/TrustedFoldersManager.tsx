@@ -109,7 +109,7 @@ export function TrustedFoldersManager() {
           <button
             onClick={handleAdd}
             disabled={!newPath.trim()}
-            className="rounded bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-bg hover:opacity-85 disabled:opacity-30"
+            className="rounded bg-gb-accent px-3 py-1.5 text-xs font-medium text-gb-accent-fg hover:opacity-85 disabled:opacity-30"
           >
             Trust
           </button>

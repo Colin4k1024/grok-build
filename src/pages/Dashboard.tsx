@@ -87,7 +87,7 @@ export function Dashboard({ onClose, onOpenSession }: Props) {
                       <div className="flex items-center justify-between">
                         <span className="truncate text-xs font-medium">{tab.title || "Untitled"}</span>
                         {isActive && (
-                          <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[9px] text-gb-accent">活跃</span>
+                          <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[9px] text-gb-accent-text">活跃</span>
                         )}
                       </div>
                       <div className="mt-1 truncate text-[10px] text-gb-muted">{tab.cwd}</div>

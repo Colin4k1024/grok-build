@@ -98,7 +98,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
         <div className="flex gap-2">
           <button
             onClick={() => setShowForm((v) => !v)}
-            className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-gb-bg hover:opacity-85"
+            className="rounded bg-gb-accent px-3 py-1 text-[12px] font-medium text-gb-accent-fg hover:opacity-85"
           >
             {showForm ? "Cancel" : "+ New"}
           </button>
@@ -144,7 +144,7 @@ export function AutomationsPage({ onClose }: { onClose: () => void }) {
             <button
               onClick={handleCreate}
               disabled={!name.trim() || !prompt.trim()}
-              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-bg disabled:opacity-40"
+              className="rounded bg-gb-accent px-3 py-1.5 text-[12px] font-medium text-gb-accent-fg disabled:opacity-40"
             >
               Create
             </button>
