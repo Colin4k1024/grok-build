@@ -21,7 +21,7 @@
  * per-tab stdio `AcpSession` model. The transport is not constructed.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -112,7 +112,7 @@ export class AcpTransportError extends Error {
  * remains as the rollback when ACP_MULTI_SESSION=off.
  */
 export class AcpTransport {
-  private proc: ChildProcessWithoutNullStreams | null = null;
+  private proc: ChildProcess | null = null;
   private ws: import("ws").WebSocket | null = null;
   private port: number | null = null;
   private secret: string | null = null;
@@ -360,18 +360,19 @@ export class AcpTransport {
       "--secret", this.secret,
     ];
     const env = { ...process.env, ...readKeyStore() };
-    this.proc = spawn(this.agentBin, args, {
+    const proc = spawn(this.agentBin, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env,
     });
-    this.proc.stderr?.on("data", (c: Buffer) => {
+    this.proc = proc;
+    proc.stderr?.on("data", (c: Buffer) => {
       const s = c.toString("utf-8").trim();
       if (s) console.error(`[acp-transport] stderr: ${s.slice(0, 300)}`);
     });
-    this.proc.on("error", (e) => {
+    proc.on("error", (e) => {
       console.error("[acp-transport] process error:", e);
     });
-    this.proc.on("exit", (code, signal) => {
+    proc.on("exit", (code, signal) => {
       console.error(`[acp-transport] exited code=${code} signal=${signal}`);
       if (!this.disposed && this.ready) {
         // The agent died unexpectedly — surface to all sessions and mark

@@ -632,7 +632,8 @@ ipcMain.handle("session_send", (e, args: { session_id: string; message: string; 
 
 ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
-  const session = id ? sessions.get(id) : undefined;
+  if (!id) return ok(null);
+  const session = sessions.get(id);
   if (!session) return ok(null);
   if (session.usesTransport) {
     // R3-02 (#187): cancel one session — does not affect others on the
@@ -645,7 +646,8 @@ ipcMain.handle("session_cancel", (_e, args: { sessionId?: string; session_id?: s
 });
 ipcMain.handle("session_compact", async (_e, args: { sessionId?: string; session_id?: string }) => {
   const id = args.sessionId ?? args.session_id;
-  const session = id ? sessions.get(id) : undefined;
+  if (!id) throw new Error("Session id is required");
+  const session = sessions.get(id);
   if (!session) throw new Error(`Session ${id} not found`);
   if (session.usesTransport) {
     // /compact is just a prompt — route through the transport.
