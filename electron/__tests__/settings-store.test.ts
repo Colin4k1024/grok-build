@@ -55,6 +55,33 @@ describe("settings file store (R4-05 #238)", () => {
     expect(() => writeSettingsValue(dir, "a.b", undefined)).toThrow(/invalid_value/);
     expect(() => writeSettingsValue(dir, "a.b", () => {})).toThrow(/invalid_value/);
     expect(() => writeSettingsValue(dir, "a.b", "x".repeat(20 * 1024))).toThrow(/invalid_value/);
+    // multi-byte text must count BYTES, not UTF-16 units
+    expect(() => writeSettingsValue(dir, "a.b", "汉".repeat(6000))).toThrow(/invalid_value/);
+  });
+
+  it("rejects credential-shaped keys (defense in depth)", () => {
+    for (const key of ["apiKey", "openai_api_key", "auth.token", "db.password", "mySecret"]) {
+      expect(() => writeSettingsValue(dir, key, "x"), key).toThrow(/invalid_key/);
+    }
+  });
+
+  it("rejects a document whose values is null", () => {
+    const { writeFileSync } = require("node:fs");
+    writeFileSync(path.join(dir, "gb-settings.json"), JSON.stringify({ version: 1, values: null }));
+    expect(readSettingsFile(dir).values).toEqual({});
+    expect(readdirSync(dir).some((f) => f.includes("corrupt-"))).toBe(true);
+    // and a subsequent write must not crash on the quarantined shape
+    writeSettingsValue(dir, "a.b", 1);
+    expect(readSettingsFile(dir).values["a.b"]).toBe(1);
+  });
+
+  it("repeated corruption produces distinct quarantine files", () => {
+    const { writeFileSync } = require("node:fs");
+    writeFileSync(path.join(dir, "gb-settings.json"), "{ broken 1");
+    readSettingsFile(dir);
+    writeFileSync(path.join(dir, "gb-settings.json"), "{ broken 2");
+    readSettingsFile(dir);
+    expect(readdirSync(dir).filter((f) => f.includes("corrupt-")).length).toBe(2);
   });
 
   it("quarantines a corrupt file instead of losing the store", () => {

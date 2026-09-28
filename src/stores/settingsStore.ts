@@ -17,6 +17,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { getSettingsBridge } from "../config/fileSync";
+import { getSetting, listSettings } from "../config/registry";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -119,7 +120,7 @@ const dualWriteStorage: StateStorage = {
     } catch {}
     getSettingsBridge()
       ?.set(name, value)
-      .catch(() => {});
+      .catch((e) => console.warn("[settings] file mirror write failed:", e));
   },
   removeItem: (name) => {
     try {
@@ -127,7 +128,7 @@ const dualWriteStorage: StateStorage = {
     } catch {}
     getSettingsBridge()
       ?.delete(name)
-      .catch(() => {});
+      .catch((e) => console.warn("[settings] file mirror delete failed:", e));
   },
 };
 
@@ -198,6 +199,13 @@ export const useSettingsStore = create<SettingsState>()(
         }),
 
       setGlobalByKey: (storeKey, value) => {
+        // Validation is mandatory even for direct store writes — an invalid
+        // value must never reach persisted state (R4-05 acceptance).
+        const def = listSettings().find((d) => d.storeKey === storeKey);
+        if (!def) throw new Error(`unknown settings store key: ${storeKey}`);
+        if (!def.validate(value)) {
+          throw new Error(`invalid value for ${def.id}: ${JSON.stringify(value)}`);
+        }
         const s = get();
         switch (storeKey) {
           case "theme": return s.setTheme(value as ThemeMode);
@@ -211,19 +219,27 @@ export const useSettingsStore = create<SettingsState>()(
           case "voiceTtsEnabled": return s.setVoiceTtsEnabled(value as boolean);
           case "notificationsEnabled": return s.setNotificationsEnabled(value as boolean);
           case "trustedFolders":
-            if (!Array.isArray(value)) throw new Error("trustedFolders must be an array");
             return set({ trustedFolders: value as string[] });
           default:
-            throw new Error(`unknown settings store key: ${storeKey}`);
+            throw new Error(`unbound settings store key: ${storeKey}`);
         }
       },
-      setProjectOverride: (projectId, settingId, value) =>
+      setProjectOverride: (projectId, settingId, value) => {
+        const def = getSetting(settingId);
+        if (!def) throw new Error(`unknown setting id: ${settingId}`);
+        if (!def.scopes.includes("project")) {
+          throw new Error(`${settingId} does not allow project scope`);
+        }
+        if (!def.validate(value)) {
+          throw new Error(`invalid value for ${settingId}: ${JSON.stringify(value)}`);
+        }
         set((s) => ({
           projectOverrides: {
             ...s.projectOverrides,
             [projectId]: { ...(s.projectOverrides[projectId] ?? {}), [settingId]: value },
           },
-        })),
+        }));
+      },
       clearProjectOverride: (projectId, settingId) =>
         set((s) => {
           const current = { ...(s.projectOverrides[projectId] ?? {}) };
@@ -245,22 +261,68 @@ export const useSettingsStore = create<SettingsState>()(
       name: "gb-settings",
       storage: createJSONStorage(() => dualWriteStorage),
       version: 1,
+      // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
+      // only on version bumps: any persisted value failing its registry
+      // validator falls back to the default instead of poisoning the app.
+      merge: (persisted, current) => {
+        const state = persisted as Record<string, unknown> | undefined;
+        if (!state || typeof state !== "object") return current;
+        const byStoreKey = new Map(
+          listSettings()
+            .filter((d) => d.storeKey)
+            .map((d) => [d.storeKey as string, d]),
+        );
+        const out: Record<string, unknown> = { ...state };
+        for (const [key, def] of byStoreKey) {
+          if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
+        }
+        if (out.projectOverrides && typeof out.projectOverrides === "object") {
+          const overrides = out.projectOverrides as Record<string, Record<string, unknown>>;
+          const cleaned: Record<string, Record<string, unknown>> = {};
+          for (const [projectId, entries] of Object.entries(overrides)) {
+            if (!entries || typeof entries !== "object") continue;
+            const kept: Record<string, unknown> = {};
+            for (const [settingId, value] of Object.entries(entries)) {
+              const def = getSetting(settingId);
+              if (def && def.scopes.includes("project") && def.validate(value)) {
+                kept[settingId] = value;
+              }
+            }
+            if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
+          }
+          out.projectOverrides = cleaned;
+        }
+        return { ...current, ...out };
+      },
     }
   )
 );
 
-// Multi-window sync: another window's file write rehydrates this store.
-// Content-compare guards against any echo loop.
+// Multi-window sync + boot read-repair: the durable file is canonical.
+// Content-compare guards against any echo loop (main broadcasts only to
+// non-sender windows, but belt and braces).
 if (typeof window !== "undefined") {
-  getSettingsBridge()?.onChanged((doc) => {
-    const remote = doc.values["gb-settings"];
-    if (typeof remote !== "string") return;
+  const applyRemoteBlob = (blob: string) => {
     try {
-      if (localStorage.getItem("gb-settings") === remote) return;
-      localStorage.setItem("gb-settings", remote);
+      if (localStorage.getItem("gb-settings") === blob) return;
+      localStorage.setItem("gb-settings", blob);
       useSettingsStore.persist.rehydrate();
     } catch {
       /* storage unavailable */
     }
-  });
+  };
+  const bridge = getSettingsBridge();
+  if (bridge) {
+    bridge
+      .getAll()
+      .then((doc) => {
+        const remote = doc.values["gb-settings"];
+        if (typeof remote === "string") applyRemoteBlob(remote);
+      })
+      .catch(() => {});
+    bridge.onChanged((doc) => {
+      const remote = doc.values["gb-settings"];
+      if (typeof remote === "string") applyRemoteBlob(remote);
+    });
+  }
 }

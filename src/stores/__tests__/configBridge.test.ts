@@ -7,7 +7,7 @@ import {
   resetScopedValue,
   setScopedValue,
 } from "../../config/storeBridge";
-import { registryErrors } from "../../config/registry";
+import { listSettings, registryErrors } from "../../config/registry";
 
 beforeEach(() => {
   localStorage.clear();
@@ -31,6 +31,37 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
       expect(r.value).toBeDefined();
       expect(storeKey).toBeTruthy();
     }
+  });
+
+  it("completeness: every global-scoped setting has a store binding, and vice versa", () => {
+    const bindings = listStoreBindings();
+    for (const def of listSettings()) {
+      if (def.scopes.includes("global")) {
+        expect(bindings[def.id], `${def.id} is global-scoped but unbound`).toBeTruthy();
+      }
+    }
+    for (const id of Object.keys(bindings)) {
+      expect(listSettings().some((d) => d.id === id), `binding ${id} has no schema entry`).toBe(true);
+    }
+  });
+
+  it("provenance: a project override equal to the default still reports project", () => {
+    setScopedValue("appearance.theme", "light", "global");
+    // project deliberately pins "dark" — equal to the product default but
+    // an intentional override: resetting the project must reveal "light".
+    setScopedValue("appearance.theme", "dark", "project", "/proj/a");
+    const r = resolveFromStore("appearance.theme", "/proj/a");
+    expect(r.value).toBe("dark");
+    expect(r.source).toBe("project");
+    expect(r.overridden).toBe(true);
+  });
+
+  it("provenance: a global value equal to the default reports as default (flat-store compat)", () => {
+    // untouched store: flat field holds the default
+    expect(resolveFromStore("appearance.theme").source).toBe("default");
+    // after a REAL change, source is global
+    setScopedValue("appearance.theme", "light", "global");
+    expect(resolveFromStore("appearance.theme").source).toBe("global");
   });
 
   it("global writes go through the typed path and resolve back", () => {
@@ -87,6 +118,18 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
   it("rejects unknown setting ids and unknown store keys", () => {
     expect(() => setScopedValue("nope.nope", 1, "global")).toThrow(/unknown_key/);
     expect(() => useSettingsStore.getState().setGlobalByKey("nope", 1)).toThrow(/unknown settings store key/);
+  });
+
+  it("direct store actions validate too (no bypass path)", () => {
+    expect(() => useSettingsStore.getState().setGlobalByKey("theme", "banana")).toThrow(/invalid value/);
+    expect(useSettingsStore.getState().theme).toBe("dark");
+    expect(() =>
+      useSettingsStore.getState().setProjectOverride("/p", "appearance.theme", "banana"),
+    ).toThrow(/invalid value/);
+    expect(() =>
+      useSettingsStore.getState().setProjectOverride("/p", "unknown.id", 1),
+    ).toThrow(/unknown setting id/);
+    expect(useSettingsStore.getState().projectOverrides["/p"]).toBeUndefined();
   });
 
   it("project overrides persist through the store's persist layer", () => {

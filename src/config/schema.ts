@@ -7,7 +7,6 @@ import type { SettingDefinition } from "./types";
  * the main-process secure store.
  */
 
-const isString = (v: unknown): v is string => typeof v === "string";
 const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStringArray = (v: unknown): v is string[] =>
@@ -26,6 +25,7 @@ const SANDBOX_MODES = ["sandbox", "full"] as const;
 export const SETTINGS_SCHEMA: SettingDefinition[] = [
   {
     id: "appearance.theme",
+    storeKey: "theme",
     category: "appearance",
     label: "主题",
     description: "深色、浅色或跟随系统",
@@ -39,6 +39,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "appearance.fontSize",
+    storeKey: "fontSize",
     category: "appearance",
     label: "界面字号",
     description: "全局界面文字大小档位",
@@ -52,6 +53,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "appearance.zoom",
+    storeKey: "zoom",
     category: "appearance",
     label: "界面缩放",
     description: "窗口整体缩放比例（1.0 = 100%）",
@@ -64,6 +66,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "permissions.sandboxMode",
+    storeKey: "sandboxMode",
     category: "permissions",
     label: "沙箱模式",
     description: "限制代理的文件与命令访问范围",
@@ -77,6 +80,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.mode",
+    storeKey: "agentMode",
     category: "agent",
     label: "代理模式",
     description: "code / architect / debug 工作模式",
@@ -90,6 +94,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.autonomous",
+    storeKey: "agentAutonomous",
     category: "agent",
     label: "自治执行",
     description: "允许代理在低风险操作上自动继续（高风险仍需批准）",
@@ -103,6 +108,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.language",
+    storeKey: "voiceLanguage",
     category: "voice",
     label: "语音语言",
     description: "语音识别输入语言",
@@ -116,6 +122,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.wakeEnabled",
+    storeKey: "voiceWakeEnabled",
     category: "voice",
     label: "唤醒词",
     description: "启用语音唤醒",
@@ -129,6 +136,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.ttsEnabled",
+    storeKey: "voiceTtsEnabled",
     category: "voice",
     label: "语音播报",
     description: "朗读代理回复",
@@ -142,6 +150,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "notifications.enabled",
+    storeKey: "notificationsEnabled",
     category: "notifications",
     label: "桌面通知",
     description: "任务完成或需要处理时发送系统通知",
@@ -154,6 +163,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "general.trustedFolders",
+    storeKey: "trustedFolders",
     category: "general",
     label: "受信任目录",
     description: "这些目录中的项目跳过逐项权限确认",
@@ -164,17 +174,5 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     advanced: true,
     saveMode: "staged",
     validate: isStringArray,
-  },
-  {
-    id: "general.language",
-    category: "general",
-    label: "界面语言",
-    description: "界面显示语言（当前仅中文）",
-    type: "string",
-    defaultValue: "zh-CN",
-    scopes: ["global"],
-    keywords: ["language", "语言", "locale"],
-    saveMode: "immediate",
-    validate: isString,
   },
 ];

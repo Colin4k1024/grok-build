@@ -34,6 +34,9 @@ export interface SettingDefinition<T = unknown> {
   saveMode: "immediate" | "staged";
   /** Allowed values for type === "enum". */
   enumValues?: readonly T[];
+  /** Flat field name in the legacy settingsStore (global layer binding).
+   *  Absent means the setting has no global store binding. */
+  storeKey?: string;
   /** Runtime type guard — the single validation authority. */
   validate: (value: unknown) => value is T;
 }

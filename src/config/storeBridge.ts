@@ -1,4 +1,4 @@
-import { getSetting, resolveSetting } from "./index";
+import { getSetting, listSettings, resolveSetting } from "./index";
 import type { ResolvedSetting } from "./types";
 import { useSettingsStore } from "../stores/settingsStore";
 
@@ -8,20 +8,13 @@ import { useSettingsStore } from "../stores/settingsStore";
  * re-declaring defaults or merging scopes by hand.
  */
 
-/** registry id -> flat settingsStore field (global layer). */
-const STORE_KEYS: Record<string, string> = {
-  "appearance.theme": "theme",
-  "appearance.fontSize": "fontSize",
-  "appearance.zoom": "zoom",
-  "permissions.sandboxMode": "sandboxMode",
-  "agent.mode": "agentMode",
-  "agent.autonomous": "agentAutonomous",
-  "voice.language": "voiceLanguage",
-  "voice.wakeEnabled": "voiceWakeEnabled",
-  "voice.ttsEnabled": "voiceTtsEnabled",
-  "notifications.enabled": "notificationsEnabled",
-  "general.trustedFolders": "trustedFolders",
-};
+/** registry id -> flat settingsStore field, derived from each definition's
+ *  storeKey in src/config/schema.ts (single declaration site). */
+const STORE_KEYS: Record<string, string> = Object.fromEntries(
+  listSettings()
+    .filter((d) => d.storeKey)
+    .map((d) => [d.id, d.storeKey as string]),
+);
 
 export class SettingWriteError extends Error {
   code: "unknown_key" | "invalid_value" | "scope_not_allowed";
@@ -40,9 +33,13 @@ function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /** Resolve a setting's effective value + source for a project context.
- *  The flat legacy store always holds a value, so a global layer equal to
- *  the default is reported as "default" (the user never meaningfully
- *  overrode it) — matching how the settings UI should present source. */
+ *
+ *  Provenance rule: the flat legacy store cannot distinguish "never
+ *  touched" from "set to the default", so a GLOBAL layer equal to the
+ *  default reports as source "default" (compat heuristic, documented).
+ *  Project/session layers NEVER get this downgrade — an override entry
+ *  exists only because someone wrote it, so its provenance is real even
+ *  when its value equals the default. */
 export function resolveFromStore<T = unknown>(
   settingId: string,
   projectId?: string,
@@ -55,7 +52,7 @@ export function resolveFromStore<T = unknown>(
     global: storeKey ? (s as unknown as Record<string, unknown>)[storeKey] : undefined,
     project: projectId ? s.projectOverrides[projectId]?.[settingId] : undefined,
   }) as ResolvedSetting<T>;
-  if (resolved.source !== "default" && deepEqual(resolved.value, def.defaultValue)) {
+  if (resolved.source === "global" && deepEqual(resolved.value, def.defaultValue)) {
     return { ...resolved, source: "default", overridden: false };
   }
   return resolved;

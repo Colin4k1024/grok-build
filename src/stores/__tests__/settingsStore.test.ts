@@ -71,6 +71,32 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     localStorage.removeItem("gb-settings");
     expect(useSettingsStore.getState().theme).toBeDefined();
   });
+
+  it("invalid persisted values are sanitized to registry defaults on hydrate (R4-05 #238)", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({
+        state: {
+          theme: "banana", // invalid enum
+          zoom: 99, // out of range
+          sandboxMode: "full", // valid
+          projectOverrides: {
+            "/p1": { "appearance.theme": "light", "appearance.zoom": 99, "nope.key": 1 },
+            "/p2": "garbage",
+          },
+        },
+        version: 1,
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    const s = useSettingsStore.getState();
+    expect(s.theme).toBe("dark"); // sanitized
+    expect(s.zoom).toBe(1.0); // sanitized
+    expect(s.sandboxMode).toBe("full"); // valid value preserved
+    expect(s.projectOverrides["/p1"]).toEqual({ "appearance.theme": "light" });
+    expect(s.projectOverrides["/p2"]).toBeUndefined();
+  });
 });
 
 describe("reset excludes secrets (R3-11 #196)", () => {

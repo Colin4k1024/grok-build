@@ -45,10 +45,21 @@ describe("scope resolver (R4-05 #238)", () => {
     expect(frozen).toEqual({ global: "light", project: "banana" });
   });
 
-  it("null/undefined layers are absent, not invalid", () => {
+  it("undefined layers are absent; explicit null is a corrupted (invalid) value", () => {
     const r = resolveSetting(theme, { global: undefined, project: null });
     expect(r.source).toBe("default");
-    expect(r.invalidSources).toEqual([]);
+    expect(r.invalidSources).toEqual(["project"]);
+  });
+
+  it("invalid LOWER layers are still reported after a higher layer wins", () => {
+    const mode = getSetting("agent.mode")!;
+    const r = resolveSetting(mode, { project: "debug", global: "nonsense" });
+    expect(r.source).toBe("project");
+    expect(r.invalidSources).toEqual(["global"]);
+    // and when only lower layers are invalid, default wins
+    const r2 = resolveSetting(mode, { global: "nonsense" });
+    expect(r2.source).toBe("default");
+    expect(r2.invalidSources).toEqual(["global"]);
   });
 
   it("validates array-typed settings element-wise", () => {

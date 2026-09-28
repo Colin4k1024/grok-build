@@ -26,6 +26,9 @@ export class SettingsStoreError extends Error {
 
 const FILE_NAME = "gb-settings.json";
 const KEY_PATTERN = /^[a-zA-Z0-9._-]{1,128}$/;
+/** Settings are never credentials — refuse credential-shaped keys outright
+ *  (defense in depth; the renderer registry never declares them either). */
+const SECRET_PATTERN = /api[-_]?key|token|secret|password|credential/i;
 const MAX_VALUE_BYTES = 16 * 1024;
 
 function filePath(dir: string): string {
@@ -35,6 +38,9 @@ function filePath(dir: string): string {
 function assertKey(key: unknown): asserts key is string {
   if (typeof key !== "string" || !KEY_PATTERN.test(key)) {
     throw new SettingsStoreError("invalid_key", `malformed settings key: ${JSON.stringify(key)}`);
+  }
+  if (SECRET_PATTERN.test(key)) {
+    throw new SettingsStoreError("invalid_key", "credential-shaped keys are not settings");
   }
 }
 
@@ -48,7 +54,8 @@ function assertValue(value: unknown): void {
   if (json === undefined) {
     throw new SettingsStoreError("invalid_value", "value must be JSON-serializable (got undefined)");
   }
-  if (json.length > MAX_VALUE_BYTES) {
+  // Byte-accurate limit (JSON.stringify length undercounts multi-byte text).
+  if (Buffer.byteLength(json, "utf-8") > MAX_VALUE_BYTES) {
     throw new SettingsStoreError("invalid_value", `value exceeds ${MAX_VALUE_BYTES} bytes`);
   }
 }
@@ -59,12 +66,14 @@ function isValidDoc(doc: unknown): doc is SettingsFile {
     doc !== null &&
     (doc as SettingsFile).version === 1 &&
     typeof (doc as SettingsFile).values === "object" &&
+    (doc as SettingsFile).values !== null &&
     !Array.isArray((doc as SettingsFile).values)
   );
 }
 
-/** Read the store; a missing file is an empty store, a corrupt file is
- *  quarantined (renamed, never overwritten) and reported as empty. */
+/** Read the store; a missing file is an empty store. A corrupt file is
+ *  quarantined under a unique name (copy fallback if rename fails) so the
+ *  original is never silently overwritten. */
 export function readSettingsFile(dir: string): SettingsFile {
   const file = filePath(dir);
   let raw: string;
@@ -78,11 +87,15 @@ export function readSettingsFile(dir: string): SettingsFile {
     if (isValidDoc(parsed)) return parsed;
     throw new Error("bad shape");
   } catch {
-    const quarantine = `${file}.corrupt-${Date.now()}`;
+    const unique = `${file}.corrupt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     try {
-      fs.renameSync(file, quarantine);
+      fs.renameSync(file, unique);
     } catch {
-      /* quarantine failed — still don't trust the content */
+      try {
+        fs.copyFileSync(file, unique);
+      } catch {
+        /* even the copy failed — still don't trust the content */
+      }
     }
     return { version: 1, values: {} };
   }
