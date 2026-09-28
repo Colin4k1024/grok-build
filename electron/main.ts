@@ -1368,13 +1368,19 @@ ipcMain.handle("settings_transfer_save", async (_e, args: { content: string; def
   if (Buffer.byteLength(args.content, "utf-8") > 1024 * 1024) {
     throw new Error("settings_transfer_save: content too large");
   }
+  // Only a bare file NAME is honored from the renderer — never a path.
+  const safeName = path.basename(String(args.defaultPath ?? "grok-build-settings.json"));
   const r = await dialog.showSaveDialog(mainWindow, {
     title: "导出设置",
-    defaultPath: args.defaultPath ?? "grok-build-settings.json",
+    defaultPath: safeName,
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
   if (r.canceled || !r.filePath) return { path: null };
-  fs.writeFileSync(r.filePath, args.content, "utf-8");
+  try {
+    fs.writeFileSync(r.filePath, args.content, "utf-8");
+  } catch (e) {
+    throw new Error(`settings_transfer_save: write failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return { path: r.filePath };
 });
 
@@ -1386,9 +1392,16 @@ ipcMain.handle("settings_transfer_open", async () => {
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
   if (r.canceled || r.filePaths.length === 0) return { content: null };
-  const stat = fs.statSync(r.filePaths[0]);
-  if (stat.size > 1024 * 1024) throw new Error("settings_transfer_open: file too large");
-  return { content: fs.readFileSync(r.filePaths[0], "utf-8"), path: r.filePaths[0] };
+  try {
+    const stat = fs.statSync(r.filePaths[0]);
+    if (stat.size > 1024 * 1024) throw new Error("file too large");
+    return { content: fs.readFileSync(r.filePaths[0], "utf-8"), path: r.filePaths[0] };
+  } catch (e) {
+    // A file that vanishes or becomes unreadable between dialog and read
+    // is a clean null, not an unhandled rejection.
+    console.warn("[settings] transfer open failed:", e);
+    return { content: null };
+  }
 });
 
 

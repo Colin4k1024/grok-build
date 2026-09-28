@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { useSettingsStore } from "../settingsStore";
+import { CURRENT_SETTINGS_VERSION } from "../../config/version";
 
 beforeEach(() => {
   localStorage.clear();
@@ -109,6 +110,18 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect(s.theme).toBe("light"); // valid v1 value survives migration
     expect(s.zoom).toBe(1.0); // invalid v1 value sanitized by the pipeline
     expect(s.projectOverrides).toEqual({}); // layer guaranteed by migration
+  });
+
+  it("the persist layer is wired to the migration pipeline (M1 regression)", async () => {
+    // A passthrough migrate hook must fail this test — it pins the wiring,
+    // not just the sanitizer outcome.
+    const opts = useSettingsStore.persist.getOptions();
+    expect(opts.version).toBe(CURRENT_SETTINGS_VERSION);
+    expect(typeof opts.migrate).toBe("function");
+    // and the pipeline itself runs (v1 fixture through the real hook)
+    const migrated = await opts.migrate!({ theme: "banana" } as never, 1);
+    expect((migrated as { theme: string }).theme).toBe("dark");
+    expect((migrated as { projectOverrides: unknown }).projectOverrides).toEqual({});
   });
 });
 

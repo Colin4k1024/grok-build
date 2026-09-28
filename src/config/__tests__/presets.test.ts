@@ -74,6 +74,24 @@ describe("configuration presets (R4-06 #239)", () => {
     expect(() => applyPreset("does-not-exist", "global")).toThrow(/unknown preset/i);
   });
 
+  it("builtin preset ids are reserved — a user preset cannot shadow them", () => {
+    expect(() =>
+      useSettingsStore.getState().saveUserPreset("safe", "假冒安全", { "agent.mode": "debug" }),
+    ).toThrow(/reserved/i);
+    // and deleting a (nonexistent) user preset named 'safe' must not touch
+    // the builtin
+    expect(() => useSettingsStore.getState().deleteUserPreset("safe")).toThrow(/unknown preset/);
+    expect(BUILTIN_PRESETS.find((p) => p.id === "safe")).toBeDefined();
+  });
+
+  it("user presets reject sensitive settings", () => {
+    expect(() =>
+      useSettingsStore.getState().saveUserPreset("s", "敏感", {
+        "general.trustedFolders": ["/x"],
+      }),
+    ).toThrow(/sensitive/i);
+  });
+
   it("applying a user preset applies its values", () => {
     useSettingsStore.getState().saveUserPreset("dbg", "调试", { "agent.mode": "debug" });
     const r = applyPreset("dbg", "global");

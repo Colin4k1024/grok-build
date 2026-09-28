@@ -1,5 +1,5 @@
-import { listSettings, getSetting } from "./registry";
 import { CURRENT_SETTINGS_VERSION } from "./version";
+import { sanitizePersistedState } from "./sanitize";
 
 /**
  * Sequential settings migration pipeline (R4-06 #239). Steps run in order
@@ -15,33 +15,13 @@ export interface MigrationStep {
   migrate: (state: Record<string, unknown>) => Record<string, unknown>;
 }
 
-/** v1 → v2: sanitize every flat field against the registry and guarantee
- *  the projectOverrides layer exists (the R4-05 shape). */
+/** v1 → v2: the shared registry sanitizer (also the persist merge guard)
+ *  plus guaranteeing the projectOverrides layer exists. */
 function migrateV1toV2(state: Record<string, unknown>): Record<string, unknown> {
   if (typeof state !== "object" || state === null || Array.isArray(state)) {
     throw new Error("v1 state is not an object");
   }
-  const out: Record<string, unknown> = { ...state };
-  for (const def of listSettings()) {
-    if (!def.storeKey) continue;
-    const key = def.storeKey;
-    if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
-  }
-  const raw = out.projectOverrides;
-  const cleaned: Record<string, Record<string, unknown>> = {};
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
-      if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
-      const kept: Record<string, unknown> = {};
-      for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
-        const def = getSetting(settingId);
-        if (def && def.scopes.includes("project") && def.validate(value)) kept[settingId] = value;
-      }
-      if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
-    }
-  }
-  out.projectOverrides = cleaned;
-  return out;
+  return sanitizePersistedState(state);
 }
 
 export const MIGRATIONS: MigrationStep[] = [

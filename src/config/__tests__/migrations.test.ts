@@ -8,6 +8,9 @@ describe("settings migrations (R4-06 #239)", () => {
   });
 
   it("migration chain is ordered and contiguous", () => {
+    if (MIGRATIONS.length > 0) {
+      expect(MIGRATIONS[0].from).toBe(1); // chain starts at the legacy version
+    }
     for (let i = 1; i < MIGRATIONS.length; i++) {
       expect(MIGRATIONS[i].from).toBe(MIGRATIONS[i - 1].to);
     }

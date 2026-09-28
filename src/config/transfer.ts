@@ -5,9 +5,10 @@ import { CURRENT_SETTINGS_VERSION } from "./version";
 
 /**
  * Settings import/export (R4-06 #239). Exports are versioned and strip
- * sensitive settings. Imports are validated end-to-end BEFORE anything is
- * applied — a broken document changes nothing; a valid one reports exactly
- * what it will add/change/reset and at which scope.
+ * sensitive settings. Imports validate the WHOLE document before anything
+ * is applied — a broken document changes nothing; a valid preview shows
+ * exactly what will be added/changed/reset and at which scope.
+ * applyImport rolls back to a snapshot if any write fails mid-apply.
  */
 
 export interface SettingsExportDoc {
@@ -51,13 +52,14 @@ export function exportSettings(): SettingsExportDoc {
 export interface ImportPreview {
   ok: boolean;
   errors: string[];
-  /** Keys that would be set and are currently at default. */
+  /** Keys that would be set and are currently at default. Entries are
+   *  scope-tagged: "appearance.theme" or "/proj:appearance.theme". */
   added: string[];
   /** Keys whose effective value would change. */
   changed: string[];
   /** Keys currently overridden that the document would reset (replace mode). */
   reset: string[];
-  /** Unknown or out-of-scope keys skipped silently. */
+  /** Unknown, sensitive, or out-of-scope keys the import would skip. */
   ignored: string[];
   /** The parsed document — internal handle for applyImport. */
   doc?: SettingsExportDoc;
@@ -65,7 +67,7 @@ export interface ImportPreview {
 
 export function previewImport(
   json: string,
-  opts: { mode?: "merge" | "replace"; projectId?: string } = {},
+  opts: { mode?: "merge" | "replace" } = {},
 ): ImportPreview {
   const mode = opts.mode ?? "merge";
   const errors: string[] = [];
@@ -101,35 +103,47 @@ export function previewImport(
     return { ok: false, errors: ["projects 必须是对象"], added, changed, reset, ignored };
   }
 
-  const current = useSettingsStore.getState();
-
-  const classify = (settingId: string, value: unknown, scope: "global" | "project", projectId?: string) => {
+  // Every entry applyImport would write is classified HERE — preview and
+  // apply never disagree about scope (R4-06 review).
+  const classify = (
+    settingId: string,
+    value: unknown,
+    scope: "global" | "project",
+    projectId: string | undefined,
+  ) => {
+    const tag = projectId ? `${projectId}:${settingId}` : settingId;
     const def = getSetting(settingId);
     if (!def) {
-      ignored.push(settingId);
+      ignored.push(`${tag}（未知配置项）`);
+      return;
+    }
+    if (def.sensitive) {
+      ignored.push(`${tag}（敏感项不导入）`);
       return;
     }
     if (!def.scopes.includes(scope)) {
-      ignored.push(`${settingId} (${scope} 不允许)`);
+      ignored.push(`${tag}（${scope} 作用域不允许）`);
       return;
     }
     if (!def.validate(value)) {
-      errors.push(`${settingId}: 非法值 ${JSON.stringify(value)}`);
+      errors.push(`${tag}: 非法值 ${JSON.stringify(value)}`);
       return;
     }
     const cur = resolveFromStore(settingId, projectId);
     if (cur.source === "default") {
-      if (JSON.stringify(cur.value) !== JSON.stringify(value)) added.push(settingId);
+      if (JSON.stringify(cur.value) !== JSON.stringify(value)) added.push(tag);
     } else if (JSON.stringify(cur.value) !== JSON.stringify(value)) {
-      changed.push(settingId);
+      changed.push(tag);
     }
   };
 
-  for (const [id, value] of Object.entries(doc.global)) classify(id, value, "global");
-  if (opts.projectId) {
-    for (const [id, value] of Object.entries(doc.projects?.[opts.projectId] ?? {})) {
-      classify(id, value, "project", opts.projectId);
+  for (const [id, value] of Object.entries(doc.global)) classify(id, value, "global", undefined);
+  for (const [pid, entries] of Object.entries(doc.projects ?? {})) {
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+      errors.push(`projects.${pid}: 必须是对象`);
+      continue;
     }
+    for (const [id, value] of Object.entries(entries)) classify(id, value, "project", pid);
   }
 
   // Replace mode: currently-overridden global keys absent from the document
@@ -144,7 +158,6 @@ export function previewImport(
     }
   }
 
-  void current;
   return {
     ok: errors.length === 0,
     errors, added, changed, reset, ignored,
@@ -152,42 +165,88 @@ export function previewImport(
   };
 }
 
-export interface ApplyResult {
+export interface ImportResult {
   ok: boolean;
   applied: string[];
   failed: string[];
+  /** True when a mid-apply failure rolled everything back. */
+  rolledBack?: boolean;
 }
 
-/** Apply a VALID preview. A failed preview is a hard no-op. Per-key write
- *  failures (shouldn't happen — preview validated) are still reported. */
+function snapshotState() {
+  const s = useSettingsStore.getState();
+  return {
+    flat: Object.fromEntries(
+      listSettings()
+        .filter((d) => d.storeKey)
+        .map((d) => [d.storeKey as string, (s as unknown as Record<string, unknown>)[d.storeKey as string]]),
+    ),
+    projectOverrides: JSON.parse(JSON.stringify(s.projectOverrides)) as Record<string, Record<string, unknown>>,
+  };
+}
+
+/** Apply a VALID preview. A failed preview is a hard no-op. If any write
+ *  fails mid-apply, the store rolls back to the pre-apply snapshot —
+ *  imports are atomic. Replace mode additionally applies preview.reset
+ *  (currently-overridden keys absent from the document → defaults). */
 export function applyImport(
   preview: ImportPreview,
-  opts: { projectId?: string } = {},
-): ApplyResult {
-  if (!preview.ok || !preview.doc) return { ok: false, applied: [], failed: preview.errors };
+  opts: { mode?: "merge" | "replace" } = {},
+): ImportResult {
+  if (!preview.ok || !preview.doc) {
+    return { ok: false, applied: [], failed: preview.errors };
+  }
   const doc = preview.doc;
+  const mode = opts.mode ?? "merge";
+  const before = snapshotState();
   const applied: string[] = [];
   const failed: string[] = [];
 
+  const rollback = () => {
+    useSettingsStore.setState({ ...before.flat, projectOverrides: before.projectOverrides });
+  };
+
+  const writes: Array<() => string | null> = [];
   for (const [id, value] of Object.entries(doc.global)) {
-    try {
+    writes.push(() => {
+      const def = getSetting(id);
+      // Mirror preview semantics: sensitive/unknown keys are SKIPPED, never
+      // written (even if a caller hand-built the document).
+      if (!def || def.sensitive) return null;
       setScopedValue(id, value, "global");
-      applied.push(id);
-    } catch (e) {
-      failed.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+      return id;
+    });
   }
-  // Projects: apply the whole document, or just the given project.
-  const projectIds = opts.projectId ? [opts.projectId] : Object.keys(doc.projects);
-  for (const pid of projectIds) {
-    for (const [id, value] of Object.entries(doc.projects[pid] ?? {})) {
-      try {
+  for (const [pid, entries] of Object.entries(doc.projects)) {
+    for (const [id, value] of Object.entries(entries)) {
+      writes.push(() => {
+        const def = getSetting(id);
+        if (!def || def.sensitive) return null;
         setScopedValue(id, value, "project", pid);
-        applied.push(`${pid}:${id}`);
-      } catch (e) {
-        failed.push(`${pid}:${id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
+        return `${pid}:${id}`;
+      });
     }
   }
-  return { ok: failed.length === 0, applied, failed };
+  if (mode === "replace") {
+    for (const id of preview.reset) {
+      const def = getSetting(id);
+      if (!def?.storeKey) continue;
+      writes.push(() => {
+        setScopedValue(id, def.defaultValue, "global");
+        return `${id}（重置）`;
+      });
+    }
+  }
+
+  for (const write of writes) {
+    try {
+      const tag = write();
+      if (tag !== null) applied.push(tag);
+    } catch (e) {
+      failed.push(e instanceof Error ? e.message : String(e));
+      rollback();
+      return { ok: false, applied: [], failed, rolledBack: true };
+    }
+  }
+  return { ok: true, applied, failed };
 }

@@ -20,6 +20,8 @@ import { getSettingsBridge } from "../config/fileSync";
 import { getSetting, listSettings } from "../config/registry";
 import { migratePersisted } from "../config/migrations";
 import { CURRENT_SETTINGS_VERSION } from "../config/version";
+import { sanitizePersistedState } from "../config/sanitize";
+import { getPreset } from "../config/presets";
 
 // ---- Legacy keys (read once, then the store takes over) ----
 const LEGACY_THEME = "gb-theme";
@@ -55,17 +57,6 @@ export type ThemeMode = "light" | "dark" | "auto";
 export type FontSizeId = "small" | "medium" | "large" | "xlarge";
 export type AgentMode = "code" | "architect" | "debug";
 export type VoiceLanguage = "auto" | "zh-CN" | "en-US";
-
-/** Flat data keys that may hydrate from the persisted blob — derived from
- *  the registry (single declaration site) plus the overrides layer, so a
- *  blob can never overwrite store actions or inject unknown state. */
-const HYDRATABLE_KEYS = new Set<string>([
-  ...listSettings()
-    .map((d) => d.storeKey)
-    .filter((k): k is string => !!k),
-  "projectOverrides",
-  "userPresets",
-]);
 
 /** Registry default for a store key (the schema is the only place defaults
  *  are declared — even this store's fallbacks come from it). */
@@ -333,6 +324,8 @@ export const useSettingsStore = create<SettingsState>()(
       saveUserPreset: (id, label, values) => {
         if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id)) throw new Error(`invalid preset id: ${id}`);
         if (!label.trim()) throw new Error("preset label must not be empty");
+        // Builtin ids are reserved — a user preset must not shadow them.
+        if (getPreset(id)) throw new Error(`preset id "${id}" is reserved by a builtin preset`);
         for (const [settingId, value] of Object.entries(values)) {
           const def = getSetting(settingId);
           if (!def) throw new Error(`invalid preset: unknown setting ${settingId}`);
@@ -343,19 +336,20 @@ export const useSettingsStore = create<SettingsState>()(
         }
         set((s) => ({ userPresets: { ...s.userPresets, [id]: { label, values: { ...values } } } }));
       },
-      renameUserPreset: (id, label) =>
-        set((s) => {
-          const cur = s.userPresets[id];
-          if (!cur) throw new Error(`unknown preset: ${id}`);
-          if (!label.trim()) throw new Error("preset label must not be empty");
-          return { userPresets: { ...s.userPresets, [id]: { ...cur, label } } };
-        }),
-      deleteUserPreset: (id) =>
+      renameUserPreset: (id, label) => {
+        const cur = get().userPresets[id];
+        if (!cur) throw new Error(`unknown preset: ${id}`);
+        if (!label.trim()) throw new Error("preset label must not be empty");
+        set((s) => ({ userPresets: { ...s.userPresets, [id]: { ...cur, label } } }));
+      },
+      deleteUserPreset: (id) => {
+        if (!get().userPresets[id]) throw new Error(`unknown preset: ${id}`);
         set((s) => {
           const next = { ...s.userPresets };
           delete next[id];
           return { userPresets: next };
-        }),
+        });
+      },
     }),
     {
       name: "gb-settings",
@@ -373,42 +367,13 @@ export const useSettingsStore = create<SettingsState>()(
         return r.state as never;
       },
       // R4-05: hydration sanitization runs on EVERY rehydrate (merge), not
-      // only on version bumps. Two layers of defense:
-      //   1. allowlist — only known DATA keys may hydrate (a blob can never
-      //      overwrite store actions or inject unknown state);
-      //   2. per-field registry validation — invalid values fall back to
-      //      the schema default; invalid override entries are dropped.
+      // only on version bumps. Implementation shared with the migration
+      // pipeline (src/config/sanitize.ts): allowlist + per-field registry
+      // validation + override/preset entry cleaning.
       merge: (persisted, current) => {
         const state = persisted as Record<string, unknown> | undefined;
         if (!state || typeof state !== "object") return current;
-        const out: Record<string, unknown> = {};
-        for (const key of Object.keys(state)) {
-          if (HYDRATABLE_KEYS.has(key)) out[key] = state[key];
-        }
-        for (const def of listSettings()) {
-          if (!def.storeKey) continue;
-          const key = def.storeKey;
-          if (key in out && !def.validate(out[key])) out[key] = def.defaultValue;
-        }
-        // Normalize projectOverrides: always an object of objects with
-        // validated entries (never null / array / garbage).
-        const raw = out.projectOverrides;
-        const cleaned: Record<string, Record<string, unknown>> = {};
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          for (const [projectId, entries] of Object.entries(raw as Record<string, unknown>)) {
-            if (!entries || typeof entries !== "object" || Array.isArray(entries)) continue;
-            const kept: Record<string, unknown> = {};
-            for (const [settingId, value] of Object.entries(entries as Record<string, unknown>)) {
-              const def = getSetting(settingId);
-              if (def && def.scopes.includes("project") && def.validate(value)) {
-                kept[settingId] = value;
-              }
-            }
-            if (Object.keys(kept).length > 0) cleaned[projectId] = kept;
-          }
-        }
-        out.projectOverrides = cleaned;
-        return { ...current, ...out };
+        return { ...current, ...sanitizePersistedState(state) };
       },
     }
   )
