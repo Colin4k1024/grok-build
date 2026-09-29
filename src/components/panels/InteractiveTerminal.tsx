@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { TERMINAL_THEME } from "../../lib/terminalTheme";
 import type { PtySession } from "../../lib/tauri";
 
 interface Props {
@@ -46,11 +47,7 @@ export function InteractiveTerminal({ session, onClosed }: Props) {
       convertEol: false, // the PTY speaks CRLF itself
       fontSize,
       fontFamily: "SF Mono, Monaco, Menlo, monospace",
-      theme: {
-        background: "#1c1c1c",
-        foreground: "#d6d6d6",
-        cursor: "#d6d6d6",
-      },
+      theme: { ...TERMINAL_THEME },
       scrollback: 5000,
       cursorBlink: true,
     });

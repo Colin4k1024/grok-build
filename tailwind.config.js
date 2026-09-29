@@ -33,6 +33,7 @@ export default {
         "gb-bg-secondary": "rgb(var(--gb-bg-secondary) / <alpha-value>)",
         "gb-surface": "rgb(var(--gb-surface) / <alpha-value>)",
         "gb-surface-hover": "rgb(var(--gb-surface-hover) / <alpha-value>)",
+        "gb-terminal": "rgb(var(--gb-terminal-bg) / <alpha-value>)",
         "gb-surface-solid": "rgb(var(--gb-surface-solid) / <alpha-value>)",
         "gb-border": "rgb(var(--gb-border) / <alpha-value>)",
         "gb-text": "rgb(var(--gb-text) / <alpha-value>)",

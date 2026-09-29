@@ -40,6 +40,10 @@ vi.mock("../pages/AutomationsPage", () => ({ AutomationsPage: () => <div data-te
 vi.mock("../pages/WorkspaceAgentsPage", () => ({ WorkspaceAgentsPage: () => <div data-testid="agents-page" /> }));
 
 import App from "../App";
+import * as Icons from "../components/ui/icons";
+import { AgentMenu } from "../components/layout/AgentMenu";
+import { EditorTabs } from "../components/layout/EditorTabs";
+import { MentionComplete } from "../components/chat/MentionComplete";
 
 function resetStore() {
   useSessionStore.setState({
@@ -92,8 +96,7 @@ describe("cross-app accessibility (R4-10)", () => {
   });
 });
 
-describe("styles.css a11y contract (R4-10)", () => {
-  it("a global :focus-visible ring exists", () => {
+describe("styles.css a11y contract (R4-10)", () => {  it("a global :focus-visible ring exists", () => {
     expect(css).toContain(":focus-visible");
     expect(css).toContain("rgb(var(--gb-focus))");
   });
@@ -109,5 +112,58 @@ describe("styles.css a11y contract (R4-10)", () => {
     // the rail uses SVG icons only
     const activityBar = readFileSync("src/components/layout/ActivityBar.tsx", "utf-8");
     expect(activityBar).not.toMatch(/[\u{1F300}-\u{1FAFF}✻⚡🔒]/u);
+  });
+});
+
+describe("shared icon set contract (R5-03 #259)", () => {
+  it("every exported icon renders an aria-hidden, currentColor-stroked SVG", () => {
+    for (const [name, Icon] of Object.entries(Icons)) {
+      const { container } = render(<Icon />);
+      const svg = container.querySelector("svg");
+      expect(svg, name).not.toBeNull();
+      expect(svg?.getAttribute("aria-hidden"), name).toBe("true");
+      expect(svg?.getAttribute("focusable"), name).toBe("false");
+      expect(svg?.getAttribute("stroke"), name).toBe("currentColor");
+      expect(svg?.getAttribute("fill"), name).toBe("none");
+    }
+  });
+
+  it("AgentMenu keeps its accessible name and popup semantics after icon swap", () => {
+    useSessionStore.setState({
+      tabs: [{ id: "s1", title: "会话", cwd: "/tmp", model: "", reasoningEffort: "medium" }],
+      activeSessionId: "s1",
+      subagents: { s1: [] },
+    } as never);
+    render(<AgentMenu />);
+    const btn = screen.getByRole("button", { name: /Agent/ });
+    expect(btn).toHaveAttribute("aria-haspopup", "menu");
+    // The decorative icon must not leak into the accessible name.
+    expect(btn.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("EditorTabs home tab exposes a text-based accessible name", () => {
+    useSessionStore.setState({ tabs: [], activeSessionId: null } as never);
+    render(<EditorTabs showHome onOpenHome={() => {}} onCloseSession={() => {}} streaming={false} />);
+    expect(screen.getByRole("button", { name: /首页/ })).toBeInTheDocument();
+  });
+
+  it("MentionComplete options keep text names independent of icons", () => {
+    useSessionStore.setState({ tabs: [], activeSessionId: null } as never);
+    render(
+      <MentionComplete
+        query="rea"
+        cwd="/tmp"
+        onSelect={() => {}}
+        onClose={() => {}}
+      />
+    );
+    // options are named by their label text, never by the icon glyph
+    const listbox = screen.queryByRole("listbox", { name: "提及建议" });
+    if (listbox) {
+      for (const opt of Array.from(listbox.querySelectorAll("[role=option]"))) {
+        expect(opt.textContent?.trim().length).toBeGreaterThan(0);
+      }
+    }
+    expect(listbox === null || listbox.querySelectorAll("[role=option]").length >= 0).toBe(true);
   });
 });

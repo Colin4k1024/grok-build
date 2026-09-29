@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
+import { BotIcon } from "../ui/icons";
 
 /**
  * Agent menu in the TitleBar — lets the user inspect the current session's
@@ -40,7 +41,7 @@ export function AgentMenu() {
         aria-expanded={open}
         title="Agent 设置"
       >
-        <span className="text-[11px]">🤖</span>
+        <BotIcon size={13} />
         <span>Agent</span>
         {running > 0 && (
           <span className="ml-0.5 flex h-1.5 w-1.5 animate-pulse rounded-full bg-gb-accent" />

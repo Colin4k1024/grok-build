@@ -522,7 +522,7 @@ function TerminalPanel({ cwd }: { cwd: string }) {
 
   if (mode === "live" && session) {
     return (
-      <div className="flex h-full flex-col bg-[#1c1c1c]">
+      <div className="flex h-full flex-col bg-gb-terminal">
         <div className="min-h-0 flex-1">
           <Suspense
             fallback={
@@ -557,7 +557,7 @@ function TerminalPanel({ cwd }: { cwd: string }) {
 
   if (mode === "probing") {
     return (
-      <div className="flex h-full items-center justify-center bg-[#1c1c1c] text-[11px] text-gb-muted">
+      <div className="flex h-full items-center justify-center bg-gb-terminal text-[11px] text-gb-muted">
         正在启动交互式终端…
       </div>
     );
@@ -592,7 +592,7 @@ function LegacyTerminalPanel({ cwd }: { cwd: string }) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-[#1c1c1c]">
+    <div className="flex h-full flex-col bg-gb-terminal">
       <div className="min-h-0 flex-1 overflow-auto p-2 font-mono text-[11px] leading-relaxed text-gb-text whitespace-pre-wrap">
         {output || "Commands run in the project directory. Output is capped; not an interactive PTY.\n"}
       </div>

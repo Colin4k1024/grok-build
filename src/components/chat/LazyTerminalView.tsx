@@ -10,7 +10,7 @@ const TerminalViewInner = lazy(() =>
 /** Same footprint as the real terminal so the card doesn't jump on load. */
 function TerminalPlaceholder() {
   return (
-    <div className="flex h-48 w-full items-center justify-center rounded bg-[#1c1c1c] text-[10px] text-white/25">
+    <div className="flex h-48 w-full items-center justify-center rounded bg-gb-terminal text-[10px] text-white/25">
       加载终端…
     </div>
   );

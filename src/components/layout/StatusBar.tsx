@@ -13,10 +13,10 @@ interface StatusBarProps {
 }
 
 const STATUS_DOT: Record<ConnectionStatus, { color: string; label: string }> = {
-  connected: { color: "#4ade80", label: "Connected" },
-  reconnecting: { color: "#facc15", label: "Reconnecting" },
-  disconnected: { color: "#f87171", label: "Disconnected" },
-  error: { color: "#ef4444", label: "Error" },
+  connected: { color: "rgb(var(--gb-success))", label: "Connected" },
+  reconnecting: { color: "rgb(var(--gb-warning))", label: "Reconnecting" },
+  disconnected: { color: "rgb(var(--gb-danger))", label: "Disconnected" },
+  error: { color: "rgb(var(--gb-danger))", label: "Error" },
 };
 
 export function StatusBar({ config, onToggleSidebar, onToggleRightPanel, onOpenSettings }: StatusBarProps) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { aggregateUsage, formatRetry } from "../../lib/usage";
+import { ClockIcon } from "../ui/icons";
 
 interface UsagePanelProps {
   onClose: () => void;
@@ -82,8 +83,9 @@ export function UsagePanel({ onClose }: UsagePanelProps) {
                   )}
                 </div>
                 {limit && limit.until > Date.now() && (
-                  <p className="mt-1 text-[10px] text-gb-danger-text">
-                    ⏳ 限流中 — {formatRetry(limit.until)}（{limit.message.slice(0, 80)}）
+                  <p className="mt-1 flex items-center gap-1 text-[10px] text-gb-danger-text">
+                    <ClockIcon size={11} className="shrink-0" />
+                    限流中 — {formatRetry(limit.until)}（{limit.message.slice(0, 80)}）
                   </p>
                 )}
               </div>
