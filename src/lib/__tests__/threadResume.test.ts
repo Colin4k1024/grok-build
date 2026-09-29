@@ -55,6 +55,7 @@ function hist(overrides: Partial<HistorySession> = {}): HistorySession {
     last_active_at: new Date(Date.now() - 60_000).toISOString(),
     model: "",
     num_messages: 3,
+    workspace_exists: true,
     ...overrides,
   };
 }

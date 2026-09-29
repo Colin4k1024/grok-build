@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
 import {
   listProjects, removeProject, listHistorySessions, deleteHistorySession,
   type HistorySession, type ProjectEntry,
 } from "../../lib/tauri";
 import { writeText } from "../../lib/desktop";
+import { StaleHistorySection } from "./StaleHistorySection";
 
 interface ThreadTreeProps {
   onNewSessionInDir: (cwd: string) => void;
@@ -171,6 +172,14 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
 
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [history, setHistory] = useState<HistorySession[]>([]);
+  // R5-02: cursor pagination. `nextCursor`/`total` describe the REMAINING
+  // history beyond what is loaded; history holds only loaded pages.
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalHistory, setTotalHistory] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Generation guard: a refresh invalidates any in-flight load-more, so a
+  // stale response can never append resurrected/duplicate rows (review P2).
+  const historyGen = useRef(0);
   const [pinned, setPinned] = useState<Set<string>>(() => readIdSet(PIN_KEY));
   const [archived, setArchived] = useState<Set<string>>(() => readIdSet(ARCHIVE_KEY));
   const [triageRead, setTriageRead] = useState<Set<string>>(() => readStringSet(TRIAGE_READ_KEY));
@@ -180,8 +189,35 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   const [renaming, setRenaming] = useState<{ key: string; value: string } | null>(null);
 
   const refreshHistory = useCallback(() => {
-    listHistorySessions().then(setHistory).catch(() => {});
+    const gen = ++historyGen.current;
+    listHistorySessions()
+      .then((page) => {
+        if (historyGen.current !== gen) return; // superseded by a newer refresh
+        setHistory(page.items);
+        setNextCursor(page.nextCursor);
+        setTotalHistory(page.total);
+      })
+      .catch(() => {});
   }, []);
+
+  const loadMoreHistory = useCallback(() => {
+    const cursor = nextCursor;
+    if (!cursor || loadingMore) return;
+    const gen = historyGen.current;
+    setLoadingMore(true);
+    listHistorySessions({ cursor })
+      .then((page) => {
+        if (historyGen.current !== gen) return; // a refresh reset pagination
+        setHistory((prev) => {
+          const seen = new Set(prev.map((h) => h.id));
+          return [...prev, ...page.items.filter((h) => !seen.has(h.id))];
+        });
+        setNextCursor(page.nextCursor);
+        setTotalHistory(page.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  }, [nextCursor, loadingMore]);
 
   const refreshProjects = useCallback(() => {
     listProjects().then(setProjects).catch(() => {});
@@ -203,7 +239,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   }, [refreshHistory, refreshProjects]);
 
   // tabs join the tree reactively.
-  const { entries, archivedEntries } = useMemo(() => {
+  const { entries, archivedEntries, staleHistory } = useMemo(() => {
     const list: ThreadEntry[] = [];
     const coveredHistory = new Set<string>();
     const seenAcpIds = new Set<string>();
@@ -223,8 +259,16 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
       });
       if (t.acpSessionId) coveredHistory.add(t.acpSessionId);
     }
+    // R5-02: records whose workspace is gone leave the normal groups and
+    // move to the stale section; empty-cwd sessions are their own legit
+    // group (they stay in 会话), not stale.
+    const stale: HistorySession[] = [];
     for (const h of history) {
       if (coveredHistory.has(h.id) || h.num_messages === 0) continue;
+      if (h.cwd !== "" && h.workspace_exists === false) {
+        stale.push(h);
+        continue;
+      }
       list.push({
         key: `hist-${h.id}`,
         sessionId: h.id,
@@ -240,6 +284,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
     return {
       entries: list.filter((e) => !isArchived(e)),
       archivedEntries: list.filter(isArchived),
+      staleHistory: stale.filter((h) => !archived.has(`hist-${h.id}`) && !archived.has(h.id)),
     };
   }, [tabs, history, archived]);
 
@@ -554,6 +599,36 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
           chatEntries.map(renderEntry)
         )}
       </div>
+
+      {/* R5-02: stale-workspace governance — records whose cwd no longer
+          exists live here instead of polluting the project groups. */}
+      <StaleHistorySection
+        entries={staleHistory}
+        onArchive={(ids) => {
+          setArchived((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) {
+              next.add(`hist-${id}`);
+              next.add(id);
+            }
+            writeIdSet(ARCHIVE_KEY, [...next]);
+            return next;
+          });
+        }}
+        onChanged={refreshHistory}
+      />
+
+      {/* R5-02: bounded first paint — older pages load on demand instead of
+          rendering the entire history at once. */}
+      {nextCursor && (
+        <button
+          className="mx-2 mb-2 rounded-md border border-gb-border/40 px-2 py-1 text-[11px] text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text disabled:opacity-50"
+          onClick={loadMoreHistory}
+          disabled={loadingMore}
+        >
+          {loadingMore ? "加载中…" : `加载更多（共 ${totalHistory} 条）`}
+        </button>
+      )}
 
       {archivedEntries.length > 0 && (
         <div className="mb-2">

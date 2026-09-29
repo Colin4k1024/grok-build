@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
-import { listHistorySessions, getSessionHistoryMessages, type HistorySession } from "../../lib/tauri";
+import { listAllHistorySessions, getSessionHistoryMessages, type HistorySession } from "../../lib/tauri";
 
 interface GlobalSearchProps {
   onClose: () => void;
@@ -28,7 +28,9 @@ export function GlobalSearch({ onClose, onOpenTab, onResumeThread }: GlobalSearc
   const [diskSnippets, setDiskSnippets] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    listHistorySessions().then(setHistory).catch(() => {});
+    // Search needs the full corpus — paginating to the first page would
+    // silently make older sessions undiscoverable (R5-02 review).
+    listAllHistorySessions().then(setHistory).catch(() => {});
   }, []);
 
   const results: Result[] = useMemo(() => {
@@ -63,6 +65,7 @@ export function GlobalSearch({ onClose, onOpenTab, onResumeThread }: GlobalSearc
             id: t.acpSessionId || t.id, session_id: t.acpSessionId || t.id,
             title: t.title, cwd: t.cwd, updated_at: t.lastActiveAt,
             last_active_at: "", model: t.model, num_messages: 0,
+            workspace_exists: true,
           },
         });
       }

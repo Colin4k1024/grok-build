@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, Notification, clipboard, dialog, Menu, systemPreferences } from "electron";
 import { AcpSession, saveApiKey, getApiKey, deleteApiKey, isApiKeySet } from "./acp-session";
 import { checkAuthStatus, loginWithApiKey, logoutAuth, KNOWN_ENV_KEYS } from "./auth";
-import { listHistorySessions, getSessionHistory, renameHistorySession } from "./session-history";
+import { listHistorySessions, getSessionHistory, renameHistorySession, deleteHistorySession } from "./session-history";
 import {
   getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer, type SaveInput,
 } from "./mcp-config";
@@ -715,7 +715,16 @@ ipcMain.handle("session_close", (_e, args: { sessionId?: string; session_id?: st
 
 // --- Session history (reads the agent's on-disk session store) ---
 
-ipcMain.handle("session_list_history", async () => ok(await listHistorySessions()));
+// R5-02: cursor-paginated. { cursor?, limit? } — default 100, max 200;
+// invalid cursors are structured errors, not silent first-page fallbacks.
+ipcMain.handle("session_list_history", async (_e, args?: { cursor?: string; limit?: number }) => {
+  const cursor = args?.cursor;
+  const limit = args?.limit;
+  if (cursor !== undefined && typeof cursor !== "string") {
+    throw new Error("session_list_history: cursor must be a string");
+  }
+  return ok(await listHistorySessions({ cursor, limit }));
+});
 
 ipcMain.handle("session_get_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string }) => {
   const sessionId = args?.sessionId ?? args?.session_id;
@@ -724,19 +733,12 @@ ipcMain.handle("session_get_history", (_e, args: { sessionId?: string; session_i
 });
 
 // Permanently delete a persisted thread from disk (codex `/delete` parity).
-ipcMain.handle("session_delete_history", (_e, args: { sessionId?: string; session_id?: string; cwd: string }) => {
+// R5-02: the actual deletion lives in session-history.ts — GROK_HOME-aware
+// root resolution and strict sessionId validation happen there.
+ipcMain.handle("session_delete_history", (_e, args: { sessionId?: string; session_id?: string }) => {
   const sessionId = args?.sessionId ?? args?.session_id;
   if (!sessionId) throw new Error("session_delete_history: missing sessionId");
-  const sessionsRoot = path.join(os.homedir(), ".grok", "sessions");
-  const candidates = fs.existsSync(sessionsRoot)
-    ? fs
-        .readdirSync(sessionsRoot, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => path.join(sessionsRoot, d.name, sessionId))
-    : [];
-  const target = candidates.find((p) => fs.existsSync(p));
-  if (!target) throw new Error(`No persisted session found for ${sessionId}`);
-  fs.rmSync(target, { recursive: true, force: true });
+  deleteHistorySession(sessionId);
   return ok(null);
 });
 

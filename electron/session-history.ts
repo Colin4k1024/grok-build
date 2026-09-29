@@ -30,6 +30,61 @@ export interface HistorySession {
   last_active_at: string;
   model: string;
   num_messages: number;
+  /** False when the recorded cwd no longer exists on disk (R5-02). */
+  workspace_exists: boolean;
+}
+
+/** One page of history (R5-02): cursor-paginated, stably sorted. */
+export interface HistoryPage {
+  items: HistorySession[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface HistoryPageQuery {
+  cursor?: string;
+  limit?: number;
+}
+
+export const HISTORY_PAGE_DEFAULT_LIMIT = 100;
+export const HISTORY_PAGE_MAX_LIMIT = 200;
+
+/** Cursor = the last item's sort key, so pages stay stable while entries
+ *  are added/renamed (an offset cursor would skip/duplicate rows). */
+interface CursorPayload {
+  u: number; // updated_at of the last item of the previous page
+  i: string; // its id (tiebreak)
+}
+
+function encodeCursor(payload: CursorPayload): string {
+  return Buffer.from(JSON.stringify(payload), "utf-8").toString("base64url");
+}
+
+function decodeCursor(cursor: string): CursorPayload {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf-8"));
+    if (typeof parsed?.u !== "number" || !Number.isFinite(parsed.u)) throw new Error("bad u");
+    if (typeof parsed?.i !== "string") throw new Error("bad i");
+    return parsed as CursorPayload;
+  } catch {
+    throw new Error("session_list_history: invalid cursor");
+  }
+}
+
+function clampLimit(limit: number | undefined): number {
+  if (limit === undefined) return HISTORY_PAGE_DEFAULT_LIMIT;
+  if (typeof limit !== "number" || !Number.isFinite(limit)) {
+    throw new Error("session_list_history: limit must be a number");
+  }
+  return Math.min(HISTORY_PAGE_MAX_LIMIT, Math.max(1, Math.floor(limit)));
+}
+
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    return (await fsp.stat(p)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export interface ChatHistoryEntry {
@@ -104,14 +159,21 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 /**
- * List every persisted thread.
+ * List persisted threads, one cursor page at a time (R5-02).
  *
- * Async on purpose: this walks <sessions>/<cwd>/<session>/summary.json for the
- * whole history and the renderer refreshes it on every thread-tree change. The
- * previous nested sync loop blocked the Electron main process — and therefore
- * every other IPC call — for the full duration of the walk.
+ * The full scan stays async + concurrency-bounded (the previous nested sync
+ * loop blocked the main process), but only the returned page pays the
+ * workspace_exists stat cost, and the IPC payload is bounded by `limit`
+ * (default 100, max 200) instead of the whole history.
+ *
+ * Sort: updated_at DESC, id ASC (stable tiebreak). The cursor encodes the
+ * last item's sort key; the next page is strictly after it — no duplicates
+ * or skips while entries change between pages.
  */
-export async function listHistorySessions(): Promise<HistorySession[]> {
+export async function listHistorySessions(query: HistoryPageQuery = {}): Promise<HistoryPage> {
+  const limit = clampLimit(query.limit);
+  const after = query.cursor !== undefined ? decodeCursor(query.cursor) : null;
+
   const root = sessionsRoot();
   const cwdDirs = (await readDirSafe(root))
     .filter((e) => e.isDirectory())
@@ -136,14 +198,36 @@ export async function listHistorySessions(): Promise<HistorySession[]> {
         last_active_at: lastActive,
         model: s.current_model_id ?? "",
         num_messages: s.num_messages ?? 0,
+        workspace_exists: false, // resolved for the returned page below
       } satisfies HistorySession;
     });
     return rows.filter((r): r is HistorySession => r !== null);
   });
 
-  const out = perCwd.flat();
-  out.sort((a, b) => b.updated_at - a.updated_at);
-  return out;
+  const all = perCwd.flat();
+  all.sort((a, b) =>
+    b.updated_at - a.updated_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+  const total = all.length;
+
+  const rest = after
+    ? all.filter((s) => s.updated_at < after.u || (s.updated_at === after.u && s.id > after.i))
+    : all;
+  const items = rest.slice(0, limit);
+
+  // Only the returned page pays the filesystem stat for workspace_exists.
+  // Honest semantics: no cwd means no workspace — empty cwd is false. (The
+  // renderer keeps the three-way split: normal projects / no-cwd sessions /
+  // stale workspaces; no-cwd sessions are NOT governed as stale.)
+  await mapLimit(items, 16, async (s) => {
+    s.workspace_exists = s.cwd === "" ? false : await dirExists(s.cwd);
+  });
+
+  const last = items[items.length - 1];
+  const nextCursor = rest.length > limit && last
+    ? encodeCursor({ u: last.updated_at, i: last.id })
+    : null;
+  return { items, nextCursor, total };
 }
 
 function extractText(content: unknown): string {
@@ -262,7 +346,6 @@ function findSessionDir(sessionId: string, cwd: string): string | null {
 }
 
 const MAX_TITLE_LEN = 200;
-
 /** Sanitize a user-supplied thread title (shared rename rules). */
 export function sanitizeTitle(title: string): string {
   const cleaned = (title ?? "")
@@ -295,4 +378,34 @@ export function renameHistorySession(sessionId: string, cwd: string, title: stri
   fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
   fs.renameSync(tmp, summaryPath);
   return clean;
+}
+
+/** Session ids may only be plain path segments (uuid-like). Anything with a
+ *  separator, drive letter, or traversal component is rejected BEFORE any
+ *  path is built (R5-02: batch delete must never escape the sessions root). */
+const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/**
+ * Permanently delete a persisted thread from disk. Resolves the sessions
+ * root via GROK_HOME (previously hardcoded to ~/.grok, which broke isolation
+ * and deleted from the wrong root for GROK_HOME users).
+ */
+export function deleteHistorySession(sessionId: string): void {
+  if (typeof sessionId !== "string" || !SESSION_ID_RE.test(sessionId)) {
+    throw new Error("session_delete_history: invalid sessionId");
+  }
+  const root = sessionsRoot();
+  const candidates = fs.existsSync(root)
+    ? fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => path.join(root, d.name, sessionId))
+    : [];
+  // Defense in depth: the resolved path must stay inside the root.
+  const target = candidates.find((p) => {
+    const resolved = path.resolve(p);
+    return resolved.startsWith(path.resolve(root) + path.sep) && fs.existsSync(p);
+  });
+  if (!target) throw new Error(`No persisted session found for ${sessionId}`);
+  fs.rmSync(target, { recursive: true, force: true });
 }

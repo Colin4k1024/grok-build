@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  listHistorySessions, getSessionHistory, createSession, resumeSession, deleteHistorySession,
+  listAllHistorySessions, getSessionHistory, createSession, resumeSession, deleteHistorySession,
   type HistorySession,
 } from "../../lib/tauri";
 import { useSessionStore, type ChatMessage } from "../../stores/sessionStore";
@@ -35,7 +35,8 @@ export function SessionPicker({ onClose }: SessionPickerProps) {
   const addTab = useSessionStore((s) => s.addTab);
 
   useEffect(() => {
-    listHistorySessions()
+    // The picker is a full-corpus chooser — fetch every page (R5-02).
+    listAllHistorySessions()
       .then((s) => { setSessions(s); setLoading(false); })
       .catch((e) => { setError(String(e)); setLoading(false); });
   }, []);

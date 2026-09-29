@@ -7,6 +7,9 @@ import {
   listHistorySessions,
   getSessionHistory,
   renameHistorySession,
+  deleteHistorySession,
+  HISTORY_PAGE_DEFAULT_LIMIT,
+  HISTORY_PAGE_MAX_LIMIT,
 } from "../session-history";
 
 let tmp = "";
@@ -66,18 +69,18 @@ function summaryJson(overrides: Record<string, unknown> = {}): string {
 
 describe("listHistorySessions", () => {
   it("returns [] when the sessions root does not exist", async () => {
-    expect(await listHistorySessions()).toEqual([]);
+    expect((await listHistorySessions()).items).toEqual([]);
   });
 
   it("returns [] for an empty sessions directory", async () => {
     fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
-    expect(await listHistorySessions()).toEqual([]);
+    expect((await listHistorySessions()).items).toEqual([]);
   });
 
   it("parses summary.json with title/model/message defaults", async () => {
     writeSession(encodeURIComponent("/w/alpha"), "sid-1", { "summary.json": summaryJson() });
 
-    const [s] = await listHistorySessions();
+    const [s] = (await listHistorySessions()).items;
     expect(s).toMatchObject({
       id: "sid-1",
       session_id: "sid-1",
@@ -98,14 +101,14 @@ describe("listHistorySessions", () => {
       }),
     });
 
-    const [s] = await listHistorySessions();
+    const [s] = (await listHistorySessions()).items;
     expect(s).toMatchObject({ id: "dir-id", title: "the summary" });
 
     writeSession(encodeURIComponent("/w/beta"), "bare", {
       "summary.json": JSON.stringify({ generated_title: "t" }),
     });
 
-    const [, bare] = await listHistorySessions();
+    const [, bare] = (await listHistorySessions()).items;
     expect(bare).toMatchObject({ title: "t", cwd: "", model: "", num_messages: 0, updated_at: 0 });
   });
 
@@ -117,7 +120,7 @@ describe("listHistorySessions", () => {
     // Non-directory entries in the root are ignored too
     fs.writeFileSync(path.join(tmp, "sessions", "stray.txt"), "x");
 
-    const list = await listHistorySessions();
+    const list = (await listHistorySessions()).items;
     // summary.json's info.id wins over the directory name; broken and
     // summary-less dirs are skipped entirely
     expect(list.map((s) => s.id)).toEqual(["sid-1"]);
@@ -131,7 +134,7 @@ describe("listHistorySessions", () => {
       "summary.json": summaryJson({ info: { id: "new", cwd: "/w/b" }, last_active_at: "2026-09-17T00:00:00Z" }),
     });
 
-    expect((await listHistorySessions()).map((s) => s.id)).toEqual(["new", "old"]);
+    expect((await listHistorySessions()).items.map((s) => s.id)).toEqual(["new", "old"]);
   });
 });
 
@@ -306,5 +309,122 @@ describe("renameHistorySession (ISS-079)", () => {
     renameHistorySession("sid-1", "/w/alpha", "second");
     const onDisk = JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf-8"));
     expect(onDisk.generated_title).toBe("second");
+  });
+});
+
+describe("listHistorySessions pagination (R5-02 #258)", () => {
+  /** Write N sessions with strictly descending recency. */
+  function writeMany(n: number, cwd: string) {
+    for (let i = 0; i < n; i++) {
+      const sid = `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+      writeSession(encodeURIComponent(cwd), sid, {
+        "summary.json": summaryJson({
+          info: { id: sid, cwd },
+          generated_title: `thread-${i}`,
+          // newest first: i=0 is the most recent
+          last_active_at: new Date(Date.UTC(2026, 8, 29, 12, 0, 0) - i * 60_000).toISOString(),
+        }),
+      });
+    }
+  }
+
+  it("paginates 250 records stably — no duplicates, no gaps, nextCursor ends null", async () => {
+    writeMany(250, "/w/alpha");
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let pages = 0;
+    for (;;) {
+      const page = await listHistorySessions(cursor ? { cursor } : {});
+      pages += 1;
+      for (const item of page.items) {
+        expect(seen.has(item.id)).toBe(false);
+        seen.add(item.id);
+      }
+      expect(page.total).toBe(250);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    expect(seen.size).toBe(250);
+    expect(pages).toBe(Math.ceil(250 / HISTORY_PAGE_DEFAULT_LIMIT));
+  });
+
+  it("defaults to 100 per page and clamps the limit to 200", async () => {
+    writeMany(250, "/w/alpha");
+    const first = await listHistorySessions();
+    expect(first.items).toHaveLength(100);
+    expect(first.nextCursor).not.toBeNull();
+
+    const big = await listHistorySessions({ limit: 9999 });
+    expect(big.items.length).toBeLessThanOrEqual(HISTORY_PAGE_MAX_LIMIT);
+
+    const small = await listHistorySessions({ limit: 10 });
+    expect(small.items).toHaveLength(10);
+  });
+
+  it("keeps order stable across pages (updated_at DESC, id ASC tiebreak)", async () => {
+    writeMany(50, "/w/alpha");
+    const all: string[] = [];
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await listHistorySessions(cursor ? { cursor, limit: 17 } : { limit: 17 });
+      all.push(...page.items.map((i) => i.id));
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    const expected = Array.from({ length: 50 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    expect(all).toEqual(expected);
+  });
+
+  it("rejects a malformed cursor with a structured error", async () => {
+    writeMany(3, "/w/alpha");
+    await expect(listHistorySessions({ cursor: "not-base64!!" })).rejects.toThrow(/invalid cursor/);
+    await expect(
+      listHistorySessions({ cursor: Buffer.from('{"u":"NaN"}', "utf-8").toString("base64url") })
+    ).rejects.toThrow(/invalid cursor/);
+  });
+
+  it("marks workspace_exists false for missing cwds and true for real ones", async () => {
+    const realDir = fs.mkdtempSync(path.join(tmp, "real-workspace-"));
+    writeSession(encodeURIComponent(realDir), "00000000-0000-4000-8000-0000000000aa", {
+      "summary.json": summaryJson({ info: { id: "00000000-0000-4000-8000-0000000000aa", cwd: realDir } }),
+    });
+    writeSession(encodeURIComponent("/gone/forever"), "00000000-0000-4000-8000-0000000000bb", {
+      "summary.json": summaryJson({ info: { id: "00000000-0000-4000-8000-0000000000bb", cwd: "/gone/forever" } }),
+    });
+    writeSession("nocwd-group", "00000000-0000-4000-8000-0000000000cc", {
+      "summary.json": summaryJson({ info: { id: "00000000-0000-4000-8000-0000000000cc", cwd: "" } }),
+    });
+
+    const { items } = await listHistorySessions();
+    const byId = new Map(items.map((i) => [i.id, i.workspace_exists]));
+    expect(byId.get("00000000-0000-4000-8000-0000000000aa")).toBe(true);
+    expect(byId.get("00000000-0000-4000-8000-0000000000bb")).toBe(false);
+    // no cwd means no workspace — honest false; the renderer still keeps
+    // no-cwd sessions OUT of stale governance via the explicit cwd !== ""
+    // guard (three-way split: normal / no-cwd / stale).
+    expect(byId.get("00000000-0000-4000-8000-0000000000cc")).toBe(false);
+  });
+});
+
+describe("deleteHistorySession (R5-02 hardening)", () => {
+  it("deletes from the GROK_HOME-resolved root (not a hardcoded home)", async () => {
+    const dir = writeSession(encodeURIComponent("/w/alpha"), "00000000-0000-4000-8000-0000000000dd", {
+      "summary.json": summaryJson({ info: { id: "00000000-0000-4000-8000-0000000000dd" } }),
+    });
+    expect(fs.existsSync(dir)).toBe(true);
+    deleteHistorySession("00000000-0000-4000-8000-0000000000dd");
+    expect(fs.existsSync(dir)).toBe(false);
+    await expect(listHistorySessions()).resolves.toMatchObject({ total: 0 });
+  });
+
+  it("rejects traversal and separator session ids before touching disk", () => {
+    for (const bad of ["../x", "a/b", "a\\b", "..", "", ".", "up..down"]) {
+      expect(() => deleteHistorySession(bad)).toThrow(/invalid sessionId/);
+    }
+  });
+
+  it("throws a clean error for an unknown session", () => {
+    fs.mkdirSync(path.join(tmp, "sessions"), { recursive: true });
+    expect(() => deleteHistorySession("00000000-0000-4000-8000-0000000000ee")).toThrow(/No persisted session/);
   });
 });
