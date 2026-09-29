@@ -11,9 +11,12 @@
 > enforced separately at the rail/app-shell level by
 > `src/__tests__/accessibilityInteractions.test.tsx`. Outside the shared
 > primitives, legacy call sites not yet migrated may still violate the token
-> rules (a handful of gradient/glass utilities and a larger set of bare
-> `border-gb-border` usages remain) — treat the rules as mandatory for new
-> code and migrate legacy call sites on touch.
+> rules (5 gradient/glass Tailwind call sites and a larger set of bare
+> `border-gb-border` usages remain — styles.css itself defines no such
+> utilities) — treat the rules as mandatory for new code and migrate legacy
+> call sites on touch.
+>
+> 发布门禁与验收矩阵见 [r4-release-acceptance.md](./r4-release-acceptance.md)。
 
 ## Design tokens
 
@@ -166,7 +169,9 @@ actually resolves it per project (today: `appearance.theme`,
   pipeline with backup-on-failure; `sanitize.ts` guards every rehydrate.
 - Import is atomic (validate → preview → apply with rollback on failure).
 - The durable file (`userData/gb-settings.json`) is canonical; localStorage
-  is the sync cache; legacy keys migrate one-shot (honor then delete).
+  is the sync cache. Legacy keys migrate one-shot (honor then delete) for
+  notifications/voice; theme/fontSize/zoom/sandboxMode legacy keys are still
+  mirrored on every change for unmigrated consumers.
 
 ## Accessibility
 
