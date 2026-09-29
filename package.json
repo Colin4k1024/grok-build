@@ -59,6 +59,7 @@
     "cross-env": "^10.1.0",
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
+    "js-yaml": "^4.3.2",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0",
@@ -70,6 +71,7 @@
   "build": {
     "appId": "com.grokbuild.desktop",
     "productName": "Grok Build",
+    "artifactName": "Grok-Build-${version}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },

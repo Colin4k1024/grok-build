@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { semverGreater } from "./semver";
 
 export type UpdaterStatus =
@@ -65,6 +66,35 @@ export function updaterFeedUrl(): string | null {
 export function stateFilePath(): string {
   const grokHome = process.env.GROK_HOME || path.join(os.homedir(), ".grok");
   return path.join(grokHome, "updater-state.json");
+}
+
+/** Verify a downloaded package against its feed manifest entry — the same
+ *  size + sha512 invariant electron-updater enforces internally before it
+ *  will hand us an installable file (R5-07 / #263). Streams the file and
+ *  counts bytes incrementally so multi-hundred-MB installers never get
+ *  buffered whole. Throws with a descriptive reason on any mismatch. */
+export async function verifyPackageIntegrity(
+  filePath: string,
+  expected: { sha512: string; size?: number | null }
+): Promise<void> {
+  const hash = crypto.createHash("sha512");
+  let size = 0;
+  await new Promise<void>((resolve, reject) => {
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => {
+      size += chunk.length;
+      hash.update(chunk);
+    });
+    stream.on("error", (e) => reject(new Error(`cannot read package ${filePath}: ${e.message}`)));
+    stream.on("end", () => resolve());
+  });
+  if (expected.size != null && size !== expected.size) {
+    throw new Error(`package size mismatch: manifest ${expected.size}, downloaded ${size}`);
+  }
+  const actual = hash.digest("base64");
+  if (actual !== expected.sha512) {
+    throw new Error(`package sha512 mismatch for ${path.basename(filePath)} — refusing to install`);
+  }
 }
 
 interface PersistedState {

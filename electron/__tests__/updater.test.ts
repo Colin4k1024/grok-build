@@ -3,11 +3,15 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
+import crypto from "node:crypto";
+import yaml from "js-yaml";
 import { parseSemver, semverGreater } from "../semver";
 import {
   UpdaterMachine,
   readPersistedState,
   stateFilePath,
+  verifyPackageIntegrity,
   type UpdaterAdapter,
   type UpdateManifest,
 } from "../updater";
@@ -230,5 +234,174 @@ describe("power-loss recovery (persisted state)", () => {
     fs.writeFileSync(file, "{not json");
     const m = new UpdaterMachine(fakeAdapter(), "1.0.0", file);
     expect(m.getStatus().status).toBe("idle");
+  });
+});
+
+// ---- loopback HTTP feed integration (R5-07 / #263) -------------------------
+//
+// A real HTTP server serves a real electron-builder-style feed (manifest +
+// artifact) from a temp dir; a test-local adapter polls and downloads over
+// real HTTP and gates the download on the production verifyPackageIntegrity
+// helper. This exercises the update DECISION pipeline end-to-end — version
+// gating, missing files, corrupt hashes — without standing up Electron.
+
+describe("loopback HTTP feed integration (R5-07 #263)", () => {
+  let server: http.Server;
+  let feedDir: string;
+  let baseUrl: string;
+
+  function sha512Base64(buf: Buffer): string {
+    return crypto.createHash("sha512").update(buf).digest("base64");
+  }
+
+  function httpGet(url: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      http
+        .get(url, (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => resolve(Buffer.concat(chunks)));
+        })
+        .on("error", reject);
+    });
+  }
+
+  /** Write an artifact + latest-mac.yml manifest; overrides can corrupt either. */
+  function publishFeed(opts: {
+    version: string;
+    fileName?: string | null;
+    contents?: Buffer;
+    sha512?: string;
+    size?: number;
+  }): void {
+    const contents = opts.contents ?? Buffer.from(`package-${opts.version}`);
+    const fileName = opts.fileName === undefined ? `Grok-Build-${opts.version}-arm64.zip` : opts.fileName;
+    if (fileName !== null) fs.writeFileSync(path.join(feedDir, fileName), contents);
+    const refName = fileName ?? `Grok-Build-${opts.version}-arm64.zip`;
+    const manifest = {
+      version: opts.version,
+      files: [
+        {
+          url: refName,
+          sha512: opts.sha512 ?? sha512Base64(contents),
+          size: opts.size ?? contents.length,
+        },
+      ],
+      path: refName,
+      sha512: opts.sha512 ?? sha512Base64(contents),
+      releaseDate: "2026-09-29T00:00:00.000Z",
+    };
+    fs.writeFileSync(path.join(feedDir, "latest-mac.yml"), yaml.dump(manifest));
+  }
+
+  /** Adapter backed by the loopback feed: real HTTP, real YAML, real hashing. */
+  class HttpFeedAdapter implements UpdaterAdapter {
+    private feed: { files: { url: string; sha512: string; size: number }[] } | null = null;
+    async pollFeed(): Promise<UpdateManifest | null> {
+      const raw = await httpGet(`${baseUrl}/latest-mac.yml`);
+      const parsed = yaml.load(raw.toString("utf-8")) as {
+        version: string;
+        files: { url: string; sha512: string; size: number }[];
+      };
+      this.feed = parsed;
+      return { version: parsed.version, releaseNotes: null, releaseDate: null };
+    }
+    async fetchPackage(): Promise<void> {
+      if (!this.feed) throw new Error("pollFeed must run before fetchPackage");
+      const entry = this.feed.files[0];
+      const buf = await httpGet(`${baseUrl}/${entry.url}`);
+      const target = path.join(feedDir, "downloaded-package.bin");
+      fs.writeFileSync(target, buf);
+      await verifyPackageIntegrity(target, { sha512: entry.sha512, size: entry.size });
+    }
+    onProgress(): void {}
+    applyAndRestart(): boolean {
+      return true;
+    }
+  }
+
+  beforeEach(async () => {
+    feedDir = fs.mkdtempSync(path.join(os.tmpdir(), "gb-feed-http-"));
+    server = http.createServer((req, res) => {
+      const rel = decodeURIComponent((req.url ?? "/").split("?")[0]).replace(/^\/+/, "");
+      const file = path.resolve(feedDir, rel || "latest-mac.yml");
+      if (file !== feedDir && !file.startsWith(feedDir + path.sep)) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      fs.readFile(file, (err, data) => {
+        if (err) {
+          res.writeHead(404);
+          res.end();
+        } else {
+          res.writeHead(200);
+          res.end(data);
+        }
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const addr = server.address();
+    baseUrl = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+  });
+
+  afterEach(async () => {
+    await new Promise((r) => server.close(r));
+    fs.rmSync(feedDir, { recursive: true, force: true });
+  });
+
+  it("a same-version offer over real HTTP is refused", async () => {
+    publishFeed({ version: "1.0.0" });
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    expect(await m.poll()).toBeNull();
+    expect(m.getStatus()).toMatchObject({ status: "idle", version: null });
+  });
+
+  it("a downgrade offer over real HTTP is refused", async () => {
+    publishFeed({ version: "0.9.0" });
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    expect(await m.poll()).toBeNull();
+    expect(m.getStatus()).toMatchObject({ status: "idle", version: null });
+  });
+
+  it("a manifest referencing a missing file fails the fetch and never reaches ready", async () => {
+    publishFeed({ version: "2.0.0", fileName: null }); // manifest points at a file we never wrote
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    expect((await m.poll())?.version).toBe("2.0.0");
+    await expect(m.fetch()).rejects.toThrow(/HTTP 404/);
+    expect(m.getStatus()).toMatchObject({ status: "available", version: "2.0.0" });
+    expect(() => m.apply()).toThrow(/ready/);
+  });
+
+  it("a corrupt sha512 in the downloaded package fails verification and never reaches ready", async () => {
+    publishFeed({ version: "2.0.0", sha512: sha512Base64(Buffer.from("different-contents")) });
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    expect((await m.poll())?.version).toBe("2.0.0");
+    await expect(m.fetch()).rejects.toThrow(/sha512 mismatch/);
+    expect(m.getStatus()).toMatchObject({ status: "available", version: "2.0.0" });
+    expect(() => m.apply()).toThrow(/ready/);
+  });
+
+  it("a size mismatch in the downloaded package fails verification", async () => {
+    publishFeed({ version: "2.0.0", size: 999_999 });
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    await m.poll();
+    await expect(m.fetch()).rejects.toThrow(/size mismatch/);
+    expect(m.getStatus().status).toBe("available");
+  });
+
+  it("a consistent feed downloads, verifies, reaches ready, and applies", async () => {
+    publishFeed({ version: "2.0.0" });
+    const m = new UpdaterMachine(new HttpFeedAdapter(), "1.0.0", stateFilePath());
+    expect((await m.poll())?.version).toBe("2.0.0");
+    await m.fetch();
+    expect(m.getStatus()).toMatchObject({ status: "ready", version: "2.0.0" });
+    m.apply();
+    expect(m.getStatus().status).toBe("relaunch");
   });
 });
