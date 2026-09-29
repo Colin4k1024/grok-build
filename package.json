@@ -17,7 +17,12 @@
     "test:ci": "vitest run --coverage",
     "test:evidence": "vitest run --reporter=junit --outputFile=test-results/junit.xml && vitest run --coverage",
     "evidence": "npx vitest run --reporter=junit --outputFile=test-results/junit.xml && node scripts/evidence-generator.mjs --strict",
-    "evidence:generate": "node scripts/evidence-generator.mjs --strict"
+    "evidence:generate": "node scripts/evidence-generator.mjs --strict",
+    "uat:prepare": "node scripts/desktop-uat.mjs prepare",
+    "uat:run": "node scripts/desktop-uat.mjs run",
+    "uat:record": "node scripts/desktop-uat.mjs record",
+    "uat:report": "node scripts/desktop-uat.mjs report",
+    "uat:clean": "node scripts/desktop-uat.mjs clean"
   },
   "dependencies": {
     "@types/react-window": "^1.8.8",

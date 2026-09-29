@@ -183,7 +183,7 @@ export async function listHistorySessions(query: HistoryPageQuery = {}): Promise
     const sessDirs = (await readDirSafe(cwdPath))
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
-    const rows = await mapLimit(sessDirs, 16, async (name) => {
+    const rows = await mapLimit(sessDirs, 16, async (name): Promise<HistorySession | null> => {
       const raw = await readJsonAsync(path.join(cwdPath, name, "summary.json"));
       if (!raw) return null;
       const s = raw as SummaryJson;
@@ -199,9 +199,9 @@ export async function listHistorySessions(query: HistoryPageQuery = {}): Promise
         model: s.current_model_id ?? "",
         num_messages: s.num_messages ?? 0,
         workspace_exists: false, // resolved for the returned page below
-      } satisfies HistorySession;
+      };
     });
-    return rows.filter((r): r is HistorySession => r !== null);
+    return rows.filter((r) => r !== null);
   });
 
   const all = perCwd.flat();

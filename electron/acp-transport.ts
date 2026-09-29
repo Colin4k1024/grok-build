@@ -131,6 +131,10 @@ export class AcpTransport {
   private capabilities: CapabilityNegotiationResult | null = null;
   private ready = false;
   private connecting = false;
+  /** Shared in-flight connect — concurrent createSession calls must await the
+   *  same connection, never throw a spurious NOT_READY (R5-04 UAT found:
+   *  crash-restored sessions racing a user's ⌘N at boot). */
+  private connectPromise: Promise<void> | null = null;
   private disposed = false;
   private readonly agentBin: string;
   private readonly childEnv: Readonly<NodeJS.ProcessEnv>;
@@ -151,21 +155,28 @@ export class AcpTransport {
   }
 
   /** Spawn the agent serve process and establish the WebSocket connection.
-   *  Resolves once initialize + authenticate have completed. */
+   *  Resolves once initialize + authenticate have completed. Concurrent
+   *  callers share the in-flight connect; after a failure the next call
+   *  retries cleanly. */
   async connect(): Promise<void> {
-    if (this.ready || this.connecting || this.disposed) return;
+    if (this.ready || this.disposed) return;
+    if (this.connectPromise) return this.connectPromise;
     this.connecting = true;
-    try {
-      await this.spawnServe();
-      await this.connectWs();
-      await this.handshake();
-      this.ready = true;
-      this.connecting = false;
-    } catch (e) {
-      this.connecting = false;
-      await this.kill();
-      throw e;
-    }
+    this.connectPromise = (async () => {
+      try {
+        await this.spawnServe();
+        await this.connectWs();
+        await this.handshake();
+        this.ready = true;
+      } catch (e) {
+        await this.kill();
+        throw e;
+      } finally {
+        this.connecting = false;
+        this.connectPromise = null;
+      }
+    })();
+    return this.connectPromise;
   }
 
   isReady(): boolean {

@@ -16,6 +16,15 @@ import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { resolveUatUserDataDir } from "./uat-paths";
+
+// R5-04 (#260): isolated UAT runs redirect Electron's userData BEFORE any
+// app.getPath() read (the crash marker below is the first). Absent the env
+// var, behavior is byte-identical to production.
+const uatUserDataDir = resolveUatUserDataDir();
+if (uatUserDataDir) {
+  app.setPath("userData", uatUserDataDir);
+}
 
 // R3-01 (#186): the renderer's ApprovalMode is an untrusted hint. The main
 // process keeps its own typed Policy per session and consults it before any
@@ -202,9 +211,11 @@ ipcMain.handle("pty_dispose", (_e, args: { id?: string }) => {
 ipcMain.handle("pty_enabled", () => ok(ptyManager.enabled()));
 
 // --- Model config persistence (ported from src-tauri/src/commands/config.rs) ---
-// Config lives at ~/.grok/default_models.json (same path the Rust side uses)
-// so the ACP agent process can read it.
-const GROK_HOME = path.join(os.homedir(), ".grok");
+// Config lives at $GROK_HOME/default_models.json (same path the Rust side
+// uses) so the ACP agent process can read it. The root honors the documented
+// "Set GROK_HOME to override" contract — UAT runs (R5-04) depend on it to
+// keep every write inside the isolated run dir.
+const GROK_HOME = process.env.GROK_HOME || path.join(os.homedir(), ".grok");
 const MODELS_PATH = path.join(GROK_HOME, "default_models.json");
 
 interface ModelInfoInput {

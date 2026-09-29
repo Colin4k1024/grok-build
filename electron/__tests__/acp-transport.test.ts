@@ -227,6 +227,24 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
     await transport.closeSession(uiIdB);
   }, SLOW);
 
+  it("concurrent createSession on a fresh transport both land — no NOT_READY race (R5-04)", async () => {
+    // Two sessions created in the same tick on a brand-new transport: the
+    // second must await the in-flight connect, not throw "not ready".
+    const t = makeTransport();
+    const cA = makeEmitCollector();
+    const cB = makeEmitCollector();
+    const [idA, idB] = await Promise.all([
+      t.createSession("race-a", tmp, cA.emit),
+      t.createSession("race-b", tmp, cB.emit),
+    ]);
+    expect(idA).toBeTruthy();
+    expect(idB).toBeTruthy();
+    expect(idA).not.toBe(idB);
+    expect(t.sessionCount()).toBe(2);
+    await t.closeSession("race-a");
+    await t.closeSession("race-b");
+  }, SLOW);
+
   it("closing the last session reclaims the transport's process and connection", async () => {
     // Use a fresh transport so we don't interfere with the shared one.
     const localTransport = makeTransport();

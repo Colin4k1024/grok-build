@@ -23,3 +23,6 @@ evidence/
 
 # Local AI tool session state
 .pi/
+
+# UAT run dirs (isolated homes; may hold copied credentials) — never commit
+.uat/
