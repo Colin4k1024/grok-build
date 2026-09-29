@@ -1144,6 +1144,8 @@ interface AutomationRecord {
   createdAt: number;
   lastRunAt: number | null;
   runCount: number;
+  /** Whether the scheduler should fire this automation (R4-09 #242). */
+  enabled?: boolean;
 }
 
 const AUTOMATIONS_PATH = path.join(GROK_HOME, "automations.json");
@@ -1257,6 +1259,7 @@ function startAutomationTimer(): void {
     const now = Date.now();
     let changed = false;
     for (const a of _automations) {
+      if (a.enabled === false) continue; // R4-09 #242: honor the UI enable/disable toggle
       const baseline = a.lastRunAt ?? a.createdAt;
       const next = nextCronRunMain(a.schedule, baseline);
       if (next !== null && next <= now) {

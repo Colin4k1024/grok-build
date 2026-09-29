@@ -20,6 +20,10 @@ export interface Automation {
   createdAt: number;
   lastRunAt: number | null;
   runCount: number;
+  /** Whether the scheduler should fire this automation. R4-09 #242. */
+  enabled?: boolean;
+  /** Last failure message (surfaces failure-recovery in the UI). R4-09 #242. */
+  lastError?: string | null;
 }
 
 // ---- In-memory cache (renderer-side) ----
@@ -32,43 +36,30 @@ export function getCachedAutomations(): Automation[] {
 
 // ---- IPC sync ----
 
-/** Push the current list to main and persist it on disk. */
+/** Push the current list to main and persist it on disk. Throws on IPC
+ *  failure so the UI can surface it (R4-09 #242). */
 export async function syncAutomations(items: Automation[]): Promise<void> {
   _items = items;
-  try {
-    await invoke("automations_sync", { items });
-  } catch (e) {
-    console.error("[automation] sync failed:", e);
-  }
+  await invoke("automations_sync", { items });
 }
 
-/** Pull the canonical list from main (e.g. on cold start or after reload). */
+/** Pull the canonical list from main (e.g. on cold start or after reload).
+ *  Throws on IPC failure so the UI can show an error + retry (R4-09 #242). */
 export async function loadAutomations(): Promise<Automation[]> {
-  try {
-    const list = await invoke<Automation[]>("automations_get");
-    _items = Array.isArray(list) ? list : [];
-  } catch {
-    _items = [];
-  }
+  const list = await invoke<Automation[]>("automations_get");
+  _items = Array.isArray(list) ? list : [];
   return _items;
 }
 
 /** Tell the main-process timer which session is active. */
 export async function setActiveSession(sessionId: string | null): Promise<void> {
-  try {
-    await invoke("automations_set_active_session", { sessionId });
-  } catch (e) {
-    console.error("[automation] setActiveSession failed:", e);
-  }
+  await invoke("automations_set_active_session", { sessionId });
 }
 
-/** "Run Now" — immediately dispatch one automation through the main process. */
+/** "Run Now" — immediately dispatch one automation through the main process.
+ *  Throws on IPC failure so the UI can surface success/failure (R4-09 #242). */
 export async function runNow(automationId: string): Promise<void> {
-  try {
-    await invoke("automations_run_now", { automationId });
-  } catch (e) {
-    console.error("[automation] runNow failed:", e);
-  }
+  await invoke("automations_run_now", { automationId });
 }
 
 /** Listen for run events dispatched by the main-process timer. */

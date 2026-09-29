@@ -25,4 +25,6 @@ export { DropdownMenu, type DropdownMenuProps, type DropdownMenuItem } from "./D
 export { Tooltip, type TooltipProps } from "./Tooltip";
 export { ToastViewport, toast, useToastStore, type ToastItem, type ToastTone } from "./Toast";
 export { InlineNotice, EmptyState, Skeleton, type NoticeTone } from "./Feedback";
+export { AsyncState } from "./AsyncState";
 export { Card, Panel } from "./Surface";
+export { CollapsibleSection, CopyButton } from "./Detail";

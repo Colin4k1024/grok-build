@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer } from "../../lib/tauri";
 import type { McpServerInfo } from "../../lib/tauri";
+import { InlineNotice, EmptyState, Skeleton, toast } from "../ui";
 
 interface CatalogEntry {
   name: string;
@@ -160,8 +161,10 @@ export function PluginManager() {
         source: "npm",
       });
       await refresh();
+      toast.success(`已安装「${entry.name}」`);
     } catch (e) {
       setError(String(e));
+      toast.error(`安装失败：${e instanceof Error ? e.message : String(e)}`);
     }
     setInstalling(null);
   }
@@ -170,18 +173,22 @@ export function PluginManager() {
     try {
       await toggleMcpServer(name, enabled);
       await refresh();
+      toast.success(`${enabled ? "已启用" : "已停用"}「${name}」`);
     } catch (e) {
       setError(String(e));
+      toast.error(`切换失败：${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   async function handleUninstall(name: string) {
-    if (!confirm(`Uninstall "${name}"?`)) return;
+    if (!window.confirm(`卸载「${name}」？`)) return;
     try {
       await deleteMcpServer(name);
       await refresh();
+      toast.success(`已卸载「${name}」`);
     } catch (e) {
       setError(String(e));
+      toast.error(`卸载失败：${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -207,7 +214,9 @@ export function PluginManager() {
       </div>
 
       {error && (
-        <div className="rounded border border-gb-red/30 bg-gb-red/10 px-3 py-2 text-xs text-gb-danger-text">{error}</div>
+        <InlineNotice tone="danger" title="操作失败">
+          {error}
+        </InlineNotice>
       )}
 
       {view === "marketplace" ? (
@@ -286,9 +295,13 @@ export function PluginManager() {
         </>
       ) : (        <div className="space-y-2">
           {loading ? (
-            <p className="text-xs text-gb-muted">加载中…</p>
+            <div className="space-y-2" aria-busy="true">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full rounded-gb-md" />
+              ))}
+            </div>
           ) : servers.length === 0 ? (
-            <p className="py-4 text-center text-xs text-gb-muted">尚未安装插件</p>
+            <EmptyState title="尚未安装插件" description="在「插件市场」中安装一个插件以开始。" />
           ) : (
             servers.map((server) => (
               <div key={server.name} className="rounded-lg border border-gb-border bg-gb-surface p-3">

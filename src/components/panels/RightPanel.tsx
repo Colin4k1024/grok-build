@@ -15,6 +15,13 @@ import {
   type McpServerInfo, type GitStatusEntry, type SessionInfo, type AcpEventPayload,
   type PtySession,
 } from "../../lib/tauri";
+import {
+  InlineNotice,
+  EmptyState,
+  Skeleton,
+  CollapsibleSection,
+  CopyButton,
+} from "../ui";
 // xterm (~282 KB) is only needed once the Terminal tab actually has a live
 // PTY. RightPanel itself must stay eagerly mounted — it owns the
 // gb-open-terminal / gb-open-review listeners that ⌘J and the triage queue
@@ -752,34 +759,61 @@ function McpPanel() {
     };
   }, []);
 
-  if (loading) return <p className="py-8 text-center text-xs text-gb-muted">加载 MCP 服务器中…</p>;
-  if (error) return <p className="py-8 px-3 text-center text-xs text-gb-danger-text">{error}</p>;
+  if (loading)
+    return (
+      <div className="space-y-1 p-2" aria-busy="true">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 w-full rounded-gb-md" />
+        ))}
+      </div>
+    );
+  if (error)
+    return (
+      <div className="p-2">
+        <InlineNotice tone="danger" title="加载 MCP 失败">
+          {error}
+        </InlineNotice>
+      </div>
+    );
   if (servers.length === 0)
     return (
-      <p className="py-8 px-3 text-center text-xs text-gb-muted">
-        No MCP servers configured.
-        <br />
-        Add one under Settings → MCP Servers.
-      </p>
+      <div className="p-2">
+        <EmptyState title="未配置 MCP 服务器" description="在「设置 → MCP 服务器」中添加一个。" />
+      </div>
     );
   return (
     <div className="space-y-1 p-2">
       {servers.map((s) => (
-        <div key={s.name} className="rounded-md border border-gb-border/10 bg-gb-surface px-2.5 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gb-text">{s.name}</span>
-            <span className={`rounded px-1 text-[9px] ${s.enabled ? "bg-gb-green/15 text-gb-success-text" : "bg-gb-border text-gb-muted"}`}>
-              {s.enabled ? "on" : "off"}
-            </span>
-            <span className="ml-auto rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{s.transport_type}</span>
+        <CollapsibleSection
+          key={s.name}
+          title={<span className="truncate font-mono">{s.name}</span>}
+          actions={
+            <>
+              <span className={`rounded px-1 text-[9px] ${s.enabled ? "bg-gb-success/10 text-gb-success-text" : "bg-gb-surface-hover text-gb-text-muted"}`}>
+                {s.enabled ? "on" : "off"}
+              </span>
+              <span className="rounded bg-gb-surface-hover px-1 text-[9px] text-gb-text-muted">{s.transport_type}</span>
+              <CopyButton value={s.name} label={`复制 ${s.name}`} />
+            </>
+          }
+          defaultOpen={false}
+        >
+          <div className="space-y-1 text-[10px] text-gb-text-muted">
+            {s.command && (
+              <div className="flex items-center gap-1">
+                <span className="truncate font-mono">{s.command} {s.args.join(" ")}</span>
+                <CopyButton value={`${s.command} ${s.args.join(" ")}`} />
+              </div>
+            )}
+            {s.url && (
+              <div className="flex items-center gap-1">
+                <span className="truncate font-mono">{s.url}</span>
+                <CopyButton value={s.url} />
+              </div>
+            )}
+            {!s.command && !s.url && <span>—</span>}
           </div>
-          {s.command && (
-            <p className="mt-1 truncate font-mono text-[10px] text-gb-muted">
-              {s.command} {s.args.join(" ")}
-            </p>
-          )}
-          {s.url && <p className="mt-1 truncate font-mono text-[10px] text-gb-muted">{s.url}</p>}
-        </div>
+        </CollapsibleSection>
       ))}
     </div>
   );

@@ -34,6 +34,8 @@ export interface AutomationRecord {
   /** Fixed target worktree path (isolated execution). */
   targetWorktree?: string | null;
   paused?: boolean;
+  /** Whether the scheduler should fire this automation (R4-09 #242). */
+  enabled?: boolean;
 }
 
 export interface RunInboxEntry {
@@ -195,7 +197,7 @@ export function evaluateDue(
 ): { automation: AutomationRecord; occurrenceTime: number }[] {
   const due: { automation: AutomationRecord; occurrenceTime: number }[] = [];
   for (const a of automations) {
-    if (a.paused) continue;
+    if (a.paused || a.enabled === false) continue;
     const baseline = a.lastRunAt ?? a.createdAt;
     const next = nextCronRun(a.schedule, baseline);
     if (next !== null && next <= nowMs) {

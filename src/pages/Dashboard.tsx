@@ -1,152 +1,177 @@
 import { useSessionStore } from "../stores/sessionStore";
+import { PageShell, PageSectionTitle } from "../components/layout/PageShell";
+import { Card, EmptyState } from "../components/ui";
 
 interface Props {
   onOpenSession: (sessionId: string) => void;
 }
 
+/**
+ * Dashboard (R4-09 #242): focuses on what needs the user's attention and
+ * recent activity — no vanity metrics. Sessions that need action (pending
+ * approval/question, failed subagents, streaming) surface first and are
+ * directly openable; recent subagent activity links back to its session.
+ *
+ * The decorative stats bar (活跃会话/流式输出中/Token/上下文容量) was
+ * removed: those were non-actionable counts. Empty states point to the next
+ * step instead of a bare blank page.
+ */
 export function Dashboard({ onOpenSession }: Props) {
   const tabs = useSessionStore((s) => s.tabs);
   const messages = useSessionStore((s) => s.messages);
   const subagents = useSessionStore((s) => s.subagents);
-  const tokenUsage = useSessionStore((s) => s.tokenUsage);
-  const streaming = useSessionStore((s) => s.isStreaming);
+  // Per-session streaming map — the global `isStreaming` would flag every
+  // idle session as streaming whenever any one session runs.
+  const streamingMap = useSessionStore((s) => s.streaming);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
+  const pendingPermissions = useSessionStore((s) => s.pendingPermissions);
+  const pendingQuestions = useSessionStore((s) => s.pendingQuestions);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
 
-  const activeSessions = tabs.length;
-  const streamingSessions = tabs.filter((t) => streaming && t.id !== activeSessionId).length;
-  const totalTokensUsed = Object.values(tokenUsage).reduce((sum, u) => sum + u.used, 0);
-  const totalTokensSize = Object.values(tokenUsage).reduce((sum, u) => sum + u.size, 0);
-
-  // Collect all subagent activity across sessions
   const allSubagents = Object.entries(subagents)
-    .flatMap(([sid, agents]) =>
-      agents.map((a) => ({ ...a, sessionId: sid }))
-    )
+    .flatMap(([sid, agents]) => agents.map((a) => ({ ...a, sessionId: sid })))
     .sort((a, b) => b.createdAt - a.createdAt);
 
-  function handleCardClick(sessionId: string) {
+  // Sessions that need the user's attention right now.
+  const needsAttention = tabs.filter((t) => {
+    const hasPendingApproval =
+      (pendingPermissions[t.id]?.length ?? 0) > 0 ||
+      (pendingQuestions[t.id]?.length ?? 0) > 0;
+    const hasFailedAgent = (subagents[t.id] ?? []).some((a) => a.status === "failed");
+    const isStreaming = streamingMap[t.id] === true && t.id !== activeSessionId;
+    return hasPendingApproval || hasFailedAgent || isStreaming;
+  });
+
+  function open(sessionId: string) {
     setActiveSession(sessionId);
     onOpenSession(sessionId);
   }
 
   return (
-    <div className="flex h-full flex-col bg-gb-canvas text-gb-text-primary">
-      {/* R4-03: no window chrome here — the shell TitleBar shows the
-         destination name; page content starts directly. */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {/* Stats bar */}
-        <div className="mb-4 grid grid-cols-4 gap-3">
-          <StatCard label="活跃会话" value={String(activeSessions)} />
-          <StatCard label="流式输出中" value={String(streamingSessions)} accent={streamingSessions > 0 ? "blue" : undefined} />
-          <StatCard label="Token 总量" value={formatTokens(totalTokensUsed)} />
-          <StatCard
-            label="上下文容量"
-            value={totalTokensSize > 0 ? `${Math.round((totalTokensUsed / totalTokensSize) * 100)}%` : "—"}
+    <PageShell>
+      {/* Needs attention — actionable first */}
+      <section className="mb-6">
+        <PageSectionTitle>需要处理</PageSectionTitle>
+        {needsAttention.length === 0 ? (
+          <EmptyState
+            title="无需处理的项"
+            description="没有等待批准、失败代理或进行中的会话需要关注。"
           />
-        </div>
-
-        <div className="flex gap-4">
-          {/* Session cards */}
-          <div className="flex-1">
-            <h3 className="mb-2 text-xs font-semibold text-gb-muted">会话</h3>
-            {tabs.length === 0 ? (
-              <p className="py-8 text-center text-xs text-gb-muted">暂无活跃会话</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                {tabs.map((tab) => {
-                  const msgCount = (messages[tab.id] || []).length;
-                  const usage = tokenUsage[tab.id];
-                  const isActive = tab.id === activeSessionId;
-                  const agents = subagents[tab.id] || [];
-                  const runningAgents = agents.filter((a) => a.status === "running").length;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => handleCardClick(tab.id)}
-                      className={`rounded-lg border p-3 text-left transition-colors ${
-                        isActive
-                          ? "border-gb-accent bg-gb-accent/10"
-                          : "border-gb-border bg-gb-surface hover:border-gb-muted"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="truncate text-xs font-medium">{tab.title || "Untitled"}</span>
-                        {isActive && (
-                          <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[9px] text-gb-accent-text">活跃</span>
-                        )}
-                      </div>
-                      <div className="mt-1 truncate text-[10px] text-gb-muted">{tab.cwd}</div>
-                      <div className="mt-2 flex items-center gap-3 text-[10px] text-gb-muted">
-                        {tab.model && <span>🤖 {tab.model}</span>}
-                        <span>💬 {msgCount} msgs</span>
-                        {runningAgents > 0 && (
-                          <span className="text-gb-blue">⚡ {runningAgents} agents</span>
-                        )}
-                        {usage && (
-                          <span className="tabular-nums">
-                            {formatTokens(usage.used)}/{formatTokens(usage.size)}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Subagent activity stream */}
-          <div className="w-72 shrink-0">
-            <h3 className="mb-2 text-xs font-semibold text-gb-muted">子代理动态</h3>
-            <div className="h-96 overflow-y-auto rounded-lg border border-gb-border bg-gb-surface p-2">
-              {allSubagents.length === 0 ? (
-                <p className="py-8 text-center text-[10px] text-gb-muted">暂无子代理动态</p>
-              ) : (
-                <div className="space-y-1">
-                  {allSubagents.slice(0, 50).map((agent) => (
-                    <div key={agent.id} className="flex items-start gap-2 rounded px-2 py-1 text-[10px] hover:bg-gb-bg">
-                      <span className={
-                        agent.status === "running" ? "text-gb-blue" :
-                        agent.status === "done" ? "text-gb-success-text" :
-                        agent.status === "failed" ? "text-gb-danger-text" :
-                        "text-gb-muted"
-                      }>
-                        {agent.status === "running" ? "●" : agent.status === "done" ? "✓" : agent.status === "failed" ? "✗" : "○"}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1">
-                          <span className="truncate font-medium">{agent.name}</span>
-                        </div>
-                        {agent.summary && (
-                          <p className="truncate text-gb-muted">{agent.summary}</p>
-                        )}
-                      </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+            {needsAttention.map((t) => {
+              const pendingCount =
+                (pendingPermissions[t.id]?.length ?? 0) + (pendingQuestions[t.id]?.length ?? 0);
+              const failedAgents = (subagents[t.id] ?? []).filter((a) => a.status === "failed").length;
+              const isStreaming = streamingMap[t.id] === true && t.id !== activeSessionId;
+              return (
+                <Card key={t.id} interactive className="p-0">
+                  <button type="button" onClick={() => open(t.id)} className="block w-full p-3 text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-gb-sm font-medium">{t.title || "Untitled"}</span>
+                      {t.id === activeSessionId && (
+                        <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[10px] text-gb-accent-text">活跃</span>
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    <p className="mt-1 truncate text-gb-xs text-gb-text-muted">{t.cwd}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                      {pendingCount > 0 && (
+                        <span className="rounded bg-gb-warning/15 px-1.5 py-0.5 text-gb-warning-text">{pendingCount} 待处理</span>
+                      )}
+                      {failedAgents > 0 && (
+                        <span className="rounded bg-gb-danger/10 px-1.5 py-0.5 text-gb-danger-text">{failedAgents} 失败代理</span>
+                      )}
+                      {isStreaming && (
+                        <span className="rounded bg-gb-info/10 px-1.5 py-0.5 text-gb-info-text">生成中</span>
+                      )}
+                    </div>
+                  </button>
+                </Card>
+              );
+            })}
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+        )}
+      </section>
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent?: "blue" }) {
-  return (
-    <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
-      <p className="text-[10px] uppercase text-gb-muted">{label}</p>
-      <p className={`mt-1 text-lg font-bold tabular-nums ${accent === "blue" ? "text-gb-blue" : "text-gb-text"}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
+      {/* All sessions */}
+      <section className="mb-6">
+        <PageSectionTitle>会话</PageSectionTitle>
+        {tabs.length === 0 ? (
+          <EmptyState
+            title="没有活跃会话"
+            description="在会话页新建或恢复一个会话以开始工作。"
+          />
+        ) : (
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+            {tabs.map((t) => {
+              const msgCount = (messages[t.id] || []).length;
+              const isActive = t.id === activeSessionId;
+              const runningAgents = (subagents[t.id] ?? []).filter((a) => a.status === "running").length;
+              return (
+                <Card key={t.id} interactive className={`p-0 ${isActive ? "border-gb-accent bg-gb-accent/5" : ""}`}>
+                  <button type="button" onClick={() => open(t.id)} className="block w-full p-3 text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-gb-sm font-medium">{t.title || "Untitled"}</span>
+                      {isActive && (
+                        <span className="rounded bg-gb-accent/20 px-1.5 py-0.5 text-[10px] text-gb-accent-text">活跃</span>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-gb-xs text-gb-text-muted">{t.cwd}</p>
+                    <div className="mt-2 flex items-center gap-3 text-[10px] text-gb-text-muted">
+                      {t.model && <span>{t.model}</span>}
+                      <span>{msgCount} 条消息</span>
+                      {runningAgents > 0 && (
+                        <span className="text-gb-info-text">{runningAgents} 个代理运行中</span>
+                      )}
+                    </div>
+                  </button>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-function formatTokens(n: number): string {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
-  return String(n);
+      {/* Recent activity — links back to sessions */}
+      <section>
+        <PageSectionTitle>最近活动</PageSectionTitle>
+        {allSubagents.length === 0 ? (
+          <EmptyState title="暂无子代理活动" description="子代理开始工作后会在此显示。" />
+        ) : (
+          <Card>
+            <ul className="divide-y gb-border-hairline">
+              {allSubagents.slice(0, 30).map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => open(a.sessionId)}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-gb-surface-hover"
+                  >
+                    <span
+                      className={
+                        a.status === "running"
+                          ? "text-gb-info-text"
+                          : a.status === "done"
+                            ? "text-gb-success-text"
+                            : a.status === "failed"
+                              ? "text-gb-danger-text"
+                              : "text-gb-text-muted"
+                      }
+                      aria-hidden="true"
+                    >
+                      ●
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-gb-sm font-medium">{a.name}</div>
+                      {a.summary && <p className="truncate text-gb-xs text-gb-text-muted">{a.summary}</p>}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+      </section>
+    </PageShell>
+  );
 }
