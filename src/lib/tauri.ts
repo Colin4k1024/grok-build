@@ -158,6 +158,15 @@ export interface HistorySession {
   last_active_at: string;
   model: string;
   num_messages: number;
+  /** False when the recorded cwd no longer exists on disk (R5-02). */
+  workspace_exists: boolean;
+}
+
+/** One cursor page of session history (R5-02). */
+export interface HistoryPage {
+  items: HistorySession[];
+  nextCursor: string | null;
+  total: number;
 }
 
 export interface ChatHistoryEntry {
@@ -277,8 +286,22 @@ export async function listSessions(): Promise<SessionListItem[]> {
   return invoke<SessionListItem[]>("session_list");
 }
 
-export async function listHistorySessions(): Promise<HistorySession[]> {
-  return invoke<HistorySession[]>("session_list_history");
+/** Fetch one cursor page of history (R5-02). No args = the first 100. */
+export async function listHistorySessions(opts: { cursor?: string; limit?: number } = {}): Promise<HistoryPage> {
+  return invoke<HistoryPage>("session_list_history", opts);
+}
+
+/** Fetch EVERY page of history (search UIs need the full corpus, R5-02).
+ *  Bounded by the real history size; each round-trip stays page-bounded. */
+export async function listAllHistorySessions(): Promise<HistorySession[]> {
+  const out: HistorySession[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await listHistorySessions(cursor ? { cursor } : {});
+    out.push(...page.items);
+    if (!page.nextCursor) return out;
+    cursor = page.nextCursor;
+  }
 }
 
 export async function getSessionHistory(

@@ -49,7 +49,7 @@ export function WorkOverview({ onOpenSession, onResumeThread }: Props) {
   const refresh = useCallback(() => {
     setLoadError(null);
     listHistorySessions()
-      .then((list) => setHistory(list.slice(0, 8)))
+      .then((page) => setHistory(page.items.slice(0, 8)))
       .catch((e) => {
         setHistory([]);
         setLoadError(e instanceof Error ? e.message : String(e));

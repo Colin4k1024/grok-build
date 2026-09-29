@@ -8,19 +8,22 @@
 
 ## Totals
 - Total open at start: **11** (EPIC #256, #257–#266)
-- Closed: 1 (#257)
-- Remaining: 10
-- Current issue: #263 (Wave 1)
-- main HEAD: 6bfe1068 (post-#257 squash merge)
+- Closed: 4 (#257, #263, #259, #265) — Wave 1 DONE
+- Remaining: 7
+- Current issue: #258 (Wave 2)
+- main HEAD: 616b4d26 (post-#265)
 
 ## Dependency graph
-- Wave 1 (READY): #259, #263, #265 — #257 ✅
-- Wave 2 (READY): #258, #260 (deps #257 ✅); #264 (←#263)
-- Wave 3: #261 (←#259,#260), #262 (←#258)
+- Wave 1: #257 ✅ #259 ✅ #263 ✅ #265 ✅ — COMPLETE
+- Wave 2 (READY): #258, #260, #264 (deps all satisfied)
+- Wave 3: #261 (←#259 ✅,#260), #262 (←#258)
 - Wave 4: #266 (←all); EPIC #256 closes last.
 
 ## Progress log
-- (start) Scope read from GitHub; 11 open issues; R5 plan found on branch `codex/r5-release-hardening-plan` (commit 75aaddb5). gh auth OK (repo+workflow). No open PRs.
-- Baseline `~/.grok/sessions` = 575 entries, 567 are `gb-acp*` test pollution — confirmed #257 severity.
-- (#257) ✅ CLOSED via PR #267 (squash → main 6bfe1068). `AcpTransport` readonly `childEnv` (process env→key store→child env); suite-level isolated GROK_HOME/GB_JOURNAL_DIR; zero process.env mutation; dispose-all-before-cleanup; boundary tests assert isolated-home non-empty + real sessions snapshot identical. Evidence: targeted 20/20; full 993 pass / 0 fail (1 pre-existing PTY skip = #265); real sessions 575→575 byte-identical. Codex plan 8.0 (2 P2 incorporated) / code 9.0 APPROVE.
-- (#263) Starting: artifact naming + updater feed verification.
+- (start) Scope read from GitHub; 11 open issues; R5 plan from branch `codex/r5-release-hardening-plan` (75aaddb5). gh auth OK.
+- Baseline `~/.grok/sessions` = 575 entries, 567 `gb-acp*` pollution.
+- (#257) ✅ PR #267 (main 6bfe1068). AcpTransport childEnv injection; isolated suite homes; marker-based boundary assertions. Codex plan 8.0 / code 9.0 APPROVE.
+- (#263) ✅ PR #268 (main 0789af3f). artifactName pinned no-space; verify-update-feed.mjs (traversal-proof, strict metadata); loopback HTTP feed tests; CI feed gate before upload; latest*.yml uploaded. Codex plan 8.0 / code r2 9.0 APPROVE.
+- (#259) ✅ PR #269 (main HEAD before #265). icons.tsx (17 local SVG); all interface emoji replaced; hex→tokens (terminalTheme.ts, --gb-terminal-*, StatusBar semantic dots); uiContract.test.ts scans whole component tree (string-aware stripper). Codex plan 7.0 / code r2 9.0 APPROVE.
+- (#265) ✅ PR #270 (main 616b4d26). ptyctl owns PTY child group: spawn-time pgid capture (pre-reap), TERM→KILL escalation, orphan sweep, parent-death watcher w/ cancel, live-pgid revalidation. stop() no-op bug fixed. server.rs stale test fixed. CI rust-pty job (ubuntu+macOS). Unskipped zombie test + SIGKILL + collateral cases; npm test 1027/0 skip. Cleaned two 10-day-old leaked controllers (old-bug evidence). Codex plan 7.0 / code r3 9.0 APPROVE.
+- (#258) Starting: session history pagination + stale workspace governance.

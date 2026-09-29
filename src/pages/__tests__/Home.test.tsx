@@ -14,30 +14,36 @@ vi.mock("../../lib/tauri", async (importOriginal) => {
   return {
     ...actual,
     invoke: vi.fn(async () => undefined),
-    listHistorySessions: vi.fn(async () => [
-      {
-        id: "acp-live", // SAME agent session as the live tab — must dedupe
-        session_id: "s-1",
-        title: "历史线程",
-        cwd: "/repo",
-        num_messages: 12,
-        model: "m",
-        last_active_at: "",
-        created_at: Date.now() - 3600_000,
-        updated_at: Date.now() - 1800_000,
-      },
-      {
-        id: "acp-old",
-        session_id: "s-2",
-        title: "旧线程",
-        cwd: "/other",
-        num_messages: 4,
-        model: "m",
-        last_active_at: "",
-        created_at: Date.now() - 7200_000,
-        updated_at: Date.now() - 3600_000,
-      },
-    ]),
+    listHistorySessions: vi.fn(async () => ({
+      items: [
+        {
+          id: "acp-live", // SAME agent session as the live tab — must dedupe
+          session_id: "s-1",
+          title: "历史线程",
+          cwd: "/repo",
+          num_messages: 12,
+          model: "m",
+          last_active_at: "",
+          created_at: Date.now() - 3600_000,
+          updated_at: Date.now() - 1800_000,
+          workspace_exists: true,
+        },
+        {
+          id: "acp-old",
+          session_id: "s-2",
+          title: "旧线程",
+          cwd: "/other",
+          num_messages: 4,
+          model: "m",
+          last_active_at: "",
+          created_at: Date.now() - 7200_000,
+          updated_at: Date.now() - 3600_000,
+          workspace_exists: true,
+        },
+      ],
+      nextCursor: null,
+      total: 2,
+    })),
     pickDirectory: vi.fn(async () => null),
   };
 });
@@ -115,7 +121,7 @@ describe("Home (R4-04)", () => {
 
   it("shows an actionable empty state when there is no work at all", async () => {
     const tauri = await import("../../lib/tauri");
-    (tauri.listHistorySessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    (tauri.listHistorySessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ items: [], nextCursor: null, total: 0 });
     render(
       <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
     );
@@ -150,9 +156,11 @@ describe("Home (R4-04)", () => {
 
   it("empty threads (num_messages=0) are never offered as resumable", async () => {
     const tauri = await import("../../lib/tauri");
-    (tauri.listHistorySessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-      { id: "empty-1", session_id: "s-e", title: "空线程", cwd: "/x", num_messages: 0, model: "m", last_active_at: "", created_at: 1, updated_at: 2 },
-    ]);
+    (tauri.listHistorySessions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      items: [{ id: "empty-1", session_id: "s-e", title: "空线程", cwd: "/x", num_messages: 0, model: "m", last_active_at: "", created_at: 1, updated_at: 2, workspace_exists: true }],
+      nextCursor: null,
+      total: 1,
+    });
     render(
       <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
     );
@@ -170,7 +178,7 @@ describe("Home (R4-04)", () => {
     );
     const overview = await screen.findByTestId("work-overview");
     await waitFor(() => expect(overview.textContent).toContain("历史加载失败"));
-    mock.mockResolvedValueOnce([]);
+    mock.mockResolvedValueOnce({ items: [], nextCursor: null, total: 0 });
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     await waitFor(() => expect(overview.textContent).toMatch(/暂无/));
   });
@@ -178,14 +186,16 @@ describe("Home (R4-04)", () => {
   it("refreshes when threads change elsewhere (gb-threads-changed)", async () => {
     const tauri = await import("../../lib/tauri");
     const mock = tauri.listHistorySessions as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValue([]);
+    mock.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
     render(
       <Home config={null} onStart={() => {}} onOpenSession={() => {}} onResumeThread={() => {}} creating={false} />,
     );
     await screen.findByTestId("work-overview");
-    mock.mockResolvedValue([
-      { id: "new-1", session_id: "s-n", title: "新线程", cwd: "/y", num_messages: 3, model: "m", last_active_at: "", created_at: 1, updated_at: 2 },
-    ]);
+    mock.mockResolvedValue({
+      items: [{ id: "new-1", session_id: "s-n", title: "新线程", cwd: "/y", num_messages: 3, model: "m", last_active_at: "", created_at: 1, updated_at: 2, workspace_exists: true }],
+      nextCursor: null,
+      total: 1,
+    });
     await act(async () => {
       window.dispatchEvent(new CustomEvent("gb-threads-changed"));
     });

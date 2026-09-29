@@ -9,7 +9,13 @@ import {
   type ProjectEntry,
 } from "../../../lib/tauri";
 
-const mockHistory = vi.hoisted(() => ({ value: [] as HistorySession[] }));
+const mockHistory = vi.hoisted(() => ({
+  value: [] as HistorySession[],
+  nextCursor: null as string | null,
+  total: 0,
+  // captured load-more calls for pagination assertions
+  calls: [] as ({ cursor?: string } | undefined)[],
+}));
 const mockProjects = vi.hoisted(() => ({ value: [] as ProjectEntry[] }));
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
@@ -17,7 +23,10 @@ vi.mock("../../../lib/tauri", async (importOriginal) => {
   return {
     ...actual,
     listProjects: vi.fn(async () => mockProjects.value),
-    listHistorySessions: vi.fn(async () => mockHistory.value),
+    listHistorySessions: vi.fn(async (opts?: { cursor?: string }) => {
+      mockHistory.calls.push(opts);
+      return { items: mockHistory.value, nextCursor: mockHistory.nextCursor, total: mockHistory.total || mockHistory.value.length };
+    }),
     removeProject: vi.fn(async () => []),
     deleteHistorySession: vi.fn(async () => undefined),
   };
@@ -41,6 +50,7 @@ const HISTORY: HistorySession[] = [
     last_active_at: new Date(Date.now() - 3_600_000).toISOString(),
     model: "grok-4",
     num_messages: 4,
+    workspace_exists: true,
   },
   {
     id: "hist-loose",
@@ -51,6 +61,7 @@ const HISTORY: HistorySession[] = [
     last_active_at: new Date(Date.now() - 7_200_000).toISOString(),
     model: "grok-4",
     num_messages: 2,
+    workspace_exists: true,
   },
 ];
 
@@ -104,7 +115,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetStore();
   mockHistory.value = [];
+  mockHistory.nextCursor = null;
+  mockHistory.total = 0;
+  mockHistory.calls = [];
   mockProjects.value = [];
+  localStorage.clear();
 });
 
 describe("thread grouping", () => {
@@ -254,5 +269,165 @@ describe("project callbacks", () => {
     await user.click(await screen.findByText("Remove from sidebar"));
     const { removeProject } = await import("../../../lib/tauri");
     expect(removeProject).toHaveBeenCalledWith("/w/beta");
+  });
+});
+
+describe("history pagination (R5-02 #258)", () => {
+  it("renders a load-more button when nextCursor exists and appends the next page", async () => {
+    const user = userEvent.setup();
+    mockHistory.value = [HISTORY[0]];
+    mockHistory.nextCursor = "cursor-page-2";
+    mockHistory.total = 2;
+    setup();
+
+    await screen.findByText("Old thread");
+    const more = await screen.findByRole("button", { name: /加载更多/ });
+    expect(more).toHaveTextContent("共 2 条");
+
+    // second page payload
+    mockHistory.value = [HISTORY[1]];
+    mockHistory.nextCursor = null;
+    await user.click(more);
+
+    await screen.findByText("No-cwd thread");
+    // both pages are present; the button disappears when the cursor ends
+    expect(screen.getByText("Old thread")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /加载更多/ })).toBeNull();
+    expect(mockHistory.calls.some((c) => c?.cursor === "cursor-page-2")).toBe(true);
+  });
+
+  it("no load-more button when the first page is the last", async () => {
+    mockHistory.value = HISTORY;
+    mockHistory.nextCursor = null;
+    setup();
+    await screen.findByText("Old thread");
+    expect(screen.queryByRole("button", { name: /加载更多/ })).toBeNull();
+  });
+});
+
+describe("stale workspace governance (R5-02 #258)", () => {
+  const STALE: HistorySession[] = [
+    {
+      id: "stale-1",
+      session_id: "stale-1",
+      title: "Test leftover A",
+      cwd: "/tmp/gb-acp-transport-aaa",
+      updated_at: Date.now() - 10_000,
+      last_active_at: new Date(Date.now() - 10_000).toISOString(),
+      model: "grok-4",
+      num_messages: 3,
+      workspace_exists: false,
+    },
+    {
+      id: "stale-2",
+      session_id: "stale-2",
+      title: "Old vanished project",
+      cwd: "/gone/project",
+      updated_at: Date.now() - 20_000,
+      last_active_at: new Date(Date.now() - 20_000).toISOString(),
+      model: "grok-4",
+      num_messages: 5,
+      workspace_exists: false,
+    },
+  ];
+
+  it("stale records leave the normal groups and land in the collapsed stale section", async () => {
+    mockHistory.value = [...HISTORY, ...STALE];
+    setup();
+
+    await screen.findByText("Old thread");
+    // stale titles are NOT in the normal flow
+    expect(screen.queryByText("Test leftover A")).toBeNull();
+    const section = screen.getByTestId("stale-history-section");
+    expect(section).toHaveTextContent("不可用工作区");
+
+    // expand
+    const user = userEvent.setup();
+    await screen.findByTestId("stale-history-section");
+    await user.click(screen.getByRole("button", { name: /不可用工作区/ }));
+    expect(await screen.findByText("Test leftover A")).toBeInTheDocument();
+    expect(screen.getByText("Old vanished project")).toBeInTheDocument();
+  });
+
+  it("the test-leftover filter selects only gb-acp-* records and never deletes by itself", async () => {
+    const user = userEvent.setup();
+    mockHistory.value = STALE;
+    setup();
+
+    await screen.findByTestId("stale-history-section");
+    await user.click(screen.getByRole("button", { name: /不可用工作区/ }));
+    await user.click(await screen.findByRole("button", { name: /筛出测试遗留/ }));
+
+    expect(screen.getByLabelText("选择 Test leftover A")).toBeChecked();
+    expect(screen.getByLabelText("选择 Old vanished project")).not.toBeChecked();
+    // selection only — nothing deleted
+    const { deleteHistorySession } = await import("../../../lib/tauri");
+    expect(deleteHistorySession).not.toHaveBeenCalled();
+  });
+
+  it("batch archive moves selected records out via the archive set", async () => {
+    const user = userEvent.setup();
+    mockHistory.value = STALE;
+    setup();
+
+    await screen.findByTestId("stale-history-section");
+    await user.click(screen.getByRole("button", { name: /不可用工作区/ }));
+    await user.click(screen.getByLabelText("选择 Old vanished project"));
+    await user.click(screen.getByRole("button", { name: /归档所选/ }));
+
+    await waitFor(() => {
+      const archived = JSON.parse(localStorage.getItem("gb-archived-threads")!) as string[];
+      expect(archived).toContain("stale-2");
+    });
+    // archived stale record leaves the section; the other stays
+    expect(screen.queryByText("Old vanished project")).toBeNull();
+    expect(screen.getByText("Test leftover A")).toBeInTheDocument();
+  });
+
+  it("batch delete requires an explicit second confirmation and reports partial failures", async () => {
+    const user = userEvent.setup();
+    mockHistory.value = STALE;
+    setup();
+
+    await screen.findByTestId("stale-history-section");
+    await user.click(screen.getByRole("button", { name: /不可用工作区/ }));
+    await user.click(screen.getByRole("button", { name: /筛出测试遗留/ }));
+    await user.click(screen.getByLabelText("选择 Old vanished project"));
+
+    const del = await screen.findByRole("button", { name: /永久删除所选/ });
+    await user.click(del);
+
+    // first confirm dialog with count + irreversibility
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("永久删除 2 条");
+    expect(alert).toHaveTextContent("不可恢复");
+
+    const { deleteHistorySession } = await import("../../../lib/tauri");
+    // one delete fails — the summary must report it
+    (deleteHistorySession as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("io error"));
+
+    await user.click(screen.getByRole("button", { name: /确认删除 2 条/ }));
+
+    await waitFor(() => expect(deleteHistorySession).toHaveBeenCalledTimes(2));
+    // refresh happened after the batch
+    await waitFor(() => expect(mockHistory.calls.length).toBeGreaterThan(1));
+  });
+
+  it("cancel on the confirmation keeps every record", async () => {
+    const user = userEvent.setup();
+    mockHistory.value = STALE;
+    setup();
+
+    await screen.findByTestId("stale-history-section");
+    await user.click(screen.getByRole("button", { name: /不可用工作区/ }));
+    await user.click(screen.getByLabelText("选择 Test leftover A"));
+    await user.click(screen.getByRole("button", { name: /永久删除所选/ }));
+    await user.click(await screen.findByRole("button", { name: "取消" }));
+
+    const { deleteHistorySession } = await import("../../../lib/tauri");
+    expect(deleteHistorySession).not.toHaveBeenCalled();
+    expect(screen.getByText("Test leftover A")).toBeInTheDocument();
   });
 });
