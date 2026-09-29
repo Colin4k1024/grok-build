@@ -1,4 +1,6 @@
 import { useSettingsStore } from "../stores/settingsStore";
+import { useSessionStore } from "../stores/sessionStore";
+import { resolveFromStore } from "../config/storeBridge";
 
 /**
  * Appearance application (R4-07 #240): the ONLY place font size and zoom
@@ -23,36 +25,47 @@ export function applyZoom(zoom: number) {
   (document.body.style as CSSStyleDeclaration & { zoom?: string }).zoom = String(zoom);
 }
 
-/** Apply persisted appearance preferences on app boot. Called from main.tsx. */
+/** Apply persisted appearance preferences on app boot. Called from main.tsx.
+ *  The stores rehydrate synchronously at module init, so resolve the
+ *  effective (project-aware) values the same way the live subscription does
+ *  — never read raw localStorage here, which would clobber a project zoom
+ *  override with the global value at boot (R4-08 #241). */
 export function bootstrapAppearance() {
   try {
-    const raw = localStorage.getItem("gb-settings");
-    if (raw) {
-      const st = JSON.parse(raw)?.state;
-      if (st) {
-        applyFontSize(typeof st.fontSize === "string" ? st.fontSize : "medium");
-        applyZoom(typeof st.zoom === "number" ? st.zoom : 1.0);
-        return;
-      }
-    }
+    const ss = useSessionStore.getState();
+    const cwd = ss.tabs.find((t) => t.id === ss.activeSessionId)?.cwd;
+    applyFontSize(resolveFromStore("appearance.fontSize", cwd).value as string);
+    applyZoom(resolveFromStore("appearance.zoom", cwd).value as number);
   } catch {
-    /* fall through to defaults */
+    applyFontSize("medium");
+    applyZoom(1.0);
   }
-  applyFontSize("medium");
-  applyZoom(1.0);
 }
 
 // Live application: any store change (settings UI, presets, imports,
-// multi-window sync) is reflected immediately. Narrow selector — only
-// fontSize/zoom changes repaint.
+// multi-window sync) is reflected immediately. Project-aware (R4-08 #241):
+// the active project's zoom override wins over the global value, mirroring
+// useTheme's theme resolution — so a project-scoped appearance.zoom edit
+// actually reaches the DOM. (fontSize is global-only today; resolving with
+// projectId is still safe — resolveSetting skips the project layer for
+// settings whose scopes don't include "project".)
 if (typeof window !== "undefined") {
-  let prevFont = useSettingsStore.getState().fontSize;
-  let prevZoom = useSettingsStore.getState().zoom;
-  useSettingsStore.subscribe((s) => {
-    if (s.fontSize === prevFont && s.zoom === prevZoom) return;
-    prevFont = s.fontSize;
-    prevZoom = s.zoom;
-    applyFontSize(s.fontSize);
-    applyZoom(s.zoom);
-  });
+  let prevFont = "";
+  let prevZoom = -1;
+  let prevCwd: string | undefined;
+  const apply = () => {
+    const ss = useSessionStore.getState();
+    const cwd = ss.tabs.find((t) => t.id === ss.activeSessionId)?.cwd;
+    const font = resolveFromStore("appearance.fontSize", cwd).value as string;
+    const zoom = resolveFromStore("appearance.zoom", cwd).value as number;
+    if (font === prevFont && zoom === prevZoom && cwd === prevCwd) return;
+    prevFont = font;
+    prevZoom = zoom;
+    prevCwd = cwd;
+    applyFontSize(font);
+    applyZoom(zoom);
+  };
+  apply();
+  useSettingsStore.subscribe(apply);
+  useSessionStore.subscribe(apply);
 }

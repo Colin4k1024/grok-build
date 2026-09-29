@@ -207,6 +207,19 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   };
 
   const applyDrafts = async () => {
+    // Confirm high-risk staged changes before applying (R4-08 #241). A single
+    // confirm lists every high-risk draft so a sandbox/autonomy toggle can't
+    // commit without an explicit ack.
+    const risky = Object.entries(drafts).filter(([key]) => {
+      // draftKey is `${scope}:${projectId ?? ""}:${id}` — the settingId is the
+      // last segment (matching the applyDrafts loop's `.pop()` extraction).
+      const settingId = key.split(":").pop();
+      return settingId ? getSetting(settingId)?.highRisk : false;
+    });
+    if (risky.length > 0) {
+      const lines = risky.map(([key]) => getSetting(key.split(":").pop() ?? "")?.label).filter(Boolean).join("、");
+      if (!window.confirm(`以下高风险设置将被应用：${lines}\n\n确认继续？`)) return;
+    }
     setSaving(true);
     await new Promise((r) => setTimeout(r, 0)); // let the saving state paint
     const before = snapshotSettings();

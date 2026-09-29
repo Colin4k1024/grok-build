@@ -63,6 +63,13 @@ export function SettingsField({
   const scopeAllowed = def.scopes.includes(scope as SettingScope);
   const current = draft !== undefined ? draft : resolved.value;
   const shownError = error ?? numError;
+  // High-risk immediate settings (e.g. a future security toggle marked
+  // `highRisk` with saveMode "immediate") confirm before the write. Staged
+  // high-risk settings are confirmed at Apply in the page's applyDrafts.
+  const guardedChange = (v: unknown) => {
+    if (def.highRisk && def.saveMode === "immediate" && !window.confirm(def.highRisk)) return;
+    onChange(settingId, v);
+  };
   // 重置 is only meaningful where a value exists at THIS scope: in project
   // scope that means a project override (or a draft), not a global layer.
   const hasProjectLayer = projectValue !== undefined && projectValue !== null;
@@ -78,7 +85,7 @@ export function SettingsField({
     }
     setNumError(null);
     setNumText(null);
-    onChange(settingId, v);
+    guardedChange(v);
   };
 
   return (
@@ -119,7 +126,7 @@ export function SettingsField({
                 label={def.label}
                 hideLabel
                 value={String(current)}
-                onChange={(v) => onChange(settingId, v)}
+                onChange={(v) => guardedChange(v)}
                 options={(def.enumValues ?? []).map((v) => ({
                   value: String(v),
                   label: enumLabel(def, String(v)),
@@ -130,7 +137,7 @@ export function SettingsField({
                 label={def.label}
                 hideLabel
                 value={String(current)}
-                onChange={(v) => onChange(settingId, v)}
+                onChange={(v) => guardedChange(v)}
                 options={(def.enumValues ?? []).map((v) => ({
                   value: String(v),
                   label: enumLabel(def, String(v)),
@@ -147,7 +154,7 @@ export function SettingsField({
               label={def.label}
               hideLabel
               checked={Boolean(current)}
-              onCheckedChange={(v) => onChange(settingId, v)}
+              onCheckedChange={(v) => guardedChange(v)}
             />
           ) : (
             <span className="text-gb-sm text-gb-text-secondary">{current ? "开" : "关"}</span>
@@ -161,7 +168,7 @@ export function SettingsField({
                     key={v}
                     type="button"
                     disabled={!scopeAllowed}
-                    onClick={() => onChange(settingId, v)}
+                    onClick={() => guardedChange(v)}
                     className={[
                       "rounded-gb-sm px-1.5 py-0.5 text-gb-xs transition-colors duration-gb-fast ease-gb",
                       Number(current) === v
@@ -203,7 +210,7 @@ export function SettingsField({
             disabled={!scopeAllowed}
             className="w-44 rounded-gb-md border gb-border-control bg-gb-canvas px-2 py-1 text-gb-sm text-gb-text-primary outline-none focus:border-gb-accent"
             value={String(current)}
-            onChange={(e) => onChange(settingId, e.target.value)}
+            onChange={(e) => guardedChange(e.target.value)}
           />
         )}
         {def.type === "string[]" && (

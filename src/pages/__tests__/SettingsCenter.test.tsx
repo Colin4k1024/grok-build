@@ -100,18 +100,24 @@ describe("Settings Center (R4-07)", () => {
   });
 
   it("staged settings collect in the change bar; Apply writes, Discard reverts", async () => {
-    render(<Settings />);
-    await screen.findByRole("navigation", { name: "设置分类" });
-    await userEvent.click(screen.getByRole("button", { name: "权限" }));
-    // sandboxMode is staged — toggle it
-    await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
-    // NOT written yet
-    expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
-    const bar = await screen.findByTestId("settings-change-bar");
-    expect(bar.textContent).toMatch(/1 项未保存/);
-    await userEvent.click(screen.getByRole("button", { name: "应用" }));
-    await waitFor(() => expect(useSettingsStore.getState().sandboxMode).toBe("full"));
-    expect(screen.queryByTestId("settings-change-bar")).not.toBeInTheDocument();
+    // sandboxMode is high-risk; auto-accept its confirm to test the apply path.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      render(<Settings />);
+      await screen.findByRole("navigation", { name: "设置分类" });
+      await userEvent.click(screen.getByRole("button", { name: "权限" }));
+      // sandboxMode is staged — toggle it
+      await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+      // NOT written yet
+      expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
+      const bar = await screen.findByTestId("settings-change-bar");
+      expect(bar.textContent).toMatch(/1 项未保存/);
+      await userEvent.click(screen.getByRole("button", { name: "应用" }));
+      await waitFor(() => expect(useSettingsStore.getState().sandboxMode).toBe("full"));
+      expect(screen.queryByTestId("settings-change-bar")).not.toBeInTheDocument();
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it("staged Discard reverts the draft", async () => {
@@ -123,6 +129,45 @@ describe("Settings Center (R4-07)", () => {
     await userEvent.click(screen.getByRole("button", { name: "放弃" }));
     expect(screen.queryByTestId("settings-change-bar")).not.toBeInTheDocument();
     expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
+  });
+
+  it("high-risk staged changes confirm before applying (R4-08 #241)", async () => {
+    // sandboxMode is marked highRisk; Apply must confirm and abort on decline.
+    render(<Settings />);
+    await screen.findByRole("navigation", { name: "设置分类" });
+    await userEvent.click(screen.getByRole("button", { name: "权限" }));
+    await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await userEvent.click(screen.getByRole("button", { name: "应用" }));
+    // declined → not applied, draft still staged
+    expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
+    expect(screen.getByTestId("settings-change-bar")).toBeInTheDocument();
+    confirmSpy.mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "应用" }));
+    await waitFor(() => expect(useSettingsStore.getState().sandboxMode).toBe("full"));
+    confirmSpy.mockRestore();
+  });
+
+  it("TrustedFoldersManager writes through the store, not a parallel localStorage writer (R4-08 #241)", async () => {
+    // The manager used to keep its own gb-trusted-folders writer; it now
+    // routes through the store so the registry field above it stays in sync.
+    const { TrustedFoldersManager } = await import("../../components/settings/TrustedFoldersManager");
+    localStorage.setItem("gb-trusted-folders", "[]");
+    render(<TrustedFoldersManager />);
+    const input = screen.getByPlaceholderText("/绝对路径/到/项目");
+    await userEvent.type(input, "/tmp/proj");
+    await userEvent.click(screen.getByRole("button", { name: "Trust" }));
+    expect(useSettingsStore.getState().trustedFolders).toContain("/tmp/proj");
+    // the store mirrors to the legacy key the main process reads
+    expect(JSON.parse(localStorage.getItem("gb-trusted-folders") ?? "[]")).toContain("/tmp/proj");
+    // remove (with confirm) clears it from the store
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await userEvent.click(screen.getByRole("button", { name: /移除受信任目录/ }));
+      expect(useSettingsStore.getState().trustedFolders).not.toContain("/tmp/proj");
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it("project scope shows project override and project reset removes only the override", async () => {    useSessionStore.setState({
@@ -165,10 +210,16 @@ describe("Settings Center (R4-07)", () => {
     await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
     // The active session switches to project B while the draft is staged.
     useSessionStore.getState().setActiveSession("tB");
-    await userEvent.click(screen.getByRole("button", { name: "应用" }));
-    // The override is written to project A (where it was staged), not B.
-    expect(useSettingsStore.getState().projectOverrides["/proj/A"]?.["permissions.sandboxMode"]).toBe("full");
-    expect(useSettingsStore.getState().projectOverrides["/proj/B"]).toBeUndefined();
+    // sandboxMode is high-risk; accept the confirm to test the project-binding.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await userEvent.click(screen.getByRole("button", { name: "应用" }));
+      // The override is written to project A (where it was staged), not B.
+      expect(useSettingsStore.getState().projectOverrides["/proj/A"]?.["permissions.sandboxMode"]).toBe("full");
+      expect(useSettingsStore.getState().projectOverrides["/proj/B"]).toBeUndefined();
+    } finally {
+      confirmSpy.mockRestore();
+    }
   });
 
   it("partial apply failure keeps other drafts and marks the failing field", async () => {
@@ -188,6 +239,9 @@ describe("Settings Center (R4-07)", () => {
       if (key === "sandboxMode") throw new Error("模拟失败");
       return orig(key, value);
     });
+    // both staged settings are high-risk; accept the confirm to test the
+    // partial-failure path (not the gate, which has its own test).
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     try {
       await userEvent.click(screen.getByRole("button", { name: "应用" }));
       const bar = await screen.findByTestId("settings-change-bar");
@@ -197,6 +251,7 @@ describe("Settings Center (R4-07)", () => {
       expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
     } finally {
       spy.mockRestore();
+      confirmSpy.mockRestore();
     }
     // navigate back to 权限 — the failing field is marked there
     await userEvent.click(screen.getByRole("button", { name: "权限" }));

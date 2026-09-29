@@ -59,6 +59,9 @@ export function ApiKeyManager() {
   }, [editing, editValue, refreshStatuses]);
 
   const handleDelete = useCallback(async (key: string) => {
+    // Deleting a keychain credential is high-risk (R4-08 #241): agents using
+    // it will fail until re-added. Confirm before the irreversible IPC.
+    if (!window.confirm(`删除 API 密钥「${key}」？\n\n使用该密钥的代理将无法继续，直到重新添加。`)) return;
     setError(null);
     try {
       await invoke("delete_api_key", { envKey: key });

@@ -40,6 +40,10 @@ export interface SettingDefinition<T = unknown> {
   numberRange?: { min: number; max: number; step: number };
   /** Quick-pick values for type === "number" (rendered as preset buttons). */
   quickValues?: number[];
+  /** High-risk: the UI confirms with this message before applying a change
+   *  (immediate: on field change; staged: at Apply). Keeps security/safety
+   *  toggles from flipping without an explicit ack (R4-08 #241). */
+  highRisk?: string;
   /** Flat field name in the legacy settingsStore (global layer binding).
    *  Absent means the setting has no global store binding. */
   storeKey?: string;

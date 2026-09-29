@@ -7,6 +7,9 @@ export function McpManager() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Per-server operation outcome (R4-08 #241): retry/reconnect results
+   *  surface inline so a connection problem is diagnosable + retryable. */
+  const [serverStatus, setServerStatus] = useState<Record<string, { ok: boolean; message: string } | undefined>>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -32,6 +35,20 @@ export function McpManager() {
     }
   }
 
+  // Retry = re-apply the current enabled state (reconnect). Surfaces the
+  // outcome inline so the user can diagnose whether the server is reachable.
+  async function handleRetry(server: McpServerInfo) {
+    setServerStatus((p) => ({ ...p, [server.name]: { ok: true, message: "重试中…" } }));
+    try {
+      await toggleMcpServer(server.name, server.enabled);
+      await refresh();
+      setServerStatus((p) => ({ ...p, [server.name]: { ok: true, message: "已重新加载" } }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setServerStatus((p) => ({ ...p, [server.name]: { ok: false, message: msg } }));
+    }
+  }
+
   async function handleDelete(name: string) {
     if (!confirm(`Delete MCP server "${name}"?`)) return;
     try {
@@ -46,12 +63,22 @@ export function McpManager() {
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gb-text">MCP 服务器</h3>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface hover:text-gb-text"
-        >
-          {showForm ? "取消" : "+ 添加服务器"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refresh()}
+            disabled={loading}
+            className="rounded border border-gb-border px-2.5 py-1 text-xs text-gb-muted hover:bg-gb-surface hover:text-gb-text disabled:opacity-50"
+            aria-label="刷新 MCP 服务器列表"
+          >
+            刷新
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="rounded border border-gb-border px-3 py-1 text-xs text-gb-muted hover:bg-gb-surface hover:text-gb-text"
+          >
+            {showForm ? "取消" : "+ 添加服务器"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -102,6 +129,13 @@ export function McpManager() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => handleRetry(server)}
+                    className="text-[10px] text-gb-muted hover:text-gb-text hover:underline"
+                    aria-label={`重试 ${server.name} 连接`}
+                  >
+                    重试
+                  </button>
+                  <button
                     onClick={() => handleToggle(server.name, !server.enabled)}
                     className={`relative h-4 w-7 rounded-full transition-colors ${
                       server.enabled ? "bg-gb-accent" : "bg-gb-border"
@@ -119,6 +153,15 @@ export function McpManager() {
                   </button>
                 </div>
               </div>
+              {serverStatus[server.name] && (
+                <div className={`mt-1.5 rounded px-2 py-1 text-[10px] ${
+                  serverStatus[server.name]!.ok
+                    ? "bg-gb-success/10 text-gb-success-text"
+                    : "bg-gb-danger/10 text-gb-danger-text"
+                }`} role={serverStatus[server.name]!.ok ? "status" : "alert"}>
+                  {serverStatus[server.name]!.message}
+                </div>
+              )}
               <div className="mt-2 space-y-0.5 text-[10px] text-gb-muted">
                 {server.command && <div>命令：<code className="text-gb-text">{server.command}</code></div>}
                 {server.args.length > 0 && <div>参数：<code className="text-gb-text">{server.args.join(" ")}</code></div>}

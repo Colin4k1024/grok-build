@@ -1,64 +1,53 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useSettingsStore } from "../../stores/settingsStore";
 
-const TRUSTED_KEY = "gb-trusted-folders";
-
-export function getTrustedFolders(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(TRUSTED_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-export function isFolderTrusted(path: string): boolean {
-  return getTrustedFolders().includes(path);
-}
-
-export function trustFolder(path: string) {
-  const list = getTrustedFolders();
-  if (!list.includes(path)) {
-    localStorage.setItem(TRUSTED_KEY, JSON.stringify([...list, path]));
-  }
-}
-
-export function untrustFolder(path: string) {
-  localStorage.setItem(
-    TRUSTED_KEY,
-    JSON.stringify(getTrustedFolders().filter((p) => p !== path))
-  );
-}
-
+/**
+ * Trusted Folders manager (R4-08 #241): migrated off a private localStorage
+ * reader/writer onto the unified settings store. The registry owns
+ * `general.trustedFolders` (schema.ts, storeKey `trustedFolders`); the store's
+ * `addTrustedFolder`/`removeTrustedFolder` are the only writers, and they
+ * mirror to the legacy `gb-trusted-folders` key that the main process reads.
+ *
+ * Previously this component kept its own parallel `localStorage.getItem`/
+ * `setItem` on the same key, so it and the registry-backed SettingsField
+ * above it could disagree (the field showed a stale count when the manager
+ * wrote without touching the store). That dual-writer desync is gone.
+ *
+ * High-risk: removing trust re-enables per-directory approval prompts, so it
+ * confirms first (R4-08 criterion: high-risk modifications never execute
+ * silently).
+ */
 export function TrustedFoldersManager() {
-  const [folders, setFolders] = useState<string[]>(getTrustedFolders());
+  const folders = useSettingsStore((s) => s.trustedFolders);
+  const addTrustedFolder = useSettingsStore((s) => s.addTrustedFolder);
+  const removeTrustedFolder = useSettingsStore((s) => s.removeTrustedFolder);
   const [newPath, setNewPath] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Keep local state in sync if other tabs mutate the list.
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === TRUSTED_KEY) setFolders(getTrustedFolders());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const handleAdd = useCallback(() => {
+  const handleAdd = () => {
     const trimmed = newPath.trim();
     if (!trimmed) return;
     if (folders.includes(trimmed)) {
       setError("该目录已受信任");
       return;
     }
-    trustFolder(trimmed);
-    setFolders(getTrustedFolders());
-    setNewPath("");
-    setError(null);
-  }, [newPath, folders]);
+    try {
+      addTrustedFolder(trimmed);
+      setNewPath("");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
-  const handleRemove = useCallback((path: string) => {
-    untrustFolder(path);
-    setFolders(getTrustedFolders());
-  }, []);
+  const handleRemove = (path: string) => {
+    if (!window.confirm(`移除受信任目录？\n${path}\n\n该目录中的会话将重新逐项请求批准。`)) return;
+    try {
+      removeTrustedFolder(path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <div className="space-y-4 p-4">
@@ -85,6 +74,7 @@ export function TrustedFoldersManager() {
               <span className="truncate font-mono text-xs text-gb-text">{path}</span>
               <button
                 onClick={() => handleRemove(path)}
+                aria-label={`移除受信任目录 ${path}`}
                 className="shrink-0 rounded px-2 py-1 text-[11px] text-gb-danger-text hover:bg-gb-red/10"
               >
                 Remove

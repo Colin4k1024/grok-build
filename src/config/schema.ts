@@ -81,6 +81,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     saveMode: "staged",
     enumValues: SANDBOX_MODES,
     enumLabels: { sandbox: "沙箱", full: "完全访问" },
+    highRisk: "切换沙箱模式会改变代理的文件与命令访问范围。完全访问允许代理直接读写宿主系统。",
     validate: oneOf(SANDBOX_MODES),
   },
   {
@@ -110,6 +111,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["autonomous", "auto", "自治", "自动"],
     advanced: true,
     saveMode: "staged",
+    highRisk: "启用自治执行后，代理会在低风险操作上自动继续，不再逐项请求批准。",
     validate: isBoolean,
   },
   {
