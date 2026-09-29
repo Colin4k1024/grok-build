@@ -725,7 +725,7 @@ export default function App() {
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
-          newThread: () => { setActiveSession(null); setShowHome(true); navigateTo("conversations"); },
+          newThread: () => { if (!navigateTo("conversations")) return; setActiveSession(null); setShowHome(true); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           forkCurrentThread: () => {
@@ -908,9 +908,11 @@ export default function App() {
         title: `Switch to: ${tab.title}`,
         category: "Session",
         action: () => {
+          // Guard FIRST: if the user declines to leave settings, don't switch
+          // the active session underneath them.
+          if (!navigateTo("conversations")) return;
           setActiveSession(tab.id);
           setShowHome(false);
-          navigateTo("conversations");
         },
       });
     }
@@ -961,8 +963,9 @@ export default function App() {
       title: "Go Home",
       category: "Navigation",
       action: () => {
+        // Guard FIRST: declining to leave settings keeps the user where they are.
+        if (!navigateTo("conversations")) return;
         setShowHome(true);
-        navigateTo("conversations");
       },
     });
 
@@ -1217,7 +1220,7 @@ export default function App() {
         <Suspense fallback={null}>
           <GlobalSearch
             onClose={() => setShowSearch(false)}
-            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); navigateTo("conversations"); }}
+            onOpenTab={(id) => { if (!navigateTo("conversations")) return; setActiveSession(id); setShowHome(false); }}
             onResumeThread={handleResumeThread}
           />
         </Suspense>

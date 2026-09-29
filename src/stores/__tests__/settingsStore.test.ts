@@ -117,6 +117,35 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect(useSettingsStore.getState().notificationsEnabled).toBe(false);
   });
 
+  it("the incompatible gb-agent-default-mode value never leaks into agentMode (R4-07 #240)", async () => {
+    // The deleted AgentSettings wrote "chat"/"agent" to gb-agent-default-mode
+    // — a different enum from agentMode's "code"/"architect"/"debug". That key
+    // must never produce an invalid agentMode value (it's dropped from the
+    // legacy chain; only gb-agent-mode, which shares the registry enum, is).
+    localStorage.clear();
+    localStorage.setItem("gb-agent-default-mode", "chat");
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: {}, version: CURRENT_SETTINGS_VERSION }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(["code", "architect", "debug"]).toContain(useSettingsStore.getState().agentMode);
+  });
+
+  it("the old gb-voice-language preference migrates into voiceLanguage (R4-07 #240)", async () => {
+    // The deleted VoiceSettings persisted the recognition language to
+    // gb-voice-language (not the store's gb-voice-lang mirror). The old UI is
+    // gone, so the legacy key is the only record of the user's choice.
+    localStorage.clear();
+    localStorage.setItem("gb-voice-language", "en-US");
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({ state: {}, version: CURRENT_SETTINGS_VERSION }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().voiceLanguage).toBe("en-US");
+  });
+
   it("a v1 persisted blob migrates to the current version (R4-06 #239)", async () => {
     localStorage.clear();
     localStorage.setItem(

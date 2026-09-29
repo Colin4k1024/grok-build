@@ -31,10 +31,12 @@ const LEGACY_SANDBOX = "gb-sandbox-mode";
 const LEGACY_NOTIFICATIONS = "gb-notifications-enabled";
 const LEGACY_VOICE_WAKE = "gb-voice-wake";
 const LEGACY_VOICE_TTS = "gb-voice-tts";
-const LEGACY_AGENT_DEFAULT_MODE = "gb-agent-default-mode";
 const LEGACY_AGENT_MODE = "gb-agent-mode";
 const LEGACY_AGENT_AUTONOMOUS = "gb-agent-autonomous";
 const LEGACY_VOICE_LANG = "gb-voice-lang";
+// The old VoiceSettings UI persisted the recognition language under this key
+// (distinct from the store's own gb-voice-lang mirror). Migrated in R4-07.
+const LEGACY_VOICE_LANGUAGE_OLD = "gb-voice-language";
 const LEGACY_TRUSTED = "gb-trusted-folders";
 
 function legacyString(key: string, fallback: string): string {
@@ -195,15 +197,16 @@ export const useSettingsStore = create<SettingsState>()(
       fontSize: initialValue("fontSize", legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string)) as FontSizeId,
       zoom: initialValue("zoom", Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0)))) as number,
       sandboxMode: initialValue("sandboxMode", legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string)) as "sandbox" | "full",
-      agentMode: initialValue(
-        "agentMode",
-        legacyString(
-          LEGACY_AGENT_DEFAULT_MODE,
-          legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string),
-        ),
-      ) as AgentMode,
+      // The old AgentSettings wrote "chat"/"agent" to gb-agent-default-mode —
+      // a different enum from agentMode's "code"/"architect"/"debug", so that
+      // key can never validate and only shadows the real gb-agent-mode mirror.
+      // It's intentionally NOT in the fallback chain.
+      agentMode: initialValue("agentMode", legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string)) as AgentMode,
       agentAutonomous: initialValue("agentAutonomous", legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false)),
-      voiceLanguage: initialValue("voiceLanguage", legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)) as VoiceLanguage,
+      voiceLanguage: initialValue(
+        "voiceLanguage",
+        legacyString(LEGACY_VOICE_LANGUAGE_OLD, legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)),
+      ) as VoiceLanguage,
       // Legacy migration reads (R4-07): the old VoiceSettings wrote these keys.
       voiceWakeEnabled: initialValue("voiceWakeEnabled", legacyBool(LEGACY_VOICE_WAKE, (registryDefault("voiceWakeEnabled") as boolean) ?? false)),
       voiceTtsEnabled: initialValue("voiceTtsEnabled", legacyBool(LEGACY_VOICE_TTS, (registryDefault("voiceTtsEnabled") as boolean) ?? false)),
