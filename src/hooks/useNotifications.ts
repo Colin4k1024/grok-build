@@ -2,20 +2,31 @@ import { useEffect, useRef } from "react";
 import { sendNotification, isPermissionGranted, requestPermission, getCurrentWindow } from "../lib/desktop";
 import { onAcpEvent, type AcpEventPayload } from "../lib/tauri";
 import { useSessionStore } from "../stores/sessionStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
-const NOTIF_SETTING_KEY = "gb-notifications-enabled";
-
+/**
+ * Desktop notifications (R4-07 #240): the settings store is the single
+ * source of truth — this hook subscribes to it (the old one-shot
+ * localStorage read could go stale and used a parallel key).
+ */
 export function useNotifications() {
-  const enabled = useRef(false);
+  const enabledRef = useRef(useSettingsStore.getState().notificationsEnabled);
   const permissionGranted = useRef(false);
   const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const tabs = useSessionStore((s) => s.tabs);
 
-  // Load notification preference
-  useEffect(() => {
-    const stored = localStorage.getItem(NOTIF_SETTING_KEY);
-    enabled.current = stored === null ? true : stored === "true";
+  // Mirror the store value into a ref so the event listener always reads
+  // the current preference without re-subscribing.
+  useEffect(
+    () =>
+      useSettingsStore.subscribe((s) => {
+        enabledRef.current = s.notificationsEnabled;
+      }),
+    [],
+  );
 
+  // Request notification permission once.
+  useEffect(() => {
     const init = async () => {
       try {
         let granted = await isPermissionGranted();
@@ -35,7 +46,7 @@ export function useNotifications() {
   // Listen for ACP events and send notifications when window is not focused
   useEffect(() => {
     const unlisten = onAcpEvent(async (event: AcpEventPayload) => {
-      if (!enabled.current || !permissionGranted.current) return;
+      if (!enabledRef.current || !permissionGranted.current) return;
 
       const sid = event.session_id;
       if (!sid) return;
@@ -79,18 +90,9 @@ export function useNotifications() {
   }, [activeSessionId, tabs]);
 
   return {
-    isEnabled: () => enabled.current,
+    isEnabled: () => useSettingsStore.getState().notificationsEnabled,
     setEnabled: (val: boolean) => {
-      enabled.current = val;
-      localStorage.setItem(NOTIF_SETTING_KEY, String(val));
+      useSettingsStore.getState().setNotificationsEnabled(val);
     },
   };
-}
-
-export function getNotificationEnabled(): boolean {
-  return localStorage.getItem(NOTIF_SETTING_KEY) !== "false";
-}
-
-export function setNotificationEnabled(val: boolean) {
-  localStorage.setItem(NOTIF_SETTING_KEY, String(val));
 }

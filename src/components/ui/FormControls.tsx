@@ -12,12 +12,37 @@ export interface SwitchProps {
   disabled?: boolean;
   /** Extra hint rendered under the label. */
   description?: string;
+  /** Visually hide the label (still the accessible name) — for rows that
+   *  render their own visible label (e.g. SettingsField). */
+  hideLabel?: boolean;
 }
 
 /** Toggle switch with role="switch"; a real <button>, so Space/Enter work. */
-export function Switch({ label, checked, onCheckedChange, disabled, description }: SwitchProps) {
+export function Switch({ label, checked, onCheckedChange, disabled, description, hideLabel }: SwitchProps) {
   const labelId = useId();
   const descId = useId();
+  if (hideLabel) {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => onCheckedChange(!checked)}
+        className={[
+          "gb-motion-press relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-40",
+          checked ? "bg-gb-accent" : "bg-gb-control-track",
+        ].join(" ")}
+      >
+        <span
+          aria-hidden="true"
+          className="inline-block h-4 w-4 rounded-full bg-gb-accent-fg transition-transform duration-gb-fast ease-gb"
+          style={{ transform: checked ? "translateX(18px)" : "translateX(2px)" }}
+        />
+      </button>
+    );
+  }
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -56,6 +81,7 @@ export function Switch({ label, checked, onCheckedChange, disabled, description 
 export interface SelectOption {
   value: string;
   label: string;
+  disabled?: boolean;
 }
 
 export interface SelectProps {
@@ -65,15 +91,17 @@ export interface SelectProps {
   options: SelectOption[];
   disabled?: boolean;
   id?: string;
+  /** Visually hide the label (still the control's accessible name). */
+  hideLabel?: boolean;
 }
 
 /** Labeled native <select> — full keyboard semantics come for free. */
-export function Select({ label, value, onChange, options, disabled, id }: SelectProps) {
+export function Select({ label, value, onChange, options, disabled, id, hideLabel }: SelectProps) {
   const autoId = useId();
   const selectId = id ?? autoId;
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={selectId} className="text-gb-xs font-medium text-gb-text-secondary">
+      <label htmlFor={selectId} className={hideLabel ? "sr-only" : "text-gb-xs font-medium text-gb-text-secondary"}>
         {label}
       </label>
       <select
@@ -99,19 +127,38 @@ export interface SegmentedControlProps {
   onChange: (value: string) => void;
   options: SelectOption[];
   disabled?: boolean;
+  /** Visually hide the label (still the group's accessible name). */
+  hideLabel?: boolean;
 }
 
 /**
  * Segmented control as a radiogroup with roving tabindex:
- * Arrow keys move, Enter/Space selects, Home/End jump.
+ * Arrow keys move (skipping disabled), Enter/Space selects, Home/End jump.
  */
-export function SegmentedControl({ label, value, onChange, options, disabled }: SegmentedControlProps) {
+export function SegmentedControl({ label, value, onChange, options, disabled, hideLabel }: SegmentedControlProps) {
   const labelId = useId();
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const move = (from: number, delta: number) => {
-    const next = (from + delta + options.length) % options.length;
+    // skip disabled options
+    let next = from;
+    for (let step = 0; step < options.length; step++) {
+      next = (next + delta + options.length) % options.length;
+      if (!options[next].disabled) break;
+    }
     itemRefs.current[next]?.focus();
+  };
+  // Home/End also skip disabled options — focus() on a disabled button is a
+  // no-op, so jumping to index 0 / length-1 when that option is disabled
+  // (e.g. ScopeSwitcher's "当前项目" with no active project) would silently do
+  // nothing. Walk inward from the edge to the first enabled option instead.
+  const focusEdge = (delta: number) => {
+    const start = delta > 0 ? 0 : options.length - 1;
+    for (let step = 0; step < options.length; step++) {
+      const i = start + delta * step;
+      if (i < 0 || i >= options.length) break;
+      if (!options[i].disabled) { itemRefs.current[i]?.focus(); return; }
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -125,16 +172,16 @@ export function SegmentedControl({ label, value, onChange, options, disabled }: 
       move(index, -1);
     } else if (e.key === "Home") {
       e.preventDefault();
-      itemRefs.current[0]?.focus();
+      focusEdge(1);
     } else if (e.key === "End") {
       e.preventDefault();
-      itemRefs.current[options.length - 1]?.focus();
+      focusEdge(-1);
     }
   };
 
   return (
     <div className="flex flex-col gap-1">
-      <span id={labelId} className="text-gb-xs font-medium text-gb-text-secondary">
+      <span id={labelId} className={hideLabel ? "sr-only" : "text-gb-xs font-medium text-gb-text-secondary"}>
         {label}
       </span>
       <div
@@ -145,11 +192,12 @@ export function SegmentedControl({ label, value, onChange, options, disabled }: 
       >
         {options.map((o, i) => {
           const selected = o.value === value;
-          // Roving tabindex with a first-item fallback: if `value` matches
-          // no option, index 0 stays keyboard-reachable instead of the
-          // whole group becoming unreachable.
-          const anySelected = options.some((opt) => opt.value === value);
-          const tabbable = anySelected ? selected : i === 0;
+          // Roving tabindex with a first-ENABLED-item fallback: if `value`
+          // matches no enabled option, the first enabled option stays
+          // keyboard-reachable instead of the group becoming unreachable.
+          const enabled = options.filter((opt) => !opt.disabled);
+          const anySelected = enabled.some((opt) => opt.value === value);
+          const tabbable = anySelected ? selected : enabled[0] === o;
           return (
             <button
               key={o.value}
@@ -160,7 +208,7 @@ export function SegmentedControl({ label, value, onChange, options, disabled }: 
               role="radio"
               aria-checked={selected}
               tabIndex={tabbable ? 0 : -1}
-              disabled={disabled}
+              disabled={disabled || o.disabled}
               onClick={() => onChange(o.value)}
               className={[
                 "gb-motion-press rounded-gb-sm px-2.5 py-1 text-gb-xs transition-colors duration-gb-fast ease-gb disabled:cursor-not-allowed disabled:opacity-40",

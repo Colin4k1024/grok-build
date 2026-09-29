@@ -35,6 +35,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["theme", "dark", "light", "dark mode", "外观"],
     saveMode: "immediate",
     enumValues: THEMES,
+    enumLabels: { dark: "深色", light: "浅色", auto: "跟随系统" },
     validate: oneOf(THEMES),
   },
   {
@@ -49,6 +50,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["font", "size", "字号", "字体"],
     saveMode: "immediate",
     enumValues: FONT_SIZES,
+    enumLabels: { small: "小 (12px)", medium: "中 (13px)", large: "大 (15px)", xlarge: "特大 (17px)" },
     validate: oneOf(FONT_SIZES),
   },
   {
@@ -62,6 +64,8 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     scopes: ["global", "project"],
     keywords: ["zoom", "缩放", "scale"],
     saveMode: "immediate",
+    numberRange: { min: 0.5, max: 2.5, step: 0.05 },
+    quickValues: [0.8, 0.9, 1.0, 1.1, 1.25, 1.5],
     validate: (v): v is number => isNumber(v) && v >= 0.5 && v <= 2.5,
   },
   {
@@ -76,6 +80,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["sandbox", "permission", "沙箱", "权限"],
     saveMode: "staged",
     enumValues: SANDBOX_MODES,
+    enumLabels: { sandbox: "沙箱", full: "完全访问" },
     validate: oneOf(SANDBOX_MODES),
   },
   {
@@ -90,6 +95,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["agent", "mode", "模式", "work mode"],
     saveMode: "immediate",
     enumValues: AGENT_MODES,
+    enumLabels: { code: "代码", architect: "架构", debug: "调试" },
     validate: oneOf(AGENT_MODES),
   },
   {
@@ -118,6 +124,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     keywords: ["voice", "language", "语音", "语言", "stt"],
     saveMode: "immediate",
     enumValues: VOICE_LANGS,
+    enumLabels: { auto: "自动", "zh-CN": "中文", "en-US": "English" },
     validate: oneOf(VOICE_LANGS),
   },
   {

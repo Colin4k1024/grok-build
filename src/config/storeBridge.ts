@@ -133,7 +133,10 @@ export function applyPreset(
   projectId?: string,
 ): ApplyResult {
   const builtin = getPreset(presetId);
-  const user = useSettingsStore.getState().userPresets[presetId];
+  const userPresets = useSettingsStore.getState().userPresets;
+  const user = Object.prototype.hasOwnProperty.call(userPresets, presetId)
+    ? userPresets[presetId]
+    : undefined;
   const source = builtin ?? user;
   if (!source) throw new Error(`unknown preset: ${presetId}`);
   const values = builtin ? builtin.values : user!.values;

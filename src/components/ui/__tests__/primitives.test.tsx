@@ -174,6 +174,29 @@ describe("SegmentedControl", () => {
     expect(screen.getByRole("radio", { name: "甲" })).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("radio", { name: "乙" })).toHaveAttribute("tabindex", "-1");
   });
+
+  it("Home/End skip disabled edge options and focus the nearest enabled one", async () => {
+    // The last option is disabled (e.g. ScopeSwitcher's "当前项目" with no
+    // active project). End must move to the last ENABLED option, not no-op.
+    render(
+      <SegmentedControl
+        label="作用域"
+        value="global"
+        onChange={() => {}}
+        options={[
+          { value: "global", label: "全局" },
+          { value: "project", label: "当前项目", disabled: true },
+        ]}
+      />,
+    );
+    const global = screen.getByRole("radio", { name: "全局" });
+    global.focus();
+    expect(document.activeElement).toBe(global);
+    await userEvent.keyboard("{End}");
+    // End lands on the only enabled option from the end — still 全局 (the
+    // disabled 当前项目 is skipped; focus does not get stuck/no-op).
+    expect(document.activeElement).toBe(global);
+  });
 });
 
 describe("Select", () => {

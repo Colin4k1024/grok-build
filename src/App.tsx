@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useNotifications } from "./hooks/useNotifications";
@@ -22,6 +22,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { ToastViewport } from "./components/ui";
+import { confirmLeaveIfDirty } from "./lib/unsavedGuard";
 
 // Surfaces that are never part of the first paint. Splitting them out keeps the
 // entry chunk (and therefore app-launch parse time) down; in a packaged
@@ -169,16 +170,42 @@ export default function App() {
   // stable shell — no conditional full-page returns that would destroy the
   // rail/sidebar/titlebar state on every switch.
   const [destination, setDestination] = useState<AppDestination>("conversations");
+  // Ref mirror so the guarded navigator is stable (no stale-closure bypass
+  // from []-deps effects/shortcuts — R4-07 review).
+  const destinationRef = useRef(destination);
+  destinationRef.current = destination;
   const openSettings = useCallback((tab?: string) => {
     setSettingsTab(tab);
     setDestination("settings");
   }, []);
-  const goConversations = useCallback(() => setDestination("conversations"), []);
+  // Guarded navigation: leaving settings with staged edits confirms first.
+  // Stable identity — reads the live destination from the ref. Returns
+  // whether navigation actually happened, so handlers that couple navigation
+  // to a side effect (new/resume/cycle session) can abort that side effect
+  // when the user declines to leave settings.
+  const navigateTo = useCallback((d: AppDestination): boolean => {
+    if (destinationRef.current === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return false;
+    setDestination(d);
+    return true;
+  }, []);
+  const goConversations = useCallback(() => navigateTo("conversations"), [navigateTo]);
 
   // Deep-linked settings tab must not leak across visits: leaving the
   // settings destination resets it so the next visit opens the default tab.
   useEffect(() => {
     if (destination !== "settings") setSettingsTab(undefined);
+  }, [destination]);
+
+  // R4-07 (#240): never drop staged settings edits on reload/close.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (destination === "settings" && !confirmLeaveIfDirty()) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
   }, [destination]);
 
   // Visibility toggles only apply where the panels exist — on other
@@ -327,16 +354,19 @@ export default function App() {
   // session/load (agent spawn + transcript replay) proceeds behind the
   // "restoring" banner. See lib/threadResume.ts for the spawn/rebind flow.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
+    // Bail before resuming if the user declines to leave settings; otherwise
+    // the optimistic open would spawn/rebind a thread the user just rejected.
+    if (!navigateTo("conversations")) return;
     const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
-        setDestination("conversations");
+        navigateTo("conversations");
         const pendingId = `pending:${session.id}`;
         setResumingIds((prev) => new Set(prev).add(pendingId));
       },
       onFocusExisting: () => {
         setShowHome(false);
-        setDestination("conversations");
+        navigateTo("conversations");
       },
       onStreamingExisting: () =>
         setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送"),
@@ -359,13 +389,14 @@ export default function App() {
         return next;
       });
     }
-  }, []);
+  }, [navigateTo]);
 
   const handleNewSession = useCallback(async () => {
+    // Bail before creating a session if the user declines to leave settings
+    // (the guard vetoes navigation, not just the view switch).
+    if (!navigateTo("conversations")) return;
     setCreating(true);
     setError(null);
-    // Creating a session is a conversation-context action — navigate there.
-    setDestination("conversations");
     try {
       const info = await createSession(".");
       addTab({
@@ -380,7 +411,7 @@ export default function App() {
       });
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
-  }, [addTab, tabs.length]);
+  }, [navigateTo, addTab, tabs.length]);
 
   // Start a session rooted at a chosen project directory.
   const handleNewSessionInDir = useCallback(async (cwd: string) => {
@@ -461,9 +492,11 @@ export default function App() {
         const idx = store.tabs.findIndex((t) => t.id === store.activeSessionId);
         const delta = e.key === "]" || e.code === "BracketRight" ? 1 : -1;
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
+        // Guard FIRST: if the user declines to leave settings, don't switch
+        // the active session underneath them.
+        if (!navigateTo("conversations")) return;
         store.setActiveSession(next.id);
         setShowHome(false);
-        setDestination("conversations");
       }
     };
     window.addEventListener("keydown", handler);
@@ -474,8 +507,10 @@ export default function App() {
   // event tells App to reveal the thread view (hide Home) in conversations.
   useEffect(() => {
     const open = () => {
+      // Guard FIRST: don't reveal the thread view if the user declines to
+      // leave settings (a session activation dispatched this event).
+      if (!navigateTo("conversations")) return;
       setShowHome(false);
-      setDestination("conversations");
     };
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
@@ -702,7 +737,7 @@ export default function App() {
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
-          newThread: () => { setActiveSession(null); setShowHome(true); setDestination("conversations"); },
+          newThread: () => { if (!navigateTo("conversations")) return; setActiveSession(null); setShowHome(true); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           forkCurrentThread: () => {
@@ -885,9 +920,11 @@ export default function App() {
         title: `Switch to: ${tab.title}`,
         category: "Session",
         action: () => {
+          // Guard FIRST: if the user declines to leave settings, don't switch
+          // the active session underneath them.
+          if (!navigateTo("conversations")) return;
           setActiveSession(tab.id);
           setShowHome(false);
-          setDestination("conversations");
         },
       });
     }
@@ -938,8 +975,9 @@ export default function App() {
       title: "Go Home",
       category: "Navigation",
       action: () => {
+        // Guard FIRST: declining to leave settings keeps the user where they are.
+        if (!navigateTo("conversations")) return;
         setShowHome(true);
-        setDestination("conversations");
       },
     });
 
@@ -949,13 +987,13 @@ export default function App() {
         id: "open-agents",
         title: "Open: Workspace Agents",
         category: "Navigation",
-        action: () => setDestination("agents"),
+        action: () => navigateTo("agents"),
       },
       {
         id: "open-dashboard",
         title: "Open: Dashboard",
         category: "Navigation",
-        action: () => setDestination("dashboard"),
+        action: () => navigateTo("dashboard"),
       },
       {
         id: "browse-threads",
@@ -1018,7 +1056,7 @@ export default function App() {
       rail={
         <ActivityBar
           destination={destination}
-          onNavigate={setDestination}
+          onNavigate={navigateTo}
           onOpenSearch={() => setShowSearch(true)}
           onToggleSidebar={toggleSidebarGated}
           sidebarVisible={!responsiveSidebarCollapsed}
@@ -1194,7 +1232,7 @@ export default function App() {
         <Suspense fallback={null}>
           <GlobalSearch
             onClose={() => setShowSearch(false)}
-            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); setDestination("conversations"); }}
+            onOpenTab={(id) => { if (!navigateTo("conversations")) return; setActiveSession(id); setShowHome(false); }}
             onResumeThread={handleResumeThread}
           />
         </Suspense>
@@ -1229,7 +1267,7 @@ export default function App() {
         commands={paletteCommands}
         onNewSession={handleNewSession}
         onOpenSettings={() => openSettings()}
-        onOpenDashboard={() => setDestination("dashboard")}
+        onOpenDashboard={() => navigateTo("dashboard")}
         onToggleSidebar={toggleSidebarGated}
         onToggleRightPanel={toggleRightPanelGated}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}

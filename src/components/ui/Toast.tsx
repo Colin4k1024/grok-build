@@ -63,9 +63,10 @@ function scheduleDismiss(id: number, ttl: number) {
 }
 
 export const toast = {
-  success(message: string, opts?: { action?: ToastItem["action"] }): number {
+  success(message: string, opts?: { action?: ToastItem["action"]; ttlMs?: number }): number {
     const id = useToastStore.getState().push({ tone: "success", message, action: opts?.action });
-    scheduleDismiss(id, SUCCESS_TTL_MS);
+    // Undoable actions get a longer window — 4s is too short to recover.
+    scheduleDismiss(id, opts?.ttlMs ?? (opts?.action ? 10_000 : SUCCESS_TTL_MS));
     return id;
   },
   error(message: string, opts?: { action?: ToastItem["action"] }): number {
@@ -148,7 +149,10 @@ function ToastCard({ item }: { item: ToastItem }) {
         {item.action ? (
           <button
             type="button"
-            onClick={item.action.onClick}
+            onClick={() => {
+              item.action!.onClick();
+              toast.dismiss(item.id); // action consumes the toast
+            }}
             className="mt-1 text-gb-xs text-gb-accent-text hover:underline"
           >
             {item.action.label}

@@ -28,10 +28,15 @@ const LEGACY_THEME = "gb-theme";
 const LEGACY_FONT_SIZE = "gb-font-size";
 const LEGACY_ZOOM = "gb-zoom";
 const LEGACY_SANDBOX = "gb-sandbox-mode";
-const LEGACY_NOTIFICATIONS = "gb-notifications";
+const LEGACY_NOTIFICATIONS = "gb-notifications-enabled";
+const LEGACY_VOICE_WAKE = "gb-voice-wake";
+const LEGACY_VOICE_TTS = "gb-voice-tts";
 const LEGACY_AGENT_MODE = "gb-agent-mode";
 const LEGACY_AGENT_AUTONOMOUS = "gb-agent-autonomous";
 const LEGACY_VOICE_LANG = "gb-voice-lang";
+// The old VoiceSettings UI persisted the recognition language under this key
+// (distinct from the store's own gb-voice-lang mirror). Migrated in R4-07.
+const LEGACY_VOICE_LANGUAGE_OLD = "gb-voice-language";
 const LEGACY_TRUSTED = "gb-trusted-folders";
 
 function legacyString(key: string, fallback: string): string {
@@ -192,11 +197,19 @@ export const useSettingsStore = create<SettingsState>()(
       fontSize: initialValue("fontSize", legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string)) as FontSizeId,
       zoom: initialValue("zoom", Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0)))) as number,
       sandboxMode: initialValue("sandboxMode", legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string)) as "sandbox" | "full",
+      // The old AgentSettings wrote "chat"/"agent" to gb-agent-default-mode —
+      // a different enum from agentMode's "code"/"architect"/"debug", so that
+      // key can never validate and only shadows the real gb-agent-mode mirror.
+      // It's intentionally NOT in the fallback chain.
       agentMode: initialValue("agentMode", legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string)) as AgentMode,
       agentAutonomous: initialValue("agentAutonomous", legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false)),
-      voiceLanguage: initialValue("voiceLanguage", legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)) as VoiceLanguage,
-      voiceWakeEnabled: (registryDefault("voiceWakeEnabled") as boolean) ?? false,
-      voiceTtsEnabled: (registryDefault("voiceTtsEnabled") as boolean) ?? false,
+      voiceLanguage: initialValue(
+        "voiceLanguage",
+        legacyString(LEGACY_VOICE_LANGUAGE_OLD, legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)),
+      ) as VoiceLanguage,
+      // Legacy migration reads (R4-07): the old VoiceSettings wrote these keys.
+      voiceWakeEnabled: initialValue("voiceWakeEnabled", legacyBool(LEGACY_VOICE_WAKE, (registryDefault("voiceWakeEnabled") as boolean) ?? false)),
+      voiceTtsEnabled: initialValue("voiceTtsEnabled", legacyBool(LEGACY_VOICE_TTS, (registryDefault("voiceTtsEnabled") as boolean) ?? false)),
       notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
       trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
       projectOverrides: {},
@@ -354,13 +367,17 @@ export const useSettingsStore = create<SettingsState>()(
         set((s) => ({ userPresets: { ...s.userPresets, [id]: { label, values: { ...values } } } }));
       },
       renameUserPreset: (id, label) => {
-        const cur = get().userPresets[id];
+        const cur = Object.prototype.hasOwnProperty.call(get().userPresets, id)
+          ? get().userPresets[id]
+          : undefined;
         if (!cur) throw new Error(`unknown preset: ${id}`);
         if (!label.trim()) throw new Error("preset label must not be empty");
         set((s) => ({ userPresets: { ...s.userPresets, [id]: { ...cur, label } } }));
       },
       deleteUserPreset: (id) => {
-        if (!get().userPresets[id]) throw new Error(`unknown preset: ${id}`);
+        if (!Object.prototype.hasOwnProperty.call(get().userPresets, id)) {
+          throw new Error(`unknown preset: ${id}`);
+        }
         set((s) => {
           const next = { ...s.userPresets };
           delete next[id];
@@ -407,7 +424,23 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persisted, current) => {
         const state = persisted as Record<string, unknown> | undefined;
         if (!state || typeof state !== "object") return current;
-        return { ...current, ...sanitizePersistedState(state) };
+        const merged = { ...current, ...sanitizePersistedState(state) };
+        // Preserve a user's notification opt-out across the R4-07 takeover.
+        // Before this change the only notification toggle wrote the legacy
+        // `gb-notifications-enabled` key directly and never touched the store,
+        // so a persisted `gb-settings` blob holds the default `true` for
+        // notificationsEnabled. The spread above would let that stale default
+        // silently re-enable notifications for anyone who opted out. The
+        // legacy key is the user's real preference — honor it on hydration
+        // when present (the new setNotificationsEnabled mirrors to it, so
+        // post-upgrade writes keep both in sync and this becomes a no-op).
+        try {
+          const legacyNotif = localStorage.getItem(LEGACY_NOTIFICATIONS);
+          if (legacyNotif !== null) merged.notificationsEnabled = legacyNotif === "true";
+        } catch {
+          /* storage unavailable */
+        }
+        return merged;
       },
     }
   )
@@ -453,11 +486,23 @@ export function syncFromFileDoc(
     }
     // event mode: real reset
     localStorage.removeItem("gb-settings");
-    const defaults: Record<string, unknown> = { projectOverrides: {} };
+    const defaults: Record<string, unknown> = { projectOverrides: {}, userPresets: {} };
     for (const def of listSettings()) {
       if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
     }
     useSettingsStore.setState(defaults);
+    // Mirror defaults into the legacy keys too — otherwise the merge's
+    // legacy override resurrects the OLD value on the next rehydrate.
+    for (const def of listSettings()) {
+      const legacyKey = LEGACY_KEYS[def.storeKey ?? ""];
+      if (!legacyKey) continue;
+      try {
+        const v = def.defaultValue;
+        localStorage.setItem(legacyKey, typeof v === "string" ? v : JSON.stringify(v));
+      } catch {
+        /* storage unavailable */
+      }
+    }
   } catch {
     /* storage unavailable */
   }

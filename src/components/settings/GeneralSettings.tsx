@@ -1,15 +1,10 @@
 import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
-import { getNotificationEnabled, setNotificationEnabled } from "../../hooks/useNotifications";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { useUpdater } from "../../hooks/useUpdater";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [notifEnabled, setNotifEnabled] = useState(getNotificationEnabled());
-  const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
   const updater = useUpdater();
 
   useEffect(() => {
@@ -106,29 +101,6 @@ export function GeneralSettings() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">外观</h3>
-        <div className="rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
-          <p className="mb-2 text-xs font-medium text-gb-text">主题</p>
-          <div className="flex gap-2">
-            {(["dark", "light", "auto"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => {
-                  setTheme(t);
-                }}
-                className={`rounded px-3 py-1.5 text-xs ${
-                  theme === t ? "bg-gb-accent/15 text-gb-text" : "bg-gb-bg text-gb-muted"
-                }`}
-              >
-                {t === "dark" ? "🌙 深色" : t === "light" ? "☀️ 浅色" : "🖥️ 跟随系统"}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] text-gb-muted">「跟随系统」会按系统外观自动切换</p>
-        </div>
-      </section>
-
-      <section>
         <h3 className="mb-3 text-sm font-semibold text-gb-text">启动</h3>
         <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
           <div>
@@ -145,32 +117,6 @@ export function GeneralSettings() {
             <span
               className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 autostart ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </label>
-      </section>
-
-      <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">通知</h3>
-        <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
-          <div>
-            <p className="text-xs font-medium text-gb-text">桌面通知</p>
-            <p className="mt-0.5 text-[11px] text-gb-muted">当 Agent 回复或需要审批时通知我（窗口在后台时）</p>
-          </div>
-          <button
-            onClick={() => {
-              const val = !notifEnabled;
-              setNotifEnabled(val);
-              setNotificationEnabled(val);
-            }}
-            className={`relative h-5 w-9 rounded-full transition-colors ${
-              notifEnabled ? "bg-gb-accent" : "bg-gb-border"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
-                notifEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
           </button>
