@@ -148,6 +148,18 @@ export function SegmentedControl({ label, value, onChange, options, disabled, hi
     }
     itemRefs.current[next]?.focus();
   };
+  // Home/End also skip disabled options — focus() on a disabled button is a
+  // no-op, so jumping to index 0 / length-1 when that option is disabled
+  // (e.g. ScopeSwitcher's "当前项目" with no active project) would silently do
+  // nothing. Walk inward from the edge to the first enabled option instead.
+  const focusEdge = (delta: number) => {
+    const start = delta > 0 ? 0 : options.length - 1;
+    for (let step = 0; step < options.length; step++) {
+      const i = start + delta * step;
+      if (i < 0 || i >= options.length) break;
+      if (!options[i].disabled) { itemRefs.current[i]?.focus(); return; }
+    }
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const index = itemRefs.current.findIndex((el) => el === document.activeElement);
@@ -160,10 +172,10 @@ export function SegmentedControl({ label, value, onChange, options, disabled, hi
       move(index, -1);
     } else if (e.key === "Home") {
       e.preventDefault();
-      itemRefs.current[0]?.focus();
+      focusEdge(1);
     } else if (e.key === "End") {
       e.preventDefault();
-      itemRefs.current[options.length - 1]?.focus();
+      focusEdge(-1);
     }
   };
 
