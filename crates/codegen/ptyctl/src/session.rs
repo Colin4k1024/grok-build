@@ -57,9 +57,89 @@ pub struct PtySession {
     generation_tx: Weak<watch::Sender<u64>>,
     /// Last [`RAW_TAIL_CAP`] bytes of raw PTY output for wait-timeout diagnostics.
     raw_tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
-    _shutdown_tx: Option<mpsc::Sender<()>>,
     /// Broadcast channel for real-time PTY output streaming (WebSocket).
     output_tx: broadcast::Sender<Vec<u8>>,
+    /// Shared child handle — the waiter task and the termination path both
+    /// need it (R5-09: the controller must be able to reap its PTY child).
+    termination: TerminationHandle,
+}
+
+/// Cloneable handle for terminating a session's PTY child process group
+/// (R5-09 / #265). The owning app only ever kills the controller process;
+/// the controller itself is responsible for reaping what it spawned.
+#[derive(Clone)]
+pub struct TerminationHandle {
+    alive: Arc<AtomicBool>,
+    child: Arc<std::sync::Mutex<crate::pty::PtyChild>>,
+    exit_code: Arc<std::sync::Mutex<Option<u32>>>,
+}
+
+impl TerminationHandle {
+    /// TERM the child's process group, escalate to KILL after `grace`, then
+    /// reap and record the exit status. Idempotent: safe to call when the
+    /// child already exited or a previous terminate completed.
+    ///
+    /// Safety contract (no collateral kills): the liveness check, the
+    /// group-leader proof, and the signal all happen under the same child
+    /// lock with no awaits in between. The group signal only fires when the
+    /// child is a session leader (`getpgid(pid) == pid`, guaranteed by
+    /// portable-pty's setsid) — otherwise only the single pid is signalled.
+    pub async fn terminate(&self, grace: Duration) -> Result<()> {
+        // Stop the waiter's polling loop first so no second wait() races us.
+        self.alive.store(false, Ordering::SeqCst);
+        let child = self.child.clone();
+        let exit_code = self.exit_code.clone();
+        // The signal/wait work blocks; keep it off the async reactor.
+        tokio::task::spawn_blocking(move || terminate_blocking(&child, &exit_code, grace))
+            .await
+            .context("termination task panicked")??;
+        Ok(())
+    }
+}
+
+/// Blocking half of [`TerminationHandle::terminate`].
+fn terminate_blocking(
+    child: &Arc<std::sync::Mutex<crate::pty::PtyChild>>,
+    exit_code: &Arc<std::sync::Mutex<Option<u32>>>,
+    grace: Duration,
+) -> Result<()> {
+    let mut child = child.lock().unwrap();
+    let Some(pid) = child.pid() else {
+        return Ok(()); // never spawned / already reaped without a pid
+    };
+    if child.is_alive() {
+        #[cfg(unix)]
+        {
+            // Group-leader proof under the lock: only then is `-pid` a group
+            // we own. PID reuse between try_wait and kill is narrowed to the
+            // (unavoidable, sub-microsecond) window with no intervening await.
+            let group_leader = unsafe { libc::getpgid(pid as i32) } == pid as i32;
+            let target = if group_leader { -(pid as i32) } else { pid as i32 };
+            unsafe {
+                libc::kill(target, libc::SIGTERM);
+            }
+            let deadline = std::time::Instant::now() + grace;
+            while child.is_alive() {
+                if std::time::Instant::now() >= deadline {
+                    unsafe {
+                        libc::kill(target, libc::SIGKILL);
+                    }
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = child.kill();
+        }
+    }
+    // Reap and record the exit status so /query/status stays truthful
+    // (already-reaped reports as a benign wait error).
+    if let Ok(code) = child.wait() {
+        *exit_code.lock().unwrap() = Some(code);
+    }
+    Ok(())
 }
 
 impl PtySession {
@@ -70,8 +150,11 @@ impl PtySession {
 
         // Spawn the PTY process; keep the master half for resize, only the child half moves into the waiter task.
         let pty = PtyHandle::spawn(&config.pty).context("failed to spawn PTY")?;
-        let (master, mut child, mut reader, mut writer) = pty.into_parts();
+        let (master, child, mut reader, mut writer) = pty.into_parts();
         let pid = child.pid();
+        // Shared ownership (R5-09): the waiter task polls for natural exit;
+        // the termination path signals and reaps the child's process group.
+        let child = Arc::new(std::sync::Mutex::new(child));
 
         // Channel for terminal-generated PtyWrite responses.
         let (pty_response_tx, mut pty_response_rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -92,9 +175,6 @@ impl PtySession {
         let generation_tx_weak = Arc::downgrade(&generation_tx);
         let raw_tail: Arc<std::sync::Mutex<VecDeque<u8>>> =
             Arc::new(std::sync::Mutex::new(VecDeque::with_capacity(RAW_TAIL_CAP)));
-
-        // Shutdown signal.
-        let (shutdown_tx, _shutdown_rx) = mpsc::channel::<()>(1);
 
         // Create the terminal.
         let listener = SessionListener::new(pty_response_tx);
@@ -175,14 +255,24 @@ impl PtySession {
         // --- Child Process Waiter ---
         let alive_waiter = alive.clone();
         let exit_code_waiter = exit_code.clone();
+        let child_waiter = child.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if !alive_waiter.load(Ordering::SeqCst) {
                     break;
                 }
-                if !child.is_alive() {
-                    if let Ok(code) = child.wait() {
+                let exited = {
+                    // Brief lock; try_wait is non-blocking.
+                    let mut guard = child_waiter.lock().unwrap();
+                    !guard.is_alive()
+                };
+                if exited {
+                    let code = {
+                        let mut guard = child_waiter.lock().unwrap();
+                        guard.wait().ok()
+                    };
+                    if let Some(code) = code {
                         *exit_code_waiter.lock().unwrap() = Some(code);
                     }
                     alive_waiter.store(false, Ordering::SeqCst);
@@ -190,6 +280,12 @@ impl PtySession {
                 }
             }
         });
+
+        let termination = TerminationHandle {
+            alive: alive.clone(),
+            child,
+            exit_code: exit_code.clone(),
+        };
 
         Ok(Self {
             terminal,
@@ -201,8 +297,8 @@ impl PtySession {
             generation_rx,
             generation_tx: generation_tx_weak,
             raw_tail,
-            _shutdown_tx: Some(shutdown_tx),
             output_tx,
+            termination,
         })
     }
 
@@ -316,12 +412,18 @@ impl PtySession {
         self.wait_handle().wait_for(condition, timeout).await
     }
 
-    /// Stop the session.
+    /// Handle used by the embedding process (CLI graceful shutdown) to reap
+    /// the PTY child group when the controller itself is going down.
+    pub fn termination_handle(&self) -> TerminationHandle {
+        self.termination.clone()
+    }
+
+    /// Stop the session: TERM the PTY child's process group, escalate to
+    /// KILL after a short grace, and reap. This used to signal a shutdown
+    /// channel whose receiver was dropped at construction — a literal no-op
+    /// that left the shell running (R5-09 / #265).
     pub async fn stop(&mut self) -> Result<()> {
-        if let Some(tx) = self._shutdown_tx.take() {
-            let _ = tx.send(()).await;
-        }
-        Ok(())
+        self.termination.terminate(Duration::from_secs(2)).await
     }
 }
 
@@ -602,5 +704,63 @@ pub(crate) mod tests {
         );
 
         shutdown(&session, "exit<CR>").await;
+    }
+
+    /// R5-09: stop() must actually reap the PTY child — it used to signal a
+    /// channel whose receiver was dropped at construction (a no-op), leaving
+    /// the shell running after the controller stopped.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_reaps_the_child_process() {
+        let mut session = start_session(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "exec sleep 300".into(),
+        ])
+        .await;
+        let pid = session.status_basic().1.expect("child pid");
+        assert!(session.is_alive());
+
+        session.stop().await.expect("stop");
+
+        // The child pid is reaped (kill -0 fails) and the status reports it.
+        let still_there = unsafe { libc::kill(pid as i32, 0) } == 0;
+        assert!(!still_there, "child pid {pid} survived stop()");
+        let (alive, _, code) = session.status_basic();
+        assert!(!alive);
+        assert!(code.is_some(), "exit code must be recorded after reaping");
+    }
+
+    /// R5-09: terminate is idempotent — a second stop() is a clean no-op.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_is_idempotent() {
+        let mut session = start_session(vec!["/bin/sh".into()]).await;
+        session.stop().await.expect("first stop");
+        session.stop().await.expect("second stop must not fail");
+    }
+
+    /// R5-09: terminating a session never harms unrelated processes — the
+    /// group signal only fires for a group the child provably leads.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_does_not_harm_bystander_processes() {
+        // A bystander in OUR process group: the group-leader guard must
+        // refuse to let a session's group signal reach it.
+        let mut bystander = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn bystander");
+        let bystander_pid = bystander.id();
+
+        let mut session = start_session(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "exec sleep 300".into(),
+        ])
+        .await;
+        session.stop().await.expect("stop");
+
+        let bystander_gone = unsafe { libc::kill(bystander_pid as i32, 0) } != 0;
+        assert!(!bystander_gone, "bystander pid {bystander_pid} was killed");
+        let _ = bystander.kill();
+        let _ = bystander.wait();
     }
 }

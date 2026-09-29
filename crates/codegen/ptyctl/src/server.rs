@@ -485,7 +485,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn wait_does_not_block_other_endpoints() {
         let session = start_session(vec!["/bin/sh".into()]).await;
-        let router = super::build_router(session);
+        // Every endpoint requires the per-session token; the test carries it
+        // as the `?token=` query param.
+        let router = super::build_router(session, "test-token".into());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -495,13 +497,17 @@ mod tests {
         let start = Instant::now();
         // Long-poll for text that only appears if /control/send gets through mid-wait.
         let wait_task = tokio::spawn(async move {
-            http(port, &get("/wait?text=WAIT_DONE_77&timeout_ms=30000")).await
+            http(
+                port,
+                &get("/wait?text=WAIT_DONE_77&timeout_ms=30000&token=test-token"),
+            )
+            .await
         });
 
         // /query/screen must answer while the wait is in flight (deadline-polled).
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let resp = http(port, &get("/query/screen")).await;
+            let resp = http(port, &get("/query/screen?token=test-token")).await;
             if resp.starts_with("HTTP/1.1 200") {
                 break;
             }
@@ -514,7 +520,10 @@ mod tests {
 
         let resp = http(
             port,
-            &post_json("/control/send", r#"{"keys":"echo WAIT_DONE_77<CR>"}"#),
+            &post_json(
+                "/control/send?token=test-token",
+                r#"{"keys":"echo WAIT_DONE_77<CR>"}"#,
+            ),
         )
         .await;
         assert!(
@@ -533,17 +542,25 @@ mod tests {
         );
 
         // Zero or multiple conditions are usage errors.
-        let resp = http(port, &get("/wait")).await;
+        let resp = http(port, &get("/wait?token=test-token")).await;
         assert!(resp.starts_with("HTTP/1.1 400"), "{resp}");
-        let resp = http(port, &get("/wait?text=a&gone=b")).await;
+        let resp = http(port, &get("/wait?text=a&gone=b&token=test-token")).await;
         assert!(resp.starts_with("HTTP/1.1 400"), "{resp}");
 
+        // Requests without the token are rejected.
+        let resp = http(port, &get("/query/screen")).await;
+        assert!(resp.starts_with("HTTP/1.1 401"), "{resp}");
+
         // Bounded shutdown so the shell doesn't outlive the test.
-        let resp = http(port, &post_json("/control/send", r#"{"keys":"exit<CR>"}"#)).await;
+        let resp = http(
+            port,
+            &post_json("/control/send?token=test-token", r#"{"keys":"exit<CR>"}"#),
+        )
+        .await;
         assert!(resp.starts_with("HTTP/1.1 200"), "{resp}");
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let resp = http(port, &get("/query/status")).await;
+            let resp = http(port, &get("/query/status?token=test-token")).await;
             if resp.contains(r#""alive":false"#) {
                 break;
             }
