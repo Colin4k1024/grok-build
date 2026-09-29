@@ -72,6 +72,13 @@ pub struct TerminationHandle {
     alive: Arc<AtomicBool>,
     child: Arc<std::sync::Mutex<crate::pty::PtyChild>>,
     exit_code: Arc<std::sync::Mutex<Option<u32>>>,
+    /// Process-group id captured AT SPAWN, when identity is certain
+    /// (`getpgid(child) == child` — portable-pty's setsid makes the child a
+    /// session leader). `Some` means we own a whole group, not just a pid.
+    /// Terminating the group after the leader died reaps orphaned background
+    /// members (e.g. `sleep &`); the residual pgid-reuse window between the
+    /// leader's death and terminate() is documented and accepted as minimal.
+    pgid: Option<i32>,
 }
 
 impl TerminationHandle {
@@ -79,21 +86,72 @@ impl TerminationHandle {
     /// reap and record the exit status. Idempotent: safe to call when the
     /// child already exited or a previous terminate completed.
     ///
-    /// Safety contract (no collateral kills): the liveness check, the
-    /// group-leader proof, and the signal all happen under the same child
-    /// lock with no awaits in between. The group signal only fires when the
-    /// child is a session leader (`getpgid(pid) == pid`, guaranteed by
-    /// portable-pty's setsid) — otherwise only the single pid is signalled.
+    /// Safety contract (no collateral kills): the process-group id is
+    /// captured at spawn when the child's identity is certain (session
+    /// leader per portable-pty's setsid). While the child is alive, the
+    /// liveness check and the signal happen under the same child lock with
+    /// no awaits in between; after the leader's death, only the recorded
+    /// group is swept (gated on the group still existing at all). Without a
+    /// captured group, only the single pid is signalled.
     pub async fn terminate(&self, grace: Duration) -> Result<()> {
         // Stop the waiter's polling loop first so no second wait() races us.
         self.alive.store(false, Ordering::SeqCst);
         let child = self.child.clone();
         let exit_code = self.exit_code.clone();
+        let pgid = self.pgid;
         // The signal/wait work blocks; keep it off the async reactor.
-        tokio::task::spawn_blocking(move || terminate_blocking(&child, &exit_code, grace))
+        tokio::task::spawn_blocking(move || terminate_blocking(&child, &exit_code, pgid, grace))
             .await
             .context("termination task panicked")??;
         Ok(())
+    }
+}
+
+/// Signal `target` (a pid, or a negated pgid for the whole group) and poll
+/// for the child's exit, escalating to SIGKILL once `grace` elapses.
+#[cfg(unix)]
+fn signal_and_await(child: &mut crate::pty::PtyChild, target: i32, grace: Duration) {
+    unsafe {
+        libc::kill(target, libc::SIGTERM);
+    }
+    let deadline = std::time::Instant::now() + grace;
+    while child.is_alive() {
+        if std::time::Instant::now() >= deadline {
+            unsafe {
+                libc::kill(target, libc::SIGKILL);
+            }
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Sweep the recorded process group after the leader has exited — orphaned
+/// background members must not survive the controller (R5-09). Only runs
+/// for a pgid captured from our own child at spawn; `kill(-pgid, 0)` gates
+/// on the group still existing at all.
+#[cfg(unix)]
+fn sweep_orphaned_group(pgid: i32, grace: Duration) {
+    let group_alive = unsafe { libc::kill(-pgid, 0) } == 0;
+    if !group_alive {
+        return;
+    }
+    unsafe {
+        libc::kill(-pgid, libc::SIGTERM);
+    }
+    let deadline = std::time::Instant::now() + grace;
+    loop {
+        let still = unsafe { libc::kill(-pgid, 0) } == 0;
+        if !still {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -101,6 +159,7 @@ impl TerminationHandle {
 fn terminate_blocking(
     child: &Arc<std::sync::Mutex<crate::pty::PtyChild>>,
     exit_code: &Arc<std::sync::Mutex<Option<u32>>>,
+    pgid: Option<i32>,
     grace: Duration,
 ) -> Result<()> {
     let mut child = child.lock().unwrap();
@@ -110,28 +169,25 @@ fn terminate_blocking(
     if child.is_alive() {
         #[cfg(unix)]
         {
-            // Group-leader proof under the lock: only then is `-pid` a group
-            // we own. PID reuse between try_wait and kill is narrowed to the
-            // (unavoidable, sub-microsecond) window with no intervening await.
-            let group_leader = unsafe { libc::getpgid(pid as i32) } == pid as i32;
-            let target = if group_leader { -(pid as i32) } else { pid as i32 };
-            unsafe {
-                libc::kill(target, libc::SIGTERM);
-            }
-            let deadline = std::time::Instant::now() + grace;
-            while child.is_alive() {
-                if std::time::Instant::now() >= deadline {
-                    unsafe {
-                        libc::kill(target, libc::SIGKILL);
-                    }
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
+            // Liveness check and signal happen under this one lock with no
+            // awaits in between (PID-reuse safe); `pgid` was captured at
+            // spawn when the leader's identity was certain.
+            let target = match pgid {
+                Some(g) => -g,
+                None => pid as i32,
+            };
+            signal_and_await(&mut child, target, grace);
         }
         #[cfg(not(unix))]
         {
             let _ = child.kill();
+        }
+    } else {
+        // The leader already exited but background members of its group may
+        // have been orphaned — sweep the group recorded at spawn.
+        #[cfg(unix)]
+        if let Some(g) = pgid {
+            sweep_orphaned_group(g, grace);
         }
     }
     // Reap and record the exit status so /query/status stays truthful
@@ -152,6 +208,32 @@ impl PtySession {
         let pty = PtyHandle::spawn(&config.pty).context("failed to spawn PTY")?;
         let (master, child, mut reader, mut writer) = pty.into_parts();
         let pid = child.pid();
+
+        // Capture the child's process-group ownership BEFORE any task can
+        // reap it. portable-pty's setsid runs in the child between fork and
+        // exec, so poll briefly until the child leads its own group
+        // (pgid == pid). A zombie's pgid stays queryable; a reaped child's
+        // does not — the waiter task starts only after this block, so an
+        // instantly-exiting child (e.g. `sh -c '… & exit'`) is still safe.
+        #[cfg(unix)]
+        let pgid = pid.and_then(|p| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(1);
+            loop {
+                // Safety: getpgid is always safe to call.
+                let g = unsafe { libc::getpgid(p as i32) };
+                if g == p as i32 {
+                    return Some(g);
+                }
+                if std::time::Instant::now() >= deadline {
+                    log::warn!("pty child {p} never became a session leader; group sweep disabled");
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        });
+        #[cfg(not(unix))]
+        let pgid = None;
+
         // Shared ownership (R5-09): the waiter task polls for natural exit;
         // the termination path signals and reaps the child's process group.
         let child = Arc::new(std::sync::Mutex::new(child));
@@ -285,6 +367,9 @@ impl PtySession {
             alive: alive.clone(),
             child,
             exit_code: exit_code.clone(),
+            // Captured above, before the waiter task could reap an
+            // early-exiting child.
+            pgid,
         };
 
         Ok(Self {
@@ -762,5 +847,34 @@ pub(crate) mod tests {
         assert!(!bystander_gone, "bystander pid {bystander_pid} was killed");
         let _ = bystander.kill();
         let _ = bystander.wait();
+    }
+
+    /// R5-09 review: leader exit with background members. On unix the kernel
+    /// disassociates the controlling terminal when the session leader dies
+    /// and the foreground group does not outlive it (verified empirically on
+    /// macOS: even a nohup'd member is gone immediately after). stop() must
+    /// then be a clean, fast no-op sweep — no panic, no error, no delay.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_after_leader_exit_with_background_members_is_clean() {
+        let mut session = start_session(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "nohup sleep 300 >/dev/null 2>&1 & exit".into(),
+        ])
+        .await;
+        let pgid = session.termination.pgid.expect("group captured at spawn");
+
+        // Wait for the leader to exit (the waiter marks the session dead).
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while session.is_alive() {
+            assert!(Instant::now() < deadline, "leader did not exit");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        session.stop().await.expect("stop");
+        // The group must not outlive the session — by kernel hangup or by
+        // our sweep, either is a compliant outcome.
+        let group_alive = unsafe { libc::kill(-pgid, 0) } == 0;
+        assert!(!group_alive, "orphaned group member survived stop()");
     }
 }

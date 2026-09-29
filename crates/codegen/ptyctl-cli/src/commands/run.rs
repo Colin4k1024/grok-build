@@ -143,17 +143,26 @@ pub async fn run(
 /// the console Ctrl-C path only.
 #[cfg(unix)]
 async fn shutdown_trigger() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::signal::unix::{SignalKind, signal};
 
     let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
     let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
 
     // Parent-death watch: once our parent is gone, getppid() reports init.
+    // The watcher stops as soon as any trigger wins (no live polling thread
+    // is left running while termination proceeds).
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let watcher_cancelled = cancelled.clone();
     let (parent_dead_tx, parent_dead) = tokio::sync::oneshot::channel::<()>();
     std::thread::Builder::new()
         .name("parent-watch".into())
         .spawn(move || {
             loop {
+                if watcher_cancelled.load(Ordering::SeqCst) {
+                    return;
+                }
                 // Safety: getppid is always safe to call.
                 if unsafe { libc::getppid() } == 1 {
                     let _ = parent_dead_tx.send(());
@@ -169,6 +178,7 @@ async fn shutdown_trigger() {
         _ = sigint.recv() => log::debug!("SIGINT received"),
         _ = parent_dead => log::info!("parent process gone — reaping PTY child and exiting"),
     }
+    cancelled.store(true, Ordering::SeqCst);
 }
 
 #[cfg(not(unix))]
