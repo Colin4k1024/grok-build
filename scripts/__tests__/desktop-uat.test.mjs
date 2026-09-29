@@ -138,4 +138,19 @@ describe("matrix splice into the R4 acceptance doc", () => {
     expect(out).toContain("| 35 | 不在矩阵内 | 不动我 | ☐ |");
     expect(out).toContain("普通文本行不动");
   });
+
+  it("sanitizes pipe characters in notes and is idempotent (review P1)", () => {
+    const doc = "| 19 | Tab 顺序 | 预期 | ☐ |";
+    writeManifest(tmp, makeManifest());
+    appendResult(tmp, "run-1", {
+      item: "UAT-19", status: "pass", at: "t", executor: "x",
+      note: "Tab 序：A:跳到工作区 | BUTTON:会话 | BUTTON:设置",
+    });
+    const report = buildReport(tmp, "run-1");
+    const once = spliceMatrix(doc, report).join("\n");
+    // no phantom cells from the note's pipes
+    expect(once).toBe("| 19 | Tab 顺序 | 预期 | ✅ Tab 序：A:跳到工作区 / BUTTON:会话 / BUTTON:设置 |");
+    // a second splice over the result is a no-op
+    expect(spliceMatrix(once, report).join("\n")).toBe(once);
+  });
 });

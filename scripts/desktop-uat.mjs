@@ -233,10 +233,15 @@ function spliceMatrix(doc, report) {
     if (!rec) return line;
     const cells = line.split("|");
     if (cells.length < 5) return line;
-    const note = rec.note ? `${symbol[rec.status]} ${rec.note}` : symbol[rec.status];
+    // Notes are free text — a pipe would become a phantom cell (and a second
+    // splice would then split the evidence itself). Normalize to a safe form.
+    const safeNote = (rec.note ?? "").replaceAll("|", "/").replaceAll("\n", " ");
+    const note = safeNote ? `${symbol[rec.status]} ${safeNote}` : symbol[rec.status];
     const linked = rec.issueUrl ? `${note}（${rec.issueUrl}）` : note;
-    cells[cells.length - 2] = ` ${linked} `;
-    return cells.join("|");
+    // Idempotent: if a previous splice corrupted the row (extra cells from an
+    // unsanitized note), rebuild the row from the first 4 cells + result.
+    const head = cells.slice(0, 4).join("|");
+    return `${head}| ${linked} |`;
   });
 }
 

@@ -76,7 +76,7 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 | # | 步骤 | 预期 | 结果 |
 | --- | --- | --- | --- |
 | 18 | 全程只用键盘完成：新建会话→发消息→停止→改设置→保存 | 无死胡同，焦点始终可见 | ✅ ⌘N 新建、⌘, 进设置、⌘1 回会话——全程键盘无死胡同 |
-| 19 | Tab 顺序 | skip link → rail → 侧栏 → 标题栏 → 主区 → 检查器（与 AppShell DOM 序一致）；无意外跳入隐藏子树 | ✅ Tab 序前八站：A:跳到工作区 | BUTTON:会话 | BUTTON:仪表盘 | BUTTON:自动化 | BUTTON:代理 | BUTTON:搜索 (⌘G) | BUTTON:切换会话侧栏 (⌘B) | ✅ Tab 序前八站：A:跳到工作区 | BUTTON:会话 | BUTTON:仪表盘 | BUTTON:自动化 | BUTTON:代理 | BUTTON:搜索 (⌘G) | BUTTON:切换会话侧栏 (⌘B) | BUTTON:设置 (⌘,) |
+| 19 | Tab 顺序 | skip link → rail → 侧栏 → 标题栏 → 主区 → 检查器（与 AppShell DOM 序一致）；无意外跳入隐藏子树 | ✅ Tab 序前八站：A:跳到工作区 / BUTTON:会话 / BUTTON:仪表盘 / BUTTON:自动化 / BUTTON:代理 / BUTTON:搜索 (⌘G) / BUTTON:切换会话侧栏 (⌘B) / BUTTON:设置 (⌘,) |
 | 20 | Dialog 打开 | 焦点圈定在框内，Escape 关闭，关闭后焦点回到触发器 | ✅ 导入 Dialog 打开时焦点在框内，Escape 关闭 |
 | 21 | DropdownMenu | 方向键/Home/End 跳过禁用项；Escape 只关菜单不关底层 Dialog | ✅ 预设 DropdownMenu 方向键/End 导航（末项「将当前保存为预设…」），Escape 仅关菜单 |
 | 22 | VoiceOver 浏览 | rail 目的地、图标按钮、Toast 均有可访问名称；状态变化进 live region | ✅ AX 树机器验证：rail/对话框按钮均有可访问名称，aria-live 区域 3 处在场（预期结果已验证）；VoiceOver 实机朗读巡检转 #274 跟进 |
