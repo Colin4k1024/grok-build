@@ -168,8 +168,18 @@ function resolveAppBinary() {
 
 function cmdRun(args) {
   const manifest = readManifest(repoRoot, String(args.run));
+  // A modified/stale manifest must never point the app at paths outside the
+  // run dir — that would defeat the isolation the harness exists for.
+  const root = path.resolve(runDir(repoRoot, manifest.id));
+  for (const [key, p] of Object.entries(manifest.paths)) {
+    const resolved = path.resolve(p);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      throw new Error(`manifest path ${key} escapes the run dir: ${p}`);
+    }
+  }
   const bin = resolveAppBinary();
-  const child = spawn(bin, [manifest.paths.workspace], {
+  const child = spawn(bin, ["."], {
+    cwd: manifest.paths.workspace,
     env: {
       ...process.env,
       GROK_HOME: manifest.paths.grokHome,
@@ -181,8 +191,9 @@ function cmdRun(args) {
   return new Promise((resolve) => {
     child.on("exit", (code, signal) => {
       if (signal) {
-        console.log(`uat app exited via signal ${signal}`);
-        resolve(0);
+        // A signal exit is a crash/kill, not a deliberate quit — fail loudly.
+        console.error(`uat app died via signal ${signal}`);
+        resolve(1);
       } else {
         resolve(code ?? 0);
       }
