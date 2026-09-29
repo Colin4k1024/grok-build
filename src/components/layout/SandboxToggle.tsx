@@ -2,6 +2,8 @@ import { useRef, useState, useEffect } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { setSessionApprovalMode } from "../../lib/tauri";
+import { getSetting } from "../../config/registry";
+import { resolveSetting } from "../../config/resolve";
 
 export type SandboxMode = "sandbox" | "full";
 
@@ -24,16 +26,26 @@ export function setSandboxMode(mode: SandboxMode) {
  *  The Policy is the boundary; the renderer store is for display. */
 export function SandboxToggle() {
   const mode = useSettingsStore((s) => s.sandboxMode);
+  const projectOverrides = useSettingsStore((s) => s.projectOverrides);
   const [showTooltip, setShowTooltip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const tabs = useSessionStore((s) => s.tabs);
   const setTabApprovalMode = useSessionStore((s) => s.setTabApprovalMode);
 
+  // Push the EFFECTIVE mode to every tab's main-process Policy — resolved
+  // per project (a project override for sandboxMode is real enforcement,
+  // not a display label). Runs on mode change AND on tab-set change, so a
+  // session created after the mode flipped is pushed too.
   useEffect(() => {
-    // Sync every open tab — the toggle is a global switch, not per-tab.
-    const approval: "ask" | "full-access" = mode === "sandbox" ? "ask" : "full-access";
+    const def = getSetting("permissions.sandboxMode");
     for (const tab of tabs) {
+      const projectLayer = projectOverrides[tab.cwd]?.["permissions.sandboxMode"];
+      const effective = def
+        ? (resolveSetting(def as never, { global: mode, project: projectLayer }).value as SandboxMode)
+        : mode;
+      const approval: "ask" | "full-access" = effective === "sandbox" ? "ask" : "full-access";
+      if ((tab.approvalMode ?? "ask") === approval) continue; // no-op for conforming tabs
       setTabApprovalMode(tab.id, approval);
       // Push to the main-process Policy — the real enforcement boundary.
       // Failures are non-fatal (the Policy defaults to sandbox, the safe
@@ -42,7 +54,7 @@ export function SandboxToggle() {
         console.error("[sandbox] failed to sync approval mode to main process:", e)
       );
     }
-  }, [mode]); // mode is the real trigger; tab list churn is irrelevant here
+  }, [mode, tabs, projectOverrides, setTabApprovalMode]);
 
   useEffect(() => {
     if (!showTooltip) return;

@@ -116,11 +116,11 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
   });
 
   it("clearing a single override reveals the global value", () => {
-    setScopedValue("appearance.zoom", 1.5, "global");
-    setScopedValue("appearance.zoom", 2.0, "project", "/p");
-    resetScopedValue("appearance.zoom", "/p");
-    const r = resolveFromStore("appearance.zoom", "/p");
-    expect(r.value).toBe(1.5);
+    setScopedValue("appearance.theme", "light", "global");
+    setScopedValue("appearance.theme", "auto", "project", "/p");
+    resetScopedValue("appearance.theme", "/p");
+    const r = resolveFromStore("appearance.theme", "/p");
+    expect(r.value).toBe("light");
     expect(r.source).toBe("global");
   });
 

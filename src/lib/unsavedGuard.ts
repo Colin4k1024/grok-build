@@ -24,3 +24,9 @@ export function confirmLeaveIfDirty(): boolean {
   if (!message) return true;
   return window.confirm(`${message} — 确定离开？未保存的修改将丢失。`);
 }
+
+/** Dirtiness predicate without any dialog (for beforeunload, where custom
+ *  confirms are suppressed by the platform). */
+export function hasUnsavedChanges(): boolean {
+  return guard?.() != null;
+}

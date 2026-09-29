@@ -1,64 +1,33 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useSettingsStore } from "../../stores/settingsStore";
 
-const TRUSTED_KEY = "gb-trusted-folders";
-
-export function getTrustedFolders(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(TRUSTED_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-export function isFolderTrusted(path: string): boolean {
-  return getTrustedFolders().includes(path);
-}
-
-export function trustFolder(path: string) {
-  const list = getTrustedFolders();
-  if (!list.includes(path)) {
-    localStorage.setItem(TRUSTED_KEY, JSON.stringify([...list, path]));
-  }
-}
-
-export function untrustFolder(path: string) {
-  localStorage.setItem(
-    TRUSTED_KEY,
-    JSON.stringify(getTrustedFolders().filter((p) => p !== path))
-  );
-}
-
+/**
+ * Trusted folders manager (R4-07 #240): the settings store is the single
+ * source of truth (mirrors the legacy gb-trusted-folders key for the
+ * non-React trust checks). Subscribed — never a stale copy.
+ */
 export function TrustedFoldersManager() {
-  const [folders, setFolders] = useState<string[]>(getTrustedFolders());
+  const folders = useSettingsStore((s) => s.trustedFolders);
+  const addTrustedFolder = useSettingsStore((s) => s.addTrustedFolder);
+  const removeTrustedFolder = useSettingsStore((s) => s.removeTrustedFolder);
   const [newPath, setNewPath] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Keep local state in sync if other tabs mutate the list.
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === TRUSTED_KEY) setFolders(getTrustedFolders());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const handleAdd = useCallback(() => {
+  const handleAdd = () => {
     const trimmed = newPath.trim();
     if (!trimmed) return;
     if (folders.includes(trimmed)) {
       setError("该目录已受信任");
       return;
     }
-    trustFolder(trimmed);
-    setFolders(getTrustedFolders());
-    setNewPath("");
-    setError(null);
-  }, [newPath, folders]);
-
-  const handleRemove = useCallback((path: string) => {
-    untrustFolder(path);
-    setFolders(getTrustedFolders());
-  }, []);
+    try {
+      addTrustedFolder(trimmed);
+      setNewPath("");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <div className="space-y-4 p-4">
@@ -84,7 +53,7 @@ export function TrustedFoldersManager() {
             >
               <span className="truncate font-mono text-xs text-gb-text">{path}</span>
               <button
-                onClick={() => handleRemove(path)}
+                onClick={() => removeTrustedFolder(path)}
                 className="shrink-0 rounded px-2 py-1 text-[11px] text-gb-danger-text hover:bg-gb-red/10"
               >
                 Remove

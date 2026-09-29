@@ -88,11 +88,4 @@ export function useNotifications() {
       unlisten.then((fn) => fn());
     };
   }, [activeSessionId, tabs]);
-
-  return {
-    isEnabled: () => useSettingsStore.getState().notificationsEnabled,
-    setEnabled: (val: boolean) => {
-      useSettingsStore.getState().setNotificationsEnabled(val);
-    },
-  };
 }

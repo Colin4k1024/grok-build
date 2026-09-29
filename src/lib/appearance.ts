@@ -31,7 +31,9 @@ export function bootstrapAppearance() {
       const st = JSON.parse(raw)?.state;
       if (st) {
         applyFontSize(typeof st.fontSize === "string" ? st.fontSize : "medium");
-        applyZoom(typeof st.zoom === "number" ? st.zoom : 1.0);
+        // Apply the registry's range rule even on the boot read path.
+        const z = typeof st.zoom === "number" && st.zoom >= 0.5 && st.zoom <= 2.5 ? st.zoom : 1.0;
+        applyZoom(z);
         return;
       }
     }
