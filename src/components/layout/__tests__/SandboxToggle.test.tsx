@@ -8,13 +8,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionStore, type SessionTab } from "../../../stores/sessionStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 
-const setSessionApprovalMode = vi.fn(async () => undefined);
+const setSessionApprovalMode = vi.fn(async (_id: string, _mode: string) => undefined);
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/tauri")>();
   return {
     ...actual,
-    setSessionApprovalMode: (...args: unknown[]) => setSessionApprovalMode(...args),
+    setSessionApprovalMode: (id: string, mode: "ask" | "full-access") =>
+      setSessionApprovalMode(id, mode),
   };
 });
 
