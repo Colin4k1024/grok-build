@@ -103,3 +103,59 @@ jobs:
         run: npx vitest run electron/__tests__/pty-manager.test.ts
         env:
           GROK_PTYCTL_BIN: ${{ github.workspace }}/target/release/ptyctl
+
+  e2e:
+    # R5-05 (#261): Electron Playwright visual + keyboard regression against
+    # the packed app. macOS matches the primary dev platform; the fixture
+    # isolates every run from the real user profile.
+    name: Electron E2E (Playwright)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: 25.1
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          key: e2e-macos
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Rust agent binary
+        run: cargo build --release -p xai-grok-pager-bin -p ptyctl-cli
+
+      - name: Pack (unsigned, for e2e)
+        run: npm run electron:pack
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Run Electron e2e suite
+        run: npm run test:e2e
+        env:
+          # Pin the visual environment so snapshots reproduce in CI.
+          TZ: Asia/Shanghai
+          LANG: zh-CN.UTF-8
+
+      - name: Upload e2e artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: e2e-results/
+          retention-days: 7
