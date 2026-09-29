@@ -40,13 +40,13 @@
   --gb-focus: 165 168 245;        /* 7.3:1 on canvas — WCAG 1.4.11 */
   --gb-control-track: 128 128 128;/* switch off-track — 3.4:1 vs surface-2 */
   --gb-success: 63 185 130;
-  --gb-success-text: 63 185 130;
+  --gb-success-text: 144 233 201;
   --gb-warning: 250 191 36;
   --gb-warning-text: 250 191 36;
   --gb-danger: 248 113 113;
   --gb-danger-text: 252 165 165;  /* #fca5a5 — 7.0:1 on surface-2, 6.1:1 on danger/10 */
   --gb-info: 96 165 250;
-  --gb-info-text: 96 165 250;
+  --gb-info-text: 147 197 253;
 
   /* Borders — RGB triplets, always consumed with the tier alpha encoded
      by the .gb-border-* utility classes below (dark tiers differ by alpha;
