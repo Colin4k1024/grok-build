@@ -26,3 +26,7 @@ evidence/
 
 # UAT run dirs (isolated homes; may hold copied credentials) — never commit
 .uat/
+
+# Playwright e2e artifacts (reports, failure screenshots) — baselines under
+# e2e/**/__snapshots__ ARE committed
+e2e-results/
