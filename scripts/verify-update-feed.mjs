@@ -37,8 +37,9 @@ function hashFile(filePath) {
 }
 
 /** Pull every referenced artifact out of the manifest: the files[] list plus
- *  the legacy top-level path/sha512 pair (no size there — size check is
- *  skipped for it). */
+ *  the legacy top-level path/sha512 pair. files[] entries must carry BOTH
+ *  sha512 and size; legacy entries must carry sha512 — missing integrity
+ *  metadata is a hard failure, never a skipped check. */
 function collectFeedEntries(manifest) {
   const entries = [];
   const seen = new Set();
@@ -48,16 +49,18 @@ function collectFeedEntries(manifest) {
       seen.add(f.url);
       entries.push({
         url: f.url,
-        sha512: typeof f.sha512 === "string" ? f.sha512 : null,
+        sha512: typeof f.sha512 === "string" && f.sha512 ? f.sha512 : null,
         size: typeof f.size === "number" ? f.size : null,
+        requiresSize: true,
       });
     }
   }
   if (typeof manifest?.path === "string" && !seen.has(manifest.path)) {
     entries.push({
       url: manifest.path,
-      sha512: typeof manifest.sha512 === "string" ? manifest.sha512 : null,
-      size: null,
+      sha512: typeof manifest.sha512 === "string" && manifest.sha512 ? manifest.sha512 : null,
+      size: null, // the legacy single-file shape has no size field
+      requiresSize: false,
     });
   }
   return entries;
@@ -97,6 +100,16 @@ export async function verifyUpdateFeed(manifestPath, artifactsDir = path.dirname
     return { ok: false, results: [{ file: path.basename(manifestPath), ok: false, reason: "manifest references no files" }] };
   }
   for (const entry of entries) {
+    // Integrity metadata is mandatory — a manifest that omits it has NOT
+    // verified anything, so it fails instead of silently skipping.
+    if (!entry.sha512) {
+      results.push({ file: entry.url, ok: false, reason: "manifest entry is missing sha512" });
+      continue;
+    }
+    if (entry.requiresSize && entry.size === null) {
+      results.push({ file: entry.url, ok: false, reason: "manifest entry is missing size" });
+      continue;
+    }
     let filePath;
     try {
       filePath = resolveArtifactPath(artifactsDir, entry.url);
@@ -113,7 +126,7 @@ export async function verifyUpdateFeed(manifestPath, artifactsDir = path.dirname
       results.push({ file: entry.url, ok: false, reason: `size mismatch: manifest ${entry.size}, disk ${actual.size}` });
       continue;
     }
-    if (entry.sha512 !== null && actual.sha512 !== entry.sha512) {
+    if (actual.sha512 !== entry.sha512) {
       results.push({ file: entry.url, ok: false, reason: `sha512 mismatch for ${path.basename(filePath)}` });
       continue;
     }

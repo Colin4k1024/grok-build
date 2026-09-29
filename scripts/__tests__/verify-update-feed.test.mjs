@@ -144,4 +144,55 @@ describe("verifyUpdateFeed (R5-07 #263)", () => {
       r.results.some((e) => !e.ok && /traversal|absolute/i.test(e.reason))
     ).toBe(true);
   });
+
+  it("fails a files[] entry that omits sha512 — unverified artifacts never pass", async () => {
+    const contents = Buffer.from("payload");
+    fs.writeFileSync(path.join(tmp, "Grok-Build-2.0.0-arm64.zip"), contents);
+    const manifestPath = path.join(tmp, "latest-mac.yml");
+    fs.writeFileSync(
+      manifestPath,
+      [
+        "version: 2.0.0",
+        "files:",
+        "  - url: Grok-Build-2.0.0-arm64.zip",
+        `    size: ${contents.length}`,
+        "",
+      ].join("\n")
+    );
+    const r = await verifyUpdateFeed(manifestPath, tmp);
+    expect(r.ok).toBe(false);
+    expect(r.results.some((e) => !e.ok && /missing sha512/i.test(e.reason))).toBe(true);
+  });
+
+  it("fails a files[] entry that omits size", async () => {
+    const contents = Buffer.from("payload");
+    fs.writeFileSync(path.join(tmp, "Grok-Build-2.0.0-arm64.zip"), contents);
+    const manifestPath = path.join(tmp, "latest-mac.yml");
+    fs.writeFileSync(
+      manifestPath,
+      [
+        "version: 2.0.0",
+        "files:",
+        "  - url: Grok-Build-2.0.0-arm64.zip",
+        `    sha512: ${sha512Base64(contents)}`,
+        "",
+      ].join("\n")
+    );
+    const r = await verifyUpdateFeed(manifestPath, tmp);
+    expect(r.ok).toBe(false);
+    expect(r.results.some((e) => !e.ok && /missing size/i.test(e.reason))).toBe(true);
+  });
+
+  it("fails a legacy top-level path without sha512", async () => {
+    const contents = Buffer.from("legacy");
+    fs.writeFileSync(path.join(tmp, "Grok-Build-2.0.0.zip"), contents);
+    const manifestPath = path.join(tmp, "latest.yml");
+    fs.writeFileSync(
+      manifestPath,
+      ["version: 2.0.0", "path: Grok-Build-2.0.0.zip", ""].join("\n")
+    );
+    const r = await verifyUpdateFeed(manifestPath, tmp);
+    expect(r.ok).toBe(false);
+    expect(r.results.some((e) => !e.ok && /missing sha512/i.test(e.reason))).toBe(true);
+  });
 });
