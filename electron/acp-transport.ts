@@ -41,6 +41,14 @@ import { readKeyStore, securityKeychain } from "./auth";
 
 export type EmitFn = (event: Record<string, unknown>) => void;
 
+export interface AcpTransportOptions {
+  /** Extra environment overrides for the agent child process, merged LAST
+   *  (process env → key store → childEnv) so they always win. Tests use this
+   *  to point GROK_HOME/GB_JOURNAL_DIR at throwaway dirs without mutating
+   *  process.env; production callers pass nothing and behavior is unchanged. */
+  childEnv?: NodeJS.ProcessEnv;
+}
+
 // ---- capability negotiation ----------------------------------------------
 
 export interface AgentCapabilities {
@@ -125,12 +133,15 @@ export class AcpTransport {
   private connecting = false;
   private disposed = false;
   private readonly agentBin: string;
+  private readonly childEnv: Readonly<NodeJS.ProcessEnv>;
   /** Backpressure: if the agent sends faster than the renderer can drain,
    *  queued events are coalesced rather than dropped. */
   private eventQueue = new Map<string, Record<string, unknown>[]>();
   private maxQueuePerSession = 1000;
 
-  constructor() {
+  constructor(options: AcpTransportOptions = {}) {
+    // Defensive copy + freeze: the override set is fixed at construction.
+    this.childEnv = Object.freeze({ ...options.childEnv });
     this.agentBin = this.resolveAgentBinary();
   }
 
@@ -359,7 +370,8 @@ export class AcpTransport {
       "--bind", `127.0.0.1:${this.port}`,
       "--secret", this.secret,
     ];
-    const env = { ...process.env, ...readKeyStore() };
+    // Merge order: process env → key store → explicit child env (wins).
+    const env = { ...process.env, ...readKeyStore(), ...this.childEnv };
     const proc = spawn(this.agentBin, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env,

@@ -52,6 +52,35 @@ function makeEmitCollector(): { events: Record<string, unknown>[]; emit: (e: Rec
   };
 }
 
+/** Recursive, sorted relative listing of a sessions dir; missing dir = empty
+ *  listing (clean profiles may not have created it yet). */
+function snapshotSessions(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  const out: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    const entries = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        out.push(`${relPath}/`);
+        walk(path.join(dir, entry.name), relPath);
+      } else {
+        out.push(relPath);
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+}
+
+/** The REAL user sessions dir — the suite must never write here (R5-01). */
+const REAL_SESSIONS_DIR = path.join(
+  process.env.GROK_HOME ?? path.join(os.homedir(), ".grok"),
+  "sessions",
+);
+
 // These tests need a longer timeout — the agent serve process takes a moment
 // to start, and session/new round-trips through the model relay.
 const SLOW = 60_000;
@@ -59,17 +88,39 @@ const SLOW = 60_000;
 describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #187)", () => {
   let transport: AcpTransport;
   let tmp: string;
+  // Suite-level isolation (R5-01 / #257): every transport spawns its agent
+  // with a throwaway GROK_HOME/GB_JOURNAL_DIR via constructor injection, so
+  // no test session ever lands in the real user data dir. No process.env
+  // mutation anywhere — nothing can cross-talk into parallel workers.
+  let suiteHome: string;
+  let suiteJournal: string;
+  let realSessionsBefore: string[];
+  const transports: AcpTransport[] = [];
+
+  function makeTransport(): AcpTransport {
+    const t = new AcpTransport({
+      childEnv: { GROK_HOME: suiteHome, GB_JOURNAL_DIR: suiteJournal },
+    });
+    transports.push(t);
+    return t;
+  }
 
   beforeAll(async () => {
-    // Use the real agent binary with the real auth store. The transport
-    // spawns `agent serve` on a free loopback port.
-    process.env.GROK_AGENT_BIN = AGENT_BIN;
-    transport = new AcpTransport();
+    suiteHome = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-home-"));
+    suiteJournal = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-journal-"));
+    realSessionsBefore = snapshotSessions(REAL_SESSIONS_DIR);
+    transport = makeTransport();
     await transport.connect();
   }, SLOW);
 
   afterAll(async () => {
-    if (transport) await transport.dispose();
+    // Dispose every transport before deleting the suite dirs, so no agent
+    // process is still writing into them (or anywhere) during cleanup.
+    for (const t of transports.splice(0)) {
+      try { await t.dispose(); } catch { /* already disposed */ }
+    }
+    fs.rmSync(suiteHome, { recursive: true, force: true });
+    fs.rmSync(suiteJournal, { recursive: true, force: true });
   });
 
   beforeEach(() => {
@@ -176,7 +227,7 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
 
   it("closing the last session reclaims the transport's process and connection", async () => {
     // Use a fresh transport so we don't interfere with the shared one.
-    const localTransport = new AcpTransport();
+    const localTransport = makeTransport();
     await localTransport.connect();
     const collector = makeEmitCollector();
     await localTransport.createSession("cleanup-1", tmp, collector.emit);
@@ -188,6 +239,16 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
     expect(localTransport.sessionCount()).toBe(0);
     expect(localTransport.isReady()).toBe(false);
   }, SLOW);
+
+  it("never writes test sessions into the real user GROK_HOME (R5-01 #257)", () => {
+    // Earlier tests in this suite created real sessions through the real
+    // agent binary — they must have landed in the isolated suite home, which
+    // proves the persistence boundary is genuinely covered (not skipped).
+    const isolated = snapshotSessions(path.join(suiteHome, "sessions"));
+    expect(isolated.length).toBeGreaterThan(0);
+    // The real user sessions dir must be identical to the pre-suite snapshot.
+    expect(snapshotSessions(REAL_SESSIONS_DIR)).toEqual(realSessionsBefore);
+  });
 });
 
 // ---- unit-level tests (no agent binary needed) ---------------------------
