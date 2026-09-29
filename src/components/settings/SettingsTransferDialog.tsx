@@ -106,7 +106,14 @@ export function SettingsTransferDialog({ open, mode, onClose }: Props) {
             <input
               type="checkbox"
               checked={replaceMode}
-              onChange={(e) => setReplaceMode(e.target.checked)}
+              // Re-run the preview after a mode change: applyImport recomputes
+              // resets in replace mode, so a preview built under merge mode
+              // would otherwise under-report what gets applied. Clearing the
+              // preview forces a fresh confirm with the new mode.
+              onChange={(e) => {
+                setReplaceMode(e.target.checked);
+                setPreview(null);
+              }}
             />
             替换模式（文档中缺失的已覆盖项将重置为默认）
           </label>

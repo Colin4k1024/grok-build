@@ -179,10 +179,14 @@ export default function App() {
     setDestination("settings");
   }, []);
   // Guarded navigation: leaving settings with staged edits confirms first.
-  // Stable identity — reads the live destination from the ref.
-  const navigateTo = useCallback((d: AppDestination) => {
-    if (destinationRef.current === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return;
+  // Stable identity — reads the live destination from the ref. Returns
+  // whether navigation actually happened, so handlers that couple navigation
+  // to a side effect (new/resume/cycle session) can abort that side effect
+  // when the user declines to leave settings.
+  const navigateTo = useCallback((d: AppDestination): boolean => {
+    if (destinationRef.current === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return false;
     setDestination(d);
+    return true;
   }, []);
   const goConversations = useCallback(() => navigateTo("conversations"), [navigateTo]);
 
@@ -338,6 +342,9 @@ export default function App() {
   // session/load (agent spawn + transcript replay) proceeds behind the
   // "restoring" banner. See lib/threadResume.ts for the spawn/rebind flow.
   const handleResumeThread = useCallback(async (session: HistorySession) => {
+    // Bail before resuming if the user declines to leave settings; otherwise
+    // the optimistic open would spawn/rebind a thread the user just rejected.
+    if (!navigateTo("conversations")) return;
     const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
@@ -370,13 +377,14 @@ export default function App() {
         return next;
       });
     }
-  }, []);
+  }, [navigateTo]);
 
   const handleNewSession = useCallback(async () => {
+    // Bail before creating a session if the user declines to leave settings
+    // (the guard vetoes navigation, not just the view switch).
+    if (!navigateTo("conversations")) return;
     setCreating(true);
     setError(null);
-    // Creating a session is a conversation-context action — navigate there.
-    navigateTo("conversations");
     try {
       const info = await createSession(".");
       addTab({
@@ -391,7 +399,7 @@ export default function App() {
       });
     } catch (e) { setError(String(e)); }
     finally { setCreating(false); }
-  }, [addTab, tabs.length]);
+  }, [navigateTo, addTab, tabs.length]);
 
   // Start a session rooted at a chosen project directory.
   const handleNewSessionInDir = useCallback(async (cwd: string) => {
@@ -472,9 +480,11 @@ export default function App() {
         const idx = store.tabs.findIndex((t) => t.id === store.activeSessionId);
         const delta = e.key === "]" || e.code === "BracketRight" ? 1 : -1;
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
+        // Guard FIRST: if the user declines to leave settings, don't switch
+        // the active session underneath them.
+        if (!navigateTo("conversations")) return;
         store.setActiveSession(next.id);
         setShowHome(false);
-        navigateTo("conversations");
       }
     };
     window.addEventListener("keydown", handler);
@@ -485,8 +495,10 @@ export default function App() {
   // event tells App to reveal the thread view (hide Home) in conversations.
   useEffect(() => {
     const open = () => {
+      // Guard FIRST: don't reveal the thread view if the user declines to
+      // leave settings (a session activation dispatched this event).
+      if (!navigateTo("conversations")) return;
       setShowHome(false);
-      navigateTo("conversations");
     };
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
