@@ -59,32 +59,65 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
-/** Remove block comments entirely; remove `// …` line comments unless the
- *  slashes follow a `:` (URL schemes inside strings stay intact). */
+/** String-aware comment stripper. Removes `// …` and `/* … *\/` regions in
+ *  CODE positions only; the contents of string and template literals are
+ *  always preserved (a URL like "https://…/⚠️" inside a string must neither
+ *  be cut short nor hide an emoji from the scan). Template `${…}` contents
+ *  are treated as literal contents too — rendered text there must stay
+ *  visible to the contract. Regex literals cannot contain two adjacent raw
+ *  slashes (each `/` must be escaped), so `//` in code position is always a
+ *  comment. */
 function stripComments(source: string): string {
   let out = "";
   let i = 0;
-  let inBlock = false;
+  let state: "code" | "single" | "double" | "template" | "line" | "block" = "code";
   while (i < source.length) {
-    if (inBlock) {
-      const end = source.indexOf("*/", i);
-      if (end === -1) return out;
-      i = end + 2;
-      inBlock = false;
+    const c = source[i];
+    const next = source[i + 1];
+    if (state === "line") {
+      if (c === "\n") {
+        state = "code";
+        out += c;
+      }
+      i += 1;
       continue;
     }
-    if (source.startsWith("/*", i)) {
-      inBlock = true;
+    if (state === "block") {
+      if (c === "*" && next === "/") {
+        state = "code";
+        i += 2;
+      } else {
+        i += 1;
+      }
+      continue;
+    }
+    if (state === "single" || state === "double" || state === "template") {
+      const quote = state === "single" ? "'" : state === "double" ? '"' : "`";
+      if (c === "\\") {
+        out += c + (next ?? "");
+        i += 2;
+        continue;
+      }
+      out += c;
+      i += 1;
+      if (c === quote) state = "code";
+      continue;
+    }
+    // code state
+    if (c === "/" && next === "/") {
+      state = "line";
       i += 2;
       continue;
     }
-    if (source.startsWith("//", i) && (i === 0 || source[i - 1] !== ":")) {
-      const end = source.indexOf("\n", i);
-      if (end === -1) return out;
-      i = end;
+    if (c === "/" && next === "*") {
+      state = "block";
+      i += 2;
       continue;
     }
-    out += source[i];
+    if (c === "'") state = "single";
+    else if (c === '"') state = "double";
+    else if (c === "`") state = "template";
+    out += c;
     i += 1;
   }
   return out;
@@ -162,5 +195,39 @@ describe("UI contract — emoji, z-index, color tokens (R5-03 #259)", () => {
       expect(fs.existsSync(path.join(COMPONENTS_ROOT, rel))).toBe(true);
     }
     expect(EMOJI_ALLOWLIST.size).toBe(2);
+  });
+});
+
+describe("stripComments — the scanner's lexical rules", () => {
+  it("strips line and block comments in code positions", () => {
+    const src = "const a = 1; // ⚡ comment\n/* 🌿 block */ const b = 2;";
+    const out = stripComments(src);
+    expect(out).not.toContain("⚡");
+    expect(out).not.toContain("🌿");
+    expect(out).toContain("const a = 1;");
+    expect(out).toContain("const b = 2;");
+  });
+
+  it("never treats // inside a string as a comment — URL tails stay visible", () => {
+    const src = 'const u = "https://example.com/⚠️"; // real comment ✨';
+    const out = stripComments(src);
+    // the URL (including an emoji in the string) survives…
+    expect(out).toContain("https://example.com/⚠️");
+    // …and only the genuine comment is removed
+    expect(out).not.toContain("✨");
+  });
+
+  it("keeps template-literal contents scannable", () => {
+    const src = "const s = `icon: ${name} ⏳`; // 🌐";
+    const out = stripComments(src);
+    expect(out).toContain("⏳");
+    expect(out).not.toContain("🌐");
+  });
+
+  it("handles escaped quotes without losing track of string state", () => {
+    const src = 'const q = "a\\"b"; // ⏰\nconst r = 1;';
+    const out = stripComments(src);
+    expect(out).toContain('const r = 1;');
+    expect(out).not.toContain("⏰");
   });
 });

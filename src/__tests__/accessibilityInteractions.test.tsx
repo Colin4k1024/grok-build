@@ -4,7 +4,7 @@
  * visibility, keyboard activation of every top-level destination, live
  * regions, reduced-motion policy, and dialog layer discipline.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,21 +149,24 @@ describe("shared icon set contract (R5-03 #259)", () => {
 
   it("MentionComplete options keep text names independent of icons", () => {
     useSessionStore.setState({ tabs: [], activeSessionId: null } as never);
+    // query "review" matches the built-in review skill → a non-empty listbox.
     render(
       <MentionComplete
-        query="rea"
-        cwd="/tmp"
+        query="review"
+        cwd=""
         onSelect={() => {}}
         onClose={() => {}}
       />
     );
-    // options are named by their label text, never by the icon glyph
-    const listbox = screen.queryByRole("listbox", { name: "提及建议" });
-    if (listbox) {
-      for (const opt of Array.from(listbox.querySelectorAll("[role=option]"))) {
-        expect(opt.textContent?.trim().length).toBeGreaterThan(0);
+    const listbox = screen.getByRole("listbox", { name: "提及建议" });
+    const options = within(listbox).getAllByRole("option");
+    expect(options.length).toBeGreaterThan(0);
+    for (const opt of options) {
+      // the accessible name comes from the label text, never the icon glyph
+      expect(opt.textContent?.trim().length).toBeGreaterThan(0);
+      for (const svg of Array.from(opt.querySelectorAll("svg"))) {
+        expect(svg.getAttribute("aria-hidden")).toBe("true");
       }
     }
-    expect(listbox === null || listbox.querySelectorAll("[role=option]").length >= 0).toBe(true);
   });
 });
