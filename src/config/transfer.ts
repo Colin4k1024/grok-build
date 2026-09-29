@@ -257,9 +257,19 @@ export function applyImport(
       // Mirror preview's ignored list exactly: unknown / sensitive /
       // out-of-scope entries are SKIPPED, never written.
       if (!def || def.sensitive || !def.scopes.includes(scope)) return null;
-      // No-op writes are not "applied" — the report reflects real changes.
-      const cur = resolveFromStore(id, pid);
-      if (JSON.stringify(cur.value) === JSON.stringify(value)) return null;
+      // No-op detection compares against the SAME layer (not the resolved
+      // effective value) — an explicit project override equal to the global
+      // value is still a real override worth restoring.
+      const s = useSettingsStore.getState();
+      const layerValue =
+        scope === "project"
+          ? pid
+            ? s.projectOverrides[pid]?.[id]
+            : undefined
+          : def.storeKey
+            ? (s as unknown as Record<string, unknown>)[def.storeKey]
+            : undefined;
+      if (layerValue !== undefined && JSON.stringify(layerValue) === JSON.stringify(value)) return null;
       setScopedValue(id, value, scope, pid);
       return tag;
     });

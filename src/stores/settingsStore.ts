@@ -308,7 +308,10 @@ export const useSettingsStore = create<SettingsState>()(
           voiceWakeEnabled: () => s.setVoiceWakeEnabled(value as boolean),
           voiceTtsEnabled: () => s.setVoiceTtsEnabled(value as boolean),
           notificationsEnabled: () => s.setNotificationsEnabled(value as boolean),
-          trustedFolders: () => set({ trustedFolders: value as string[] }),
+          trustedFolders: () => {
+            set({ trustedFolders: value as string[] });
+            try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(value)); } catch {}
+          },
         };
         const run = setters[storeKey];
         if (!run) throw new Error(`unbound settings store key: ${storeKey}`);
@@ -437,6 +440,22 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           const legacyNotif = localStorage.getItem(LEGACY_NOTIFICATIONS);
           if (legacyNotif !== null) merged.notificationsEnabled = legacyNotif === "true";
+        } catch {
+          /* storage unavailable */
+        }
+        // Same treatment for the voice keys the deleted VoiceSettings wrote
+        // directly (gb-voice-language / gb-voice-wake / gb-voice-tts): the
+        // legacy key is the user's real preference when present.
+        try {
+          const legacyLang = localStorage.getItem("gb-voice-language") ?? localStorage.getItem(LEGACY_VOICE_LANG);
+          if (legacyLang !== null) {
+            const def = getSetting("voice.language");
+            if (def?.validate(legacyLang)) merged.voiceLanguage = legacyLang as SettingsState["voiceLanguage"];
+          }
+          const legacyWake = localStorage.getItem(LEGACY_VOICE_WAKE);
+          if (legacyWake !== null) merged.voiceWakeEnabled = legacyWake === "true";
+          const legacyTts = localStorage.getItem(LEGACY_VOICE_TTS);
+          if (legacyTts !== null) merged.voiceTtsEnabled = legacyTts === "true";
         } catch {
           /* storage unavailable */
         }

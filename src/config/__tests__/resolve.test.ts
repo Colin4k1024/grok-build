@@ -10,12 +10,27 @@ describe("scope resolver (R4-05 #238)", () => {
     expect(r).toEqual({ value: "dark", source: "default", invalidSources: [], overridden: false });
   });
 
-  it("resolution order is session -> project -> global -> default", () => {
-    // agent.mode allows all three override scopes
-    const mode = getSetting("agent.mode")!;
-    expect(resolveSetting(mode, { global: "architect", project: "debug", session: "code" }).source).toBe("session");
-    expect(resolveSetting(mode, { global: "architect", project: "debug" }).source).toBe("project");
-    expect(resolveSetting(mode, { global: "debug" }).source).toBe("global");
+  it("resolution order is session > project > global > default", () => {
+    // No production setting currently exposes session scope — use a
+    // synthetic definition to pin the resolver's ordering.
+    const synthetic = {
+      id: "test.synthetic",
+      category: "test",
+      label: "t",
+      description: "d",
+      type: "string",
+      defaultValue: "d0",
+      scopes: ["global", "project", "session"],
+      keywords: [],
+      saveMode: "immediate",
+      validate: (v: unknown): v is string => typeof v === "string",
+    } as const;
+    expect(
+      resolveSetting(synthetic as never, { global: "g", project: "p", session: "s" }).source,
+    ).toBe("session");
+    expect(resolveSetting(synthetic as never, { global: "g", project: "p" }).source).toBe("project");
+    expect(resolveSetting(synthetic as never, { global: "g" }).source).toBe("global");
+    expect(resolveSetting(synthetic as never, {}).source).toBe("default");
   });
 
   it("marks overridden=true whenever a non-default source wins", () => {
@@ -52,12 +67,12 @@ describe("scope resolver (R4-05 #238)", () => {
   });
 
   it("invalid LOWER layers are still reported after a higher layer wins", () => {
-    const mode = getSetting("agent.mode")!;
-    const r = resolveSetting(mode, { project: "debug", global: "nonsense" });
+    // theme allows global + project
+    const r = resolveSetting(theme, { project: "light", global: "nonsense" });
     expect(r.source).toBe("project");
     expect(r.invalidSources).toEqual(["global"]);
     // and when only lower layers are invalid, default wins
-    const r2 = resolveSetting(mode, { global: "nonsense" });
+    const r2 = resolveSetting(theme, { global: "nonsense" });
     expect(r2.source).toBe("default");
     expect(r2.invalidSources).toEqual(["global"]);
   });
