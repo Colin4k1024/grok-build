@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { probeBrowserCaps, type BrowserCapabilities } from "../../lib/browserCapabilities";
+import { GlobeIcon, MonitorIcon, AlertTriangleIcon } from "../ui/icons";
 
 export function BrowserSettings() {
   const [caps, setCaps] = useState<BrowserCapabilities>({
@@ -24,7 +25,9 @@ export function BrowserSettings() {
           {/* Browser row */}
           <div className="flex items-center justify-between border-b border-gb-border/30 px-4 py-3">
             <div>
-              <p className="text-xs font-medium text-gb-text">🌐 浏览器控制</p>
+              <p className="flex items-center gap-1.5 text-xs font-medium text-gb-text">
+                <GlobeIcon size={13} />浏览器控制
+              </p>
               <p className="mt-0.5 text-[10px] text-gb-muted">
                 通过 Managed Browser（Puppeteer/Playwright）在隔离环境中浏览网页
               </p>
@@ -43,7 +46,9 @@ export function BrowserSettings() {
           {/* Computer row */}
           <div className="flex items-center justify-between px-4 py-3">
             <div>
-              <p className="text-xs font-medium text-gb-text">🖥️ 桌面控制 (Computer Use)</p>
+              <p className="flex items-center gap-1.5 text-xs font-medium text-gb-text">
+                <MonitorIcon size={13} />桌面控制 (Computer Use)
+              </p>
               <p className="mt-0.5 text-[10px] text-gb-muted">
                 截取屏幕内容并鼠标/键盘操作（需系统辅助功能权限）
               </p>
@@ -61,8 +66,9 @@ export function BrowserSettings() {
         </div>
 
         {caps.reason && (
-          <div className="mt-3 rounded-md border border-gb-yellow/30 bg-gb-yellow/5 px-3 py-2 text-[11px] text-gb-warning-text">
-            ⚠️ {caps.reason}
+          <div className="mt-3 flex items-center gap-1.5 rounded-md border border-gb-yellow/30 bg-gb-yellow/5 px-3 py-2 text-[11px] text-gb-warning-text">
+            <AlertTriangleIcon size={13} className="shrink-0" />
+            <span>{caps.reason}</span>
           </div>
         )}
       </section>

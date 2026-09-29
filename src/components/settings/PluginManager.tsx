@@ -1,7 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
 import { getMcpServers, saveMcpServer, deleteMcpServer, toggleMcpServer } from "../../lib/tauri";
 import type { McpServerInfo } from "../../lib/tauri";
 import { InlineNotice, EmptyState, Skeleton, toast } from "../ui";
+import {
+  FolderIcon,
+  BranchIcon,
+  ChatIcon,
+  DatabaseIcon,
+  SearchIcon,
+  SparkIcon,
+  ShapesIcon,
+  LightbulbIcon,
+  ClockIcon,
+  type IconProps,
+} from "../ui/icons";
 
 interface CatalogEntry {
   name: string;
@@ -11,7 +23,7 @@ interface CatalogEntry {
   args: string[];
   envKeys: string[];
   url?: string;
-  icon: string;
+  Icon: ComponentType<IconProps>;
 }
 
 const CATALOG: CatalogEntry[] = [
@@ -22,7 +34,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/"],
     envKeys: [],
-    icon: "📁",
+    Icon: FolderIcon,
   },
   {
     name: "github",
@@ -31,7 +43,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
     envKeys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    icon: "🐙",
+    Icon: BranchIcon,
   },
   {
     name: "slack",
@@ -40,7 +52,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-slack"],
     envKeys: ["SLACK_BOT_TOKEN"],
-    icon: "💬",
+    Icon: ChatIcon,
   },
   {
     name: "google-drive",
@@ -49,7 +61,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-google-drive"],
     envKeys: ["GOOGLE_DRIVE_OAUTH_TOKEN"],
-    icon: "📁",
+    Icon: FolderIcon,
   },
   {
     name: "postgres",
@@ -58,7 +70,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-postgres"],
     envKeys: ["DATABASE_URL"],
-    icon: "🗄️",
+    Icon: DatabaseIcon,
   },
   {
     name: "brave-search",
@@ -67,7 +79,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-brave-search"],
     envKeys: ["BRAVE_API_KEY"],
-    icon: "🔍",
+    Icon: SearchIcon,
   },
   {
     name: "memory",
@@ -76,7 +88,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-memory"],
     envKeys: [],
-    icon: "🧠",
+    Icon: SparkIcon,
   },
   {
     name: "puppeteer",
@@ -85,7 +97,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-puppeteer"],
     envKeys: [],
-    icon: "🎭",
+    Icon: ShapesIcon,
   },
   {
     name: "sequential-thinking",
@@ -94,7 +106,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-sequential-thinking"],
     envKeys: [],
-    icon: "💭",
+    Icon: LightbulbIcon,
   },
   {
     name: "time",
@@ -103,7 +115,7 @@ const CATALOG: CatalogEntry[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-time"],
     envKeys: [],
-    icon: "⏰",
+    Icon: ClockIcon,
   },
 ];
 
@@ -263,7 +275,7 @@ export function PluginManager() {
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-lg">{entry.icon}</span>
+                      <entry.Icon size={18} />
                       <div>
                         <p className="text-xs font-medium text-gb-text">{entry.name}</p>
                         <p className="text-[9px] text-gb-muted">{entry.category}</p>
@@ -397,7 +409,9 @@ function PluginDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-start gap-3">
-          <span className="text-3xl">{entry.icon}</span>
+          <span className="mt-0.5 text-gb-text-secondary">
+            <entry.Icon size={30} />
+          </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-semibold text-gb-text">{entry.name}</h2>
             <p className="text-[11px] text-gb-muted">{entry.category}</p>

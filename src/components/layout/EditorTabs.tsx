@@ -2,6 +2,7 @@
 // pinned Home tab on the left (like VS Code's Welcome tab).
 import { useSessionStore } from "../../stores/sessionStore";
 import { openSessionInNewWindow } from "../../lib/tauri";
+import { SparkIcon } from "../ui/icons";
 
 interface EditorTabsProps {
   showHome: boolean;
@@ -28,7 +29,9 @@ export function EditorTabs({ showHome, onOpenHome, onCloseSession, streaming }: 
             : "bg-gb-tab-inactive text-gb-muted hover:text-gb-text"
         }`}
       >
-        <span className="text-gb-brand">✻</span>
+        <span className="text-gb-brand">
+          <SparkIcon size={11} />
+        </span>
         首页
       </button>
 

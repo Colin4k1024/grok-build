@@ -1,30 +1,39 @@
 import { useState, useEffect } from "react";
+import {
+  BotIcon,
+  TabsIcon,
+  ChatIcon,
+  ZapIcon,
+  WrenchIcon,
+  type IconProps,
+} from "./ui/icons";
+import type { ComponentType } from "react";
 
 const ONBOARDING_KEY = "gb-onboarding-completed";
 
-const STEPS = [
+const STEPS: { Icon: ComponentType<IconProps>; title: string; body: string }[] = [
   {
-    icon: "🤖",
+    Icon: BotIcon,
     title: "欢迎使用 Grok Build",
     body: "你的 AI 编程助手，支持多会话、ACP 桥接和内嵌终端。先快速了解一下吧。",
   },
   {
-    icon: "📑",
+    Icon: TabsIcon,
     title: "多会话标签",
     body: "用 Cmd+T 创建多个会话。每个标签页都是独立工作目录中的 Agent 对话，用 Cmd+1-9 切换。",
   },
   {
-    icon: "💬",
+    Icon: ChatIcon,
     title: "对话与工具",
     body: "在输入区发送消息。Agent 可以使用工具——需要时直接在对话中批准。工具结果以卡片形式显示在消息流中。",
   },
   {
-    icon: "⚡",
+    Icon: ZapIcon,
     title: "命令面板",
     body: "按 Cmd+Shift+P（或 Cmd+K）打开命令面板，搜索并执行任意操作——新建会话、打开设置、切换面板等。",
   },
   {
-    icon: "🔧",
+    Icon: WrenchIcon,
     title: "设置与插件",
     body: "在「设置」中配置模型、API 密钥、MCP 服务器、插件和主题。通过侧边栏的「仪表盘」总览所有会话和子代理。",
   },
@@ -93,7 +102,9 @@ export function Onboarding({ onComplete }: Props) {
 
         {/* Content */}
         <div className="px-8 py-8 text-center">
-          <div className="mb-4 text-5xl">{current.icon}</div>
+          <div className="mb-4 flex justify-center text-gb-accent-text">
+            <current.Icon size={48} />
+          </div>
           <h2 className="mb-2 text-lg font-semibold text-gb-text">{current.title}</h2>
           <p className="text-sm text-gb-muted">{current.body}</p>
         </div>

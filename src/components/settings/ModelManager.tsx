@@ -18,17 +18,19 @@ function vendorOf(model: ModelInfo): string {
   return "Other";
 }
 
-const VENDOR_ICONS: Record<string, string> = {
-  OpenAI: "🤖",
-  Anthropic: "🧠",
-  Alibaba: "☁️",
-  xAI: "𝕏",
-  DeepSeek: "🔍",
-  Local: "💻",
-  Google: "🌐",
-  Mistral: "🌬️",
-  Other: "📦",
-};
+/** Decorative monogram chip per vendor — the adjacent vendor name carries
+ *  the meaning, so the mark is aria-hidden (R5-03: no emoji as icons). */
+function VendorMark({ vendor }: { vendor: string }) {
+  const mark = vendor === "xAI" ? "𝕏" : (vendor[0] ?? "?").toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-gb-surface-2 text-[10px] font-semibold text-gb-text-secondary"
+    >
+      {mark}
+    </span>
+  );
+}
 
 interface TestResult {
   ok: boolean;
@@ -245,7 +247,7 @@ export function ModelManager() {
                   >
                     <path d="M2 1l4 3-4 3V1z" />
                   </svg>
-                  <span className="text-sm">{VENDOR_ICONS[vendor] ?? VENDOR_ICONS.Other}</span>
+                  <VendorMark vendor={vendor} />
                   <span>{vendor}</span>
                   <span className="ml-auto rounded bg-gb-bg px-1.5 py-0.5 text-[9px]">{models.length}</span>
                 </button>

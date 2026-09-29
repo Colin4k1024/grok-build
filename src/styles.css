@@ -23,6 +23,13 @@
   --gb-surface-2: 47 47 47;       /* elevated surface (cards, popovers) */
   --gb-surface-hover: 56 56 56;   /* hover surface */
 
+  /* Terminal surface — theme-invariant by design: the embedded xterm keeps
+     its dark palette in BOTH themes (R5-03). Declared only here (not
+     re-declared in .light) so the value never drifts per theme. Keep in
+     sync with TERMINAL_THEME in src/lib/terminalTheme.ts. */
+  --gb-terminal-bg: 28 28 28;     /* #1c1c1c */
+  --gb-terminal-fg: 214 214 214;  /* #d6d6d6 */
+
   /* Text */
   --gb-text-primary: 236 236 236;
   --gb-text-secondary: 175 175 175;

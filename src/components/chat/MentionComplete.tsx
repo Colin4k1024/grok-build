@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSessionStore } from "../../stores/sessionStore";
 import { listWorktrees, type WorktreeInfo } from "../../lib/tauri";
+import { FileIcon, FolderIcon, SparkIcon } from "../ui/icons";
 
 export interface MentionItem {
   kind: "file" | "project" | "skill";
@@ -109,7 +110,13 @@ export function MentionComplete({ query, onSelect, onClose, anchorBottom = 140, 
   if (items.length === 0) return null;
 
   const iconFor = (kind: MentionItem["kind"]) =>
-    kind === "file" ? "📄" : kind === "project" ? "📁" : "✨";
+    kind === "file" ? (
+      <FileIcon size={13} />
+    ) : kind === "project" ? (
+      <FolderIcon size={13} />
+    ) : (
+      <SparkIcon size={13} />
+    );
 
   return (
     <div

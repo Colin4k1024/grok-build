@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { TERMINAL_THEME } from "../../lib/terminalTheme";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -111,12 +112,7 @@ export function TerminalView({ content }: Props) {
       convertEol: true,
       fontSize,
       fontFamily: "SF Mono, Monaco, Menlo, monospace",
-      theme: {
-        // Codex TUI terminal colors — neutral #1c1c1c, not GitHub dark.
-        background: "#1c1c1c",
-        foreground: "#d6d6d6",
-        cursor: "#d6d6d6",
-      },
+      theme: { ...TERMINAL_THEME },
       disableStdin: true,
       scrollback: 1000,
     });
@@ -197,7 +193,7 @@ export function TerminalView({ content }: Props) {
       <div ref={containerRef} className="h-48 w-full overflow-hidden rounded outline-none" />
       {/* Off-screen placeholder keeps the zoom affordance without an xterm. */}
       {!near && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded bg-[#1c1c1c] text-[10px] text-white/25">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded bg-gb-terminal text-[10px] text-white/25">
           终端输出
         </div>
       )}

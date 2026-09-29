@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from "react";
+import { AlertTriangleIcon } from "./ui/icons";
 
 interface Props {
   children: ReactNode;
@@ -36,7 +37,9 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex h-full items-center justify-center bg-gb-bg p-8">
           <div className="max-w-md text-center">
-            <div className="mb-4 text-4xl">⚠️</div>
+            <div className="mb-4 flex justify-center text-gb-warning-text">
+              <AlertTriangleIcon size={40} />
+            </div>
             <h1 className="mb-2 text-lg font-semibold text-gb-text">
               Something went wrong
             </h1>
