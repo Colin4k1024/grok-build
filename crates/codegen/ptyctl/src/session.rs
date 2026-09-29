@@ -169,12 +169,15 @@ fn terminate_blocking(
     if child.is_alive() {
         #[cfg(unix)]
         {
-            // Liveness check and signal happen under this one lock with no
-            // awaits in between (PID-reuse safe); `pgid` was captured at
-            // spawn when the leader's identity was certain.
+            // Revalidate group ownership at signal time, under the lock: the
+            // live child's CURRENT pgid must still equal the spawn-captured
+            // pgid. A command that moved itself to another group
+            // (setpgid/setsid) forfeits the group signal — fall back to the
+            // single pid rather than risk a stale group.
+            let current = unsafe { libc::getpgid(pid as i32) };
             let target = match pgid {
-                Some(g) => -g,
-                None => pid as i32,
+                Some(g) if current == g => -g,
+                _ => pid as i32,
             };
             signal_and_await(&mut child, target, grace);
         }
