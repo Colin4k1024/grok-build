@@ -95,7 +95,13 @@ export function SandboxToggle() {
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         aria-label={`沙箱模式: ${mode}. Click to toggle.`}
       >
-        <span aria-hidden="true">{isSandbox ? "🔒" : "⚡"}</span>
+        <svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {isSandbox ? (
+            <path d="M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4" />
+          ) : (
+            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
+          )}
+        </svg>
         <span>{isSandbox ? "Sandbox" : "完全访问"}</span>
       </button>
 
