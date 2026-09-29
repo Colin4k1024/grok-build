@@ -279,6 +279,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         const r = resolveFromStore(def.id, scope === "project" ? projectId : undefined);
         if (r.overridden) values[def.id] = r.value;
       }
+      if (Object.keys(values).length === 0) {
+        toast.error("没有与默认值不同的设置可保存 — 先修改再存为预设");
+        return;
+      }
       const existing = useSettingsStore.getState().userPresets;
       let id = label
         .toLowerCase()

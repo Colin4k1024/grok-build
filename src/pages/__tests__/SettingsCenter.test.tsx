@@ -282,4 +282,28 @@ describe("Settings Center (R4-07)", () => {
       setUnsavedGuard(null);
     }
   });
+
+  it("bulk project reset is a no-op (no success toast) when the project has no overrides", async () => {
+    useSessionStore.setState({
+      tabs: [{
+        id: "t1", acpSessionId: "a1", title: "T", cwd: "/proj/empty", model: "m",
+        reasoningEffort: "medium", createdAt: 1, lastActiveAt: 1,
+      }],
+      activeSessionId: "t1",
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    try {
+      render(<Settings />);
+      await screen.findByRole("navigation", { name: "设置分类" });
+      await userEvent.click(screen.getByRole("radio", { name: /当前项目/ }));
+      // open the 重置 menu and click the project reset
+      await userEvent.click(screen.getByRole("button", { name: "重置" }));
+      const item = await screen.findByRole("menuitem", { name: /重置当前项目/ });
+      await userEvent.click(item);
+      // no confirm, nothing happened
+      expect(confirmSpy).not.toHaveBeenCalled();
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
 });

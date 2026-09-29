@@ -31,35 +31,44 @@ export function SandboxToggle() {
   const ref = useRef<HTMLDivElement>(null);
 
   const tabs = useSessionStore((s) => s.tabs);
-  const setTabApprovalMode = useSessionStore((s) => s.setTabApprovalMode);
 
-  // On mount, push EVERY tab unconditionally: persisted approvalMode is not
-  // proof of main-process Policy state after a restart (resumed sessions
-  // boot at 'ask'). After that, only mismatches are pushed.
-  const bootedRef = useRef(false);
+  // Policy truth-sync. Every tab is pushed when it first appears (policies
+  // boot at 'ask' after a restart — persisted approvalMode is not proof of
+  // Policy state). After that: unpinned tabs follow global/project changes;
+  // pinned tabs (user picked a per-session mode in the composer) are never
+  // clobbered.
+  const pushedRef = useRef<Set<string>>(new Set());
 
-  // Push the EFFECTIVE mode to every tab's main-process Policy — resolved
-  // per project (a project override for sandboxMode is real enforcement,
-  // not a display label).
   useEffect(() => {
     const def = getSetting("permissions.sandboxMode");
     for (const tab of tabs) {
-      const projectLayer = projectOverrides[tab.cwd]?.["permissions.sandboxMode"];
-      const effective = def
-        ? (resolveSetting(def as never, { global: mode, project: projectLayer }).value as SandboxMode)
-        : mode;
-      const approval: "ask" | "full-access" = effective === "sandbox" ? "ask" : "full-access";
-      if (bootedRef.current && (tab.approvalMode ?? "ask") === approval) continue;
-      setTabApprovalMode(tab.id, approval);
+      const resolved = tab.approvalPinned
+        ? // User's per-session choice — re-push it, never recompute.
+          (tab.approvalMode ?? "ask")
+        : ((): "ask" | "full-access" => {
+            const effective = def
+              ? (resolveSetting(def as never, {
+                  global: mode,
+                  project: projectOverrides[tab.cwd]?.["permissions.sandboxMode"],
+                }).value as SandboxMode)
+              : mode;
+            return effective === "sandbox" ? "ask" : "full-access";
+          })();
+      const already = pushedRef.current.has(tab.id);
+      if (already && (tab.approvalMode ?? "ask") === resolved) continue;
+      pushedRef.current.add(tab.id);
+      if ((tab.approvalMode ?? "ask") !== resolved) {
+        // System sync — does NOT pin (the tab still follows global changes).
+        useSessionStore.getState().syncTabApprovalMode(tab.id, resolved);
+      }
       // Push to the main-process Policy — the real enforcement boundary.
       // Failures are non-fatal (the Policy defaults to sandbox, the safe
       // mode), but are logged so the mismatch is visible rather than silent.
-      setSessionApprovalMode(tab.id, approval).catch((e) =>
+      setSessionApprovalMode(tab.id, resolved).catch((e) =>
         console.error("[sandbox] failed to sync approval mode to main process:", e)
       );
     }
-    bootedRef.current = true;
-  }, [mode, tabs, projectOverrides, setTabApprovalMode]);
+  }, [mode, tabs, projectOverrides]);
 
   useEffect(() => {
     if (!showTooltip) return;

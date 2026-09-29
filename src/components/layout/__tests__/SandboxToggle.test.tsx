@@ -92,4 +92,26 @@ describe("SandboxToggle enforcement wiring", () => {
     expect(useSettingsStore.getState().sandboxMode).toBe("full");
     expect(localStorage.getItem("gb-sandbox-mode")).toBe("full");
   });
+
+  it("a user's per-session approval choice (composer) is never clobbered by a global flip", async () => {
+    useSessionStore.setState({ tabs: [tab("t1", "/p")] });
+    render(<SandboxToggle />);
+    await screen.findByText("Sandbox");
+    // user picks full-access for this session via the composer path
+    useSessionStore.getState().setTabApprovalMode("t1", "full-access");
+    expect(useSessionStore.getState().tabs[0].approvalPinned).toBe(true);
+    // global flips to full then back to sandbox — pinned tab untouched
+    useSettingsStore.getState().setSandboxMode("full");
+    useSettingsStore.getState().setSandboxMode("sandbox");
+    expect(useSessionStore.getState().tabs[0].approvalMode).toBe("full-access");
+  });
+
+  it("a Home-created pinned tab is pushed to the Policy on appearance", async () => {
+    // simulate a session created with an explicit approval choice
+    const t = { ...tab("t9", "/p"), approvalMode: "full-access" as const, approvalPinned: true };
+    useSessionStore.setState({ tabs: [t] });
+    render(<SandboxToggle />);
+    await screen.findByText("Sandbox");
+    expect(setSessionApprovalMode).toHaveBeenCalledWith("t9", "full-access");
+  });
 });

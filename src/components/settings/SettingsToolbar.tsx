@@ -70,7 +70,13 @@ export function SettingsToolbar({
       label: `${p.label}（自定义）`,
       onSelect: () => onApplyPreset(id),
     })),
-    ...applicableUser.map(([id, p]) => ({
+    // project scope: explain WHY builtins are absent rather than showing
+    // an empty menu
+    ...(scope === "project"
+      ? [{ key: "__note", label: "预设仅作用于全局作用域", disabled: true, onSelect: () => {} }]
+      : []),
+    // deletion stays reachable for user presets even when not applicable here
+    ...Object.entries(userPresets).map(([id, p]) => ({
       key: `del:${id}`,
       label: `删除预设「${p.label}」`,
       danger: true,
