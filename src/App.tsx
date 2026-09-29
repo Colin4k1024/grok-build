@@ -196,6 +196,18 @@ export default function App() {
     if (destination !== "settings") setSettingsTab(undefined);
   }, [destination]);
 
+  // R4-07 (#240): never drop staged settings edits on reload/close.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (destination === "settings" && !confirmLeaveIfDirty()) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [destination]);
+
   // Visibility toggles only apply where the panels exist — on other
   // destinations ⌘B / ⌘J must not invisibly mutate state (R4-03 review).
   const inConversations = destination === "conversations";

@@ -62,8 +62,12 @@ export function SettingsField({
 
   const scopeAllowed = def.scopes.includes(scope as SettingScope);
   const current = draft !== undefined ? draft : resolved.value;
-  const overridable = resolved.overridden || draft !== undefined;
   const shownError = error ?? numError;
+  // 重置 is only meaningful where a value exists at THIS scope: in project
+  // scope that means a project override (or a draft), not a global layer.
+  const hasProjectLayer = projectValue !== undefined && projectValue !== null;
+  const showReset =
+    draft !== undefined || (scope === "project" ? hasProjectLayer : resolved.overridden);
 
   const commitNumber = () => {
     if (numText === null) return;
@@ -207,7 +211,7 @@ export function SettingsField({
             {Array.isArray(current) ? `${current.length} 项（在分区中管理）` : "—"}
           </span>
         )}
-        {overridable && (
+        {showReset && (
           <button
             type="button"
             onClick={() => onReset(settingId)}

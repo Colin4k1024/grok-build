@@ -96,12 +96,3 @@ export function useNotifications() {
     },
   };
 }
-
-/** Store-backed shims (legacy callers; the registry owns the default). */
-export function getNotificationEnabled(): boolean {
-  return useSettingsStore.getState().notificationsEnabled;
-}
-
-export function setNotificationEnabled(val: boolean) {
-  useSettingsStore.getState().setNotificationsEnabled(val);
-}

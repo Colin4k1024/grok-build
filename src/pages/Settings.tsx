@@ -123,7 +123,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
     if (scope === "project" && !projectId) setScope("global");
   }, [scope, projectId]);
 
-  const draftKey = (id: string) => `${scope}:${id}`;
+  // Draft keys carry scope AND project so a draft staged on project A never
+  // displays on project B's field; the draft VALUE also binds its project
+  // (applied to its own context even if the active project changes).
+  const draftKey = (id: string) => `${scope}:${projectId ?? ""}:${id}`;
   const draftCount = Object.keys(drafts).length;
 
   // Unsaved-changes guard for navigation away from settings.
@@ -214,10 +217,13 @@ export function Settings({ initialTab }: { initialTab?: string }) {
     // project draft orphaned by a project-context change stays reachable
     // here instead of nagging via the leave guard with no remedy.
     for (const [key, entry] of Object.entries(drafts)) {
-      const [draftScope, settingId] = key.split(":", 2) as ["global" | "project", string];
+      // key = `${scope}:${projectId}:${settingId}`; the VALUE also binds the
+      // project — apply uses the draft's own context, never the live one.
+      const settingId = key.split(":").pop()!;
+      const draftScope = key.split(":")[0] as "global" | "project";
       const value = entry.value;
       try {
-        setScopedValue(settingId, value, draftScope, entry.projectId ?? projectId);
+        setScopedValue(settingId, value, draftScope, entry.projectId);
       } catch (e) {
         errors[key] = e instanceof Error ? e.message : String(e);
         keep[key] = entry; // failed drafts stay editable AND located
@@ -262,9 +268,9 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         .replace(/[^a-z0-9_-]+/g, "-")
         .replace(/^-+|-+$/g, "");
       if (!id) id = "preset";
-      if (existing[id]) {
+      if (Object.prototype.hasOwnProperty.call(existing, id)) {
         let n = 2;
-        while (existing[`${id}-${n}`]) n += 1;
+        while (Object.prototype.hasOwnProperty.call(existing, `${id}-${n}`)) n += 1;
         id = `${id}-${n}`;
       }
       useSettingsStore.getState().saveUserPreset(id, label, values);
@@ -300,7 +306,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       toast.error("没有活跃项目 — 无法重置项目覆盖");
       return;
     }
-    if (window.confirm("将全部全局设置重置为默认？此操作可用撤销恢复。")) {
+    if (window.confirm("将全部全局设置重置为默认？未保存的修改保留在变更栏中；此操作可用撤销恢复。")) {
       const before = snapshotSettings();
       for (const def of listSettings()) {
         if (def.storeKey) {
@@ -311,8 +317,8 @@ export function Settings({ initialTab }: { initialTab?: string }) {
           }
         }
       }
-      setDrafts({});
-      setFieldErrors({});
+      // Staged drafts are PRESERVED (they are the user's pending intent) —
+      // undo restores values; the change bar keeps its drafts.
       toast.success("已重置全部全局设置", {
         action: { label: "撤销", onClick: () => restoreSettings(before) },
       });
