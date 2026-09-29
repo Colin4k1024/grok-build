@@ -169,9 +169,10 @@ actually resolves it per project (today: `appearance.theme`,
   pipeline with backup-on-failure; `sanitize.ts` guards every rehydrate.
 - Import is atomic (validate → preview → apply with rollback on failure).
 - The durable file (`userData/gb-settings.json`) is canonical; localStorage
-  is the sync cache. Legacy keys migrate one-shot (honor then delete) for
-  notifications/voice; theme/fontSize/zoom/sandboxMode legacy keys are still
-  mirrored on every change for unmigrated consumers.
+  is the sync cache. At hydration, legacy notifications/voice keys migrate
+  one-shot (honor then delete); separately, every legacy key with a store
+  binding (theme/fontSize/zoom/sandboxMode/notifications/voice/trustedFolders)
+  is still re-mirrored on each setter write for unmigrated consumers.
 
 ## Accessibility
 

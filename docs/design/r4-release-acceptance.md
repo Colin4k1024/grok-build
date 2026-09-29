@@ -39,8 +39,9 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 
 环境：macOS 桌面包（`release/*.dmg` 安装后），窗口默认尺寸 + 窄窗口
 （<1000px，触发侧栏断点；<1200px 时 Inspector 断点）。
-结果列：✅ 通过 / ❌ 失败（附说明）/ ☐ 未执行。本矩阵在发布窗口逐项执行并
-回填结果；当前状态见 §5。
+结果列：✅ 通过 / ❌ 失败（附说明）/ ⚠️ 部分通过（说明范围）/ ☐ 未执行。
+发布前 ☐ 与 ⚠️ 都不得残留——☐ 必须执行，⚠️ 必须收敛为 ✅ 或 ❌
+（❌ 附说明并记入 §3）。本矩阵在发布窗口逐项执行并回填结果；当前状态见 §5。
 
 ### 2.1 核心会话路径
 | # | 步骤 | 预期 | 结果 |
@@ -119,6 +120,9 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 8. `release/latest-mac.yml` 中的产物名为 `Grok-Build-…`（连字符）而实际产物为
    `Grok Build-…`（空格）——若启用 `electron-updater` 自动更新该 feed 会 404；
    启用前需统一命名（本发布未启用自动更新）。
+9. `npm test` 有 1 个跳过用例：pty-manager 的"controller 退出时回收 PTY 子进程"
+   （macOS 上 ptyctl 的 controller kill 不级联，TODO(R3-18)，Linux CI 有补偿
+   验证）——恰好跳过在本发布平台，列为已知限制并跟踪修复。
 
 ## 4. 回滚条件
 
@@ -135,7 +139,8 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 
 自动化（全部实测通过）：
 
-- `npm test` — **75 文件 991 通过 / 1 跳过，0 失败**（98s）。
+- `npm test` — **75 文件 991 通过 / 1 跳过，0 失败**（98s）。跳过项为
+  pty-manager 的 PTY 子进程回收用例（已知 macOS 缺口，见已知限制 #9）。
 - `npm run build` — tsc 0 错误，vite 产物构建成功（2.12s）。
 - `npm run electron:build` — 主进程 + preload 编译成功（`dist-electron/`）。
 - `npm run electron:pack` — electron-builder 26.15.3 / Electron 44.4.1 /
@@ -151,7 +156,7 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 `hdiutil attach` 挂载 → 拷贝至独立临时目录 → 去除隔离属性 → 启动后主进程
 （`Grok Build.app/Contents/MacOS/Grok Build`）与 3 个 helper 进程存活 12s+ →
 AppleScript 退出干净 → `hdiutil detach` 弹出并确认卷已消失 → 临时目录清理。
-**通过**（本项为进程级冒烟；首屏视觉无白屏由发布窗口人工确认）。
+**进程级冒烟通过**（首屏视觉无白屏由发布窗口人工确认）。
 #32–#34 依赖真实账号/后端，随发布窗口人工矩阵执行。
 
 人工矩阵状态：§2.1–§2.6 为发布窗口执行项（当前全部 ☐ 未执行，属预期——
