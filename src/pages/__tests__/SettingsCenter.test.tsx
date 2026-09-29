@@ -149,6 +149,28 @@ describe("Settings Center (R4-07)", () => {
     expect(useSettingsStore.getState().theme).toBe("dark");
   });
 
+  it("applies a project draft to the project it was staged under, not the now-active one", async () => {
+    useSessionStore.setState({
+      tabs: [
+        { id: "tA", acpSessionId: "aA", title: "A", cwd: "/proj/A", model: "m", reasoningEffort: "medium", createdAt: 1, lastActiveAt: 1 },
+        { id: "tB", acpSessionId: "aB", title: "B", cwd: "/proj/B", model: "m", reasoningEffort: "medium", createdAt: 2, lastActiveAt: 2 },
+      ],
+      activeSessionId: "tA",
+    });
+    render(<Settings />);
+    await screen.findByRole("navigation", { name: "设置分类" });
+    // Stage a project-scope draft (sandboxMode) while project A is active.
+    await userEvent.click(screen.getByRole("radio", { name: /当前项目/ }));
+    await userEvent.click(screen.getByRole("button", { name: "权限" }));
+    await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+    // The active session switches to project B while the draft is staged.
+    useSessionStore.getState().setActiveSession("tB");
+    await userEvent.click(screen.getByRole("button", { name: "应用" }));
+    // The override is written to project A (where it was staged), not B.
+    expect(useSettingsStore.getState().projectOverrides["/proj/A"]?.["permissions.sandboxMode"]).toBe("full");
+    expect(useSettingsStore.getState().projectOverrides["/proj/B"]).toBeUndefined();
+  });
+
   it("partial apply failure keeps other drafts and marks the failing field", async () => {
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });

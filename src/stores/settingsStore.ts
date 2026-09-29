@@ -411,7 +411,23 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persisted, current) => {
         const state = persisted as Record<string, unknown> | undefined;
         if (!state || typeof state !== "object") return current;
-        return { ...current, ...sanitizePersistedState(state) };
+        const merged = { ...current, ...sanitizePersistedState(state) };
+        // Preserve a user's notification opt-out across the R4-07 takeover.
+        // Before this change the only notification toggle wrote the legacy
+        // `gb-notifications-enabled` key directly and never touched the store,
+        // so a persisted `gb-settings` blob holds the default `true` for
+        // notificationsEnabled. The spread above would let that stale default
+        // silently re-enable notifications for anyone who opted out. The
+        // legacy key is the user's real preference — honor it on hydration
+        // when present (the new setNotificationsEnabled mirrors to it, so
+        // post-upgrade writes keep both in sync and this becomes a no-op).
+        try {
+          const legacyNotif = localStorage.getItem(LEGACY_NOTIFICATIONS);
+          if (legacyNotif !== null) merged.notificationsEnabled = legacyNotif === "true";
+        } catch {
+          /* storage unavailable */
+        }
+        return merged;
       },
     }
   )

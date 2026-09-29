@@ -99,6 +99,24 @@ describe("corrupt config recovery (R3-11 #196)", () => {
     expect(s.projectOverrides["/p2"]).toBeUndefined();
   });
 
+  it("a legacy notification opt-out survives the R4-07 store takeover (R4-07 #240)", async () => {
+    // Before R4-07 the only notification toggle wrote `gb-notifications-enabled`
+    // directly and never the store, so a persisted blob holds the default
+    // `true`. The merge must honor the legacy key instead of silently
+    // re-enabling notifications for users who opted out.
+    localStorage.clear();
+    localStorage.setItem("gb-notifications-enabled", "false");
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({
+        state: { theme: "dark", notificationsEnabled: true }, // stale default
+        version: CURRENT_SETTINGS_VERSION,
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    expect(useSettingsStore.getState().notificationsEnabled).toBe(false);
+  });
+
   it("a v1 persisted blob migrates to the current version (R4-06 #239)", async () => {
     localStorage.clear();
     localStorage.setItem(

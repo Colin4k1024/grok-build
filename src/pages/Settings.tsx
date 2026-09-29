@@ -94,8 +94,14 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferMode, setTransferMode] = useState<"import" | "export">("export");
 
-  // Drafts keyed by `${scope}:${settingId}` — staged (high-impact) edits.
-  const [drafts, setDrafts] = useState<Record<string, unknown>>({});
+  // Drafts keyed by `${scope}:${settingId}`. A project-scope draft also
+  // records the projectId it was staged under, so applying it always writes
+  // to the project the user actually edited — never to whatever project is
+  // active at apply time (the active session can change while settings is
+  // open). The change bar counts/applies/discards ALL drafts so a project
+  // draft is never left orphaned and unreachable when the project context
+  // changes (e.g. the active tab is closed).
+  const [drafts, setDrafts] = useState<Record<string, { value: unknown; projectId?: string }>>({});
   /** Per-field apply errors, keyed the same way (shown ON the field). */
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -116,12 +122,6 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   }, [scope, projectId]);
 
   const draftKey = (id: string) => `${scope}:${id}`;
-  // The change bar counts/applies the CURRENT scope's drafts; the other
-  // scope's drafts stay staged (and still trigger the leave guard).
-  const currentScopeDrafts = Object.fromEntries(
-    Object.entries(drafts).filter(([k]) => k.startsWith(`${scope}:`)),
-  );
-  const scopeDraftCount = Object.keys(currentScopeDrafts).length;
   const draftCount = Object.keys(drafts).length;
 
   // Unsaved-changes guard for navigation away from settings.
@@ -152,7 +152,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         delete next[draftKey(settingId)];
         return next;
       });
-      setDrafts((prev) => ({ ...prev, [draftKey(settingId)]: value }));
+      setDrafts((prev) => ({
+        ...prev,
+        // Bind a project draft to the project it was staged under so apply
+        // never targets a different active project.
+        [draftKey(settingId)]: { value, projectId: scope === "project" ? projectId : undefined },
+      }));
     }
   };
 
@@ -184,25 +189,23 @@ export function Settings({ initialTab }: { initialTab?: string }) {
     await new Promise((r) => setTimeout(r, 0)); // let the saving state paint
     const before = snapshotSettings();
     const errors: Record<string, string> = {};
-    const keep: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(currentScopeDrafts)) {
+    const keep: Record<string, { value: unknown; projectId?: string }> = {};
+    // Apply ALL drafts (both scopes), each to the project it was staged under.
+    // This never writes a project draft to the wrong active project, and a
+    // project draft orphaned by a project-context change stays reachable
+    // here instead of nagging via the leave guard with no remedy.
+    for (const [key, entry] of Object.entries(drafts)) {
       const [draftScope, settingId] = key.split(":", 2) as ["global" | "project", string];
+      const value = entry.value;
       try {
-        setScopedValue(settingId, value, draftScope, projectId);
+        setScopedValue(settingId, value, draftScope, entry.projectId ?? projectId);
       } catch (e) {
         errors[key] = e instanceof Error ? e.message : String(e);
-        keep[key] = value; // failed drafts stay editable AND located
+        keep[key] = entry; // failed drafts stay editable AND located
       }
     }
     setSaving(false);
-    // keep the other scope's drafts staged; current scope keeps failures
-    setDrafts((prev) => {
-      const next = { ...prev };
-      for (const key of Object.keys(next)) {
-        if (key.startsWith(`${scope}:`) && !(key in keep)) delete next[key];
-      }
-      return { ...next, ...keep };
-    });
+    setDrafts(keep);
     setFieldErrors(errors);
     const failCount = Object.keys(errors).length;
     if (failCount === 0) {
@@ -217,10 +220,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   };
 
   const discardDrafts = () => {
-    // discard only the current scope's drafts
-    setDrafts((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith(`${scope}:`))),
-    );
+    // Discard ALL drafts (both scopes), so orphaned project drafts are
+    // reachable from the change bar's 放弃 even when the project context
+    // that staged them is no longer active.
+    setDrafts({});
     setFieldErrors({});
   };
 
@@ -324,7 +327,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         settingId={id}
         scope={scope}
         projectId={projectId}
-        draft={key in drafts ? drafts[key] : undefined}
+        draft={drafts[key]?.value}
         error={fieldErrors[key]}
         onChange={onFieldChange}
         onReset={onFieldReset}
@@ -394,7 +397,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         }
         changeBar={
           <SettingsChangeBar
-            count={scopeDraftCount}
+            count={draftCount}
             saving={saving}
             failures={Object.values(fieldErrors)}
             onApply={applyDrafts}
