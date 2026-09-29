@@ -34,13 +34,19 @@ interface SpeechRecognitionLike extends EventTarget {
   onend: (() => void) | null;
 }
 
+import { useSettingsStore } from "../stores/settingsStore";
+
 type Lang = "auto" | "zh-CN" | "en-US";
 
 export function useVoiceInput(
   onTranscript: (text: string, isFinal: boolean) => void
 ) {
   const [isRecording, setIsRecording] = useState(false);
-  const [language, setLanguage] = useState<Lang>("auto");
+  // The registry's voice.language is the source of truth (R4-07): the
+  // settings UI writes it; this hook consumes it.
+  const language = useSettingsStore((s) => s.voiceLanguage) as Lang;
+  const setLanguage = (lang: Lang) =>
+    useSettingsStore.getState().setVoiceLanguage(lang);
   const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // ISS-082: formal voice session machine + explicit degradation channel.

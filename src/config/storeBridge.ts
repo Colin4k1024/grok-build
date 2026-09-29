@@ -144,9 +144,19 @@ export function applyPreset(
   const failed: string[] = [];
   for (const [settingId, value] of Object.entries(values)) {
     try {
-      // No-op writes are not "applied" (consistent with applyImport).
-      const cur = resolveFromStore(settingId, projectId);
-      if (JSON.stringify(cur.value) === JSON.stringify(value)) continue;
+      // No-op detection compares against the TARGET layer itself — a project
+      // override equal to the global value is still a real override.
+      const s = useSettingsStore.getState();
+      const def = getSetting(settingId);
+      const layerValue =
+        scope === "project"
+          ? projectId
+            ? s.projectOverrides[projectId]?.[settingId]
+            : undefined
+          : def?.storeKey
+            ? (s as unknown as Record<string, unknown>)[def.storeKey]
+            : undefined;
+      if (layerValue !== undefined && JSON.stringify(layerValue) === JSON.stringify(value)) continue;
       setScopedValue(settingId, value, scope, projectId);
       applied.push(settingId);
     } catch (e) {

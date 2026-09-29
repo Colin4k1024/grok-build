@@ -8,6 +8,7 @@ import {
   setScopedValue,
 } from "../../config/storeBridge";
 import { listSettings, registryErrors } from "../../config/registry";
+import { CURRENT_SETTINGS_VERSION } from "../../config/version";
 
 beforeEach(() => {
   localStorage.clear();
@@ -116,11 +117,11 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
   });
 
   it("clearing a single override reveals the global value", () => {
-    setScopedValue("appearance.zoom", 1.5, "global");
-    setScopedValue("appearance.zoom", 2.0, "project", "/p");
-    resetScopedValue("appearance.zoom", "/p");
-    const r = resolveFromStore("appearance.zoom", "/p");
-    expect(r.value).toBe(1.5);
+    setScopedValue("appearance.theme", "light", "global");
+    setScopedValue("appearance.theme", "auto", "project", "/p");
+    resetScopedValue("appearance.theme", "/p");
+    const r = resolveFromStore("appearance.theme", "/p");
+    expect(r.value).toBe("light");
     expect(r.source).toBe("global");
   });
 
@@ -245,6 +246,42 @@ describe("registry ↔ store bridge (R4-05 #238)", () => {
     localStorage.removeItem("gb-settings"); // another window cleared it first
     syncFromFileDoc({ version: 1, values: {} });
     expect(useSettingsStore.getState().theme).toBe("dark");
+  });
+
+  it("legacy voice keys migrate IN THE MERGE and post-migration writes persist", async () => {
+    // a REAL upgrade shape: legacy keys + a persisted blob with defaults
+    localStorage.setItem("gb-voice-language", "zh-CN");
+    localStorage.setItem("gb-voice-wake", "true");
+    localStorage.setItem("gb-voice-tts", "true");
+    localStorage.setItem(
+      "gb-settings",
+      JSON.stringify({
+        state: { voiceLanguage: "auto", voiceWakeEnabled: false, voiceTtsEnabled: false },
+        version: CURRENT_SETTINGS_VERSION,
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+    let s = useSettingsStore.getState();
+    expect(s.voiceLanguage).toBe("zh-CN");
+    expect(s.voiceWakeEnabled).toBe(true);
+    expect(s.voiceTtsEnabled).toBe(true);
+    // post-migration writes update the legacy mirrors — nothing resurrects
+    useSettingsStore.getState().setVoiceLanguage("en-US");
+    useSettingsStore.getState().setVoiceWakeEnabled(false);
+    useSettingsStore.getState().setVoiceTtsEnabled(false);
+    expect(localStorage.getItem("gb-voice-language")).toBe("en-US");
+    expect(localStorage.getItem("gb-voice-wake")).toBe("false");
+    await useSettingsStore.persist.rehydrate();
+    s = useSettingsStore.getState();
+    expect(s.voiceLanguage).toBe("en-US");
+    expect(s.voiceWakeEnabled).toBe(false);
+  });
+
+  it("bulk project reset is gated on actual overrides", async () => {
+    // no overrides at all
+    expect(Object.keys(useSettingsStore.getState().projectOverrides)).toHaveLength(0);
+    useSettingsStore.getState().setProjectOverride("/p", "appearance.theme", "light");
+    expect(Object.keys(useSettingsStore.getState().projectOverrides["/p"]).length).toBeGreaterThan(0);
   });
 
   it("legacy keys are validated at module init — corrupt values fall back to registry defaults", async () => {

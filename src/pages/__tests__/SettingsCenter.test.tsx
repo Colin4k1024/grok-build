@@ -222,17 +222,13 @@ describe("Settings Center (R4-07)", () => {
     }
   });
 
-  it("partial apply failure keeps other drafts and marks the failing field", async () => {
+  it("partial apply failure keeps the draft and marks the failing field", async () => {
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });
-    // stage sandboxMode on 权限
+    // stage sandboxMode on 权限 (the only staged editable field today)
     await userEvent.click(screen.getByRole("button", { name: "权限" }));
     await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
-    // stage agentAutonomous on 代理 (sibling that should still apply)
-    await userEvent.click(screen.getByRole("button", { name: "代理" }));
-    await userEvent.click(screen.getByRole("button", { name: /高级/ }));
-    await userEvent.click(await screen.findByRole("switch", { name: "自治执行" }));
-    // force the sandbox write to fail
+    // force the write to fail
     const store = useSettingsStore.getState();
     const orig = store.setGlobalByKey;
     const spy = vi.spyOn(store, "setGlobalByKey").mockImplementation((key: string, value: unknown) => {
@@ -246,21 +242,17 @@ describe("Settings Center (R4-07)", () => {
       await userEvent.click(screen.getByRole("button", { name: "应用" }));
       const bar = await screen.findByTestId("settings-change-bar");
       expect(bar.textContent).toMatch(/保存失败/);
-      // the sibling applied; the failed draft is kept
-      expect(useSettingsStore.getState().agentAutonomous).toBe(true);
+      // the failed draft is KEPT (still staged, not silently dropped)
       expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
     } finally {
       spy.mockRestore();
       confirmSpy.mockRestore();
     }
-    // navigate back to 权限 — the failing field is marked there
-    await userEvent.click(screen.getByRole("button", { name: "权限" }));
+    // the failing field is marked with the error
     const field = await screen.findByTestId("setting-field-permissions.sandboxMode");
     await waitFor(() =>
       expect(within(field).getByRole("alert").textContent).toContain("模拟失败"),
     );
-    // cleanup for other tests
-    useSettingsStore.getState().setAgentAutonomous(false);
   });
 
   it("leaving with staged edits triggers the unsaved guard", async () => {
@@ -280,6 +272,30 @@ describe("Settings Center (R4-07)", () => {
     } finally {
       confirmSpy.mockRestore();
       setUnsavedGuard(null);
+    }
+  });
+
+  it("bulk project reset is a no-op (no success toast) when the project has no overrides", async () => {
+    useSessionStore.setState({
+      tabs: [{
+        id: "t1", acpSessionId: "a1", title: "T", cwd: "/proj/empty", model: "m",
+        reasoningEffort: "medium", createdAt: 1, lastActiveAt: 1,
+      }],
+      activeSessionId: "t1",
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    try {
+      render(<Settings />);
+      await screen.findByRole("navigation", { name: "设置分类" });
+      await userEvent.click(screen.getByRole("radio", { name: /当前项目/ }));
+      // open the 重置 menu and click the project reset
+      await userEvent.click(screen.getByRole("button", { name: "重置" }));
+      const item = await screen.findByRole("menuitem", { name: /重置当前项目/ });
+      await userEvent.click(item);
+      // no confirm, nothing happened
+      expect(confirmSpy).not.toHaveBeenCalled();
+    } finally {
+      confirmSpy.mockRestore();
     }
   });
 });

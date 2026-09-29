@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useSettingsStore, type ThemeMode } from "../stores/settingsStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { getSetting } from "../config/registry";
@@ -22,7 +22,6 @@ function applyTheme(mode: ThemeMode) {
 
 export function useTheme() {
   const globalTheme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
   // R4-07 (#240): project overrides are real — the active project's theme
   // override wins over the global value while that project is active.
   const activeCwd = useSessionStore(
@@ -51,11 +50,7 @@ export function useTheme() {
     return () => media.removeEventListener("change", handler);
   }, [theme]);
 
-  const changeMode = useCallback((newMode: ThemeMode) => {
-    setTheme(newMode);
-  }, [setTheme]);
-
-  return { mode: theme, changeMode };
+  return { mode: theme };
 }
 
 export { type ThemeMode };

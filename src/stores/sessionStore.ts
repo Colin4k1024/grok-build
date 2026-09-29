@@ -79,6 +79,10 @@ export interface SessionTab {
   /** Codex-style approval gate for tool calls (default "ask"). Optional for
    *  backward compat with persisted tabs; treat missing as "ask". */
   approvalMode?: ApprovalMode;
+  /** True when the user explicitly picked this session's approval mode
+   *  (composer select or home preset) — a global toggle must not clobber
+   *  it. The SandboxToggle re-syncs only unpinned tabs (R4-07 #240). */
+  approvalPinned?: boolean;
   /** Where the thread works: current checkout or an isolated worktree.
    *  Optional for backward compat; treat missing as "local". */
   workMode?: WorkMode;
@@ -132,6 +136,8 @@ interface SessionState {
   setTabCwd: (id: string, cwd: string) => void;
   setTabWorkMode: (id: string, mode: WorkMode, branch?: string) => void;
   setTabApprovalMode: (id: string, mode: ApprovalMode) => void;
+  /** System re-sync without pinning (SandboxToggle/policy enforcement). */
+  syncTabApprovalMode: (id: string, mode: ApprovalMode) => void;
   addPendingPermission: (sessionId: string, perm: PendingPermission) => void;
   addPendingQuestion: (sessionId: string, q: PendingQuestion) => void;
   removePendingQuestion: (sessionId: string, requestId: string) => void;
@@ -387,6 +393,16 @@ export const useSessionStore = create<SessionState>()(
     }),
 
   setTabApprovalMode: (id, mode) =>
+    set((state) => {
+      const target = state.tabs.find((t) => t.id === id);
+      if (!target || (target.approvalMode ?? "ask") === mode) return state;
+      // A per-tab write is a user choice — pin it against global re-syncs.
+      return { tabs: state.tabs.map((t) => (t.id === id ? { ...t, approvalMode: mode, approvalPinned: true } : t)) };
+    }),
+
+  /** System re-sync (SandboxToggle / policy push) — updates the display
+   *  WITHOUT pinning: the tab still follows global/project changes. */
+  syncTabApprovalMode: (id, mode) =>
     set((state) => {
       const target = state.tabs.find((t) => t.id === id);
       if (!target || (target.approvalMode ?? "ask") === mode) return state;

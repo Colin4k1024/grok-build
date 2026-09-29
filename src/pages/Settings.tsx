@@ -279,6 +279,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         const r = resolveFromStore(def.id, scope === "project" ? projectId : undefined);
         if (r.overridden) values[def.id] = r.value;
       }
+      if (Object.keys(values).length === 0) {
+        toast.error("没有与默认值不同的设置可保存 — 先修改再存为预设");
+        return;
+      }
       const existing = useSettingsStore.getState().userPresets;
       let id = label
         .toLowerCase()
@@ -311,6 +315,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
    *  scope resets all global values to registry defaults (undoable). */
   const onResetScope = () => {
     if (scope === "project" && projectId) {
+      const hasOverrides =
+        Object.keys(useSettingsStore.getState().projectOverrides[projectId] ?? {}).length > 0;
+      if (!hasOverrides) {
+        toast.error("当前项目没有任何覆盖 — 无需重置");
+        return;
+      }
       if (!window.confirm("重置当前项目的全部设置覆盖？仅影响本项目，全局值不变。")) return;
       const before = snapshotSettings();
       resetScopedValue(null, projectId);

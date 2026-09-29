@@ -22,7 +22,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./components/Onboarding";
 import { ShortcutCheatSheet } from "./components/ShortcutCheatSheet";
 import { ToastViewport } from "./components/ui";
-import { confirmLeaveIfDirty } from "./lib/unsavedGuard";
+import { confirmLeaveIfDirty, hasUnsavedChanges } from "./lib/unsavedGuard";
 
 // Surfaces that are never part of the first paint. Splitting them out keeps the
 // entry chunk (and therefore app-launch parse time) down; in a packaged
@@ -173,7 +173,10 @@ export default function App() {
   // Ref mirror so the guarded navigator is stable (no stale-closure bypass
   // from []-deps effects/shortcuts — R4-07 review).
   const destinationRef = useRef(destination);
-  destinationRef.current = destination;
+  // Ref mirror updates post-render (never mutate a ref during render).
+  useEffect(() => {
+    destinationRef.current = destination;
+  }, [destination]);
   const openSettings = useCallback((tab?: string) => {
     setSettingsTab(tab);
     setDestination("settings");
@@ -197,9 +200,11 @@ export default function App() {
   }, [destination]);
 
   // R4-07 (#240): never drop staged settings edits on reload/close.
+  // beforeunload can't show a custom confirm — the platform shows its own
+  // native prompt when we preventDefault on a dirty state.
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (destination === "settings" && !confirmLeaveIfDirty()) {
+      if (destination === "settings" && hasUnsavedChanges()) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -454,6 +459,9 @@ export default function App() {
         cwd: info.cwd,
         model: prefs.model || info.models[0]?.id || "",
         approvalMode: prefs.approval,
+        // The user picked this session's approval at creation — pin it so a
+        // later global sandbox flip doesn't silently re-write the choice.
+        approvalPinned: true,
         reasoningEffort: prefs.effort ?? "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),

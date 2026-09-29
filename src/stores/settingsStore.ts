@@ -65,7 +65,9 @@ export const LEGACY_KEYS: Record<string, string> = {
   sandboxMode: LEGACY_SANDBOX,
   agentMode: LEGACY_AGENT_MODE,
   agentAutonomous: LEGACY_AGENT_AUTONOMOUS,
-  voiceLanguage: LEGACY_VOICE_LANG,
+  voiceLanguage: "gb-voice-language",
+  voiceWakeEnabled: LEGACY_VOICE_WAKE,
+  voiceTtsEnabled: LEGACY_VOICE_TTS,
   notificationsEnabled: LEGACY_NOTIFICATIONS,
   trustedFolders: LEGACY_TRUSTED,
 };
@@ -252,15 +254,19 @@ export const useSettingsStore = create<SettingsState>()(
       setVoiceLanguage: (voiceLanguage) => {
         assertValidValue("voiceLanguage", voiceLanguage);
         set({ voiceLanguage });
-        try { localStorage.setItem(LEGACY_VOICE_LANG, voiceLanguage); } catch {}
+        // Mirror to the CURRENT legacy key (the merge reads it once, then
+        // deletes it — one-shot migration, never sticky).
+        try { localStorage.setItem("gb-voice-language", voiceLanguage); } catch {}
       },
       setVoiceWakeEnabled: (voiceWakeEnabled) => {
         assertValidValue("voiceWakeEnabled", voiceWakeEnabled);
         set({ voiceWakeEnabled });
+        try { localStorage.setItem(LEGACY_VOICE_WAKE, String(voiceWakeEnabled)); } catch {}
       },
       setVoiceTtsEnabled: (voiceTtsEnabled) => {
         assertValidValue("voiceTtsEnabled", voiceTtsEnabled);
         set({ voiceTtsEnabled });
+        try { localStorage.setItem(LEGACY_VOICE_TTS, String(voiceTtsEnabled)); } catch {}
       },
       setNotificationsEnabled: (notificationsEnabled) => {
         assertValidValue("notificationsEnabled", notificationsEnabled);
@@ -308,7 +314,10 @@ export const useSettingsStore = create<SettingsState>()(
           voiceWakeEnabled: () => s.setVoiceWakeEnabled(value as boolean),
           voiceTtsEnabled: () => s.setVoiceTtsEnabled(value as boolean),
           notificationsEnabled: () => s.setNotificationsEnabled(value as boolean),
-          trustedFolders: () => set({ trustedFolders: value as string[] }),
+          trustedFolders: () => {
+            set({ trustedFolders: value as string[] });
+            try { localStorage.setItem(LEGACY_TRUSTED, JSON.stringify(value)); } catch {}
+          },
         };
         const run = setters[storeKey];
         if (!run) throw new Error(`unbound settings store key: ${storeKey}`);
@@ -435,8 +444,38 @@ export const useSettingsStore = create<SettingsState>()(
         // when present (the new setNotificationsEnabled mirrors to it, so
         // post-upgrade writes keep both in sync and this becomes a no-op).
         try {
+          // One-shot migration: honor the legacy key ONCE, then delete it —
+          // the durable store/file is canonical from then on (a stale legacy
+          // key must never outrank a remote/reset document).
           const legacyNotif = localStorage.getItem(LEGACY_NOTIFICATIONS);
-          if (legacyNotif !== null) merged.notificationsEnabled = legacyNotif === "true";
+          if (legacyNotif !== null) {
+            merged.notificationsEnabled = legacyNotif === "true";
+            localStorage.removeItem(LEGACY_NOTIFICATIONS);
+          }
+        } catch {
+          /* storage unavailable */
+        }
+        // Same one-shot treatment for the voice keys the deleted
+        // VoiceSettings wrote directly (gb-voice-language / gb-voice-wake /
+        // gb-voice-tts): honor once, then remove.
+        try {
+          const legacyLang = localStorage.getItem("gb-voice-language") ?? localStorage.getItem(LEGACY_VOICE_LANG);
+          if (legacyLang !== null) {
+            const def = getSetting("voice.language");
+            if (def?.validate(legacyLang)) merged.voiceLanguage = legacyLang as SettingsState["voiceLanguage"];
+            localStorage.removeItem("gb-voice-language");
+            localStorage.removeItem(LEGACY_VOICE_LANG);
+          }
+          const legacyWake = localStorage.getItem(LEGACY_VOICE_WAKE);
+          if (legacyWake !== null) {
+            merged.voiceWakeEnabled = legacyWake === "true";
+            localStorage.removeItem(LEGACY_VOICE_WAKE);
+          }
+          const legacyTts = localStorage.getItem(LEGACY_VOICE_TTS);
+          if (legacyTts !== null) {
+            merged.voiceTtsEnabled = legacyTts === "true";
+            localStorage.removeItem(LEGACY_VOICE_TTS);
+          }
         } catch {
           /* storage unavailable */
         }

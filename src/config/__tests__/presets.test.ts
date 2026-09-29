@@ -50,11 +50,24 @@ describe("configuration presets (R4-06 #239)", () => {
   });
 
   it("applying at project scope does NOT touch global values", () => {
-    const r = applyPreset("high-autonomy", "project", "/proj/a");
+    // theme is the project-scoped setting — a user preset with only theme
+    useSettingsStore.getState().saveUserPreset("proj-theme", "项目主题", {
+      "appearance.theme": "light",
+    });
+    const r = applyPreset("proj-theme", "project", "/proj/a");
     expect(r.failed).toEqual([]);
-    expect(useSettingsStore.getState().agentAutonomous).toBe(false); // global untouched
-    const ov = useSettingsStore.getState().projectOverrides["/proj/a"];
-    expect(ov["agent.autonomous"]).toBe(true);
+    expect(useSettingsStore.getState().theme).toBe("dark"); // global untouched
+    expect(useSettingsStore.getState().projectOverrides["/proj/a"]["appearance.theme"]).toBe("light");
+  });
+
+  it("global-only settings refuse project scope (honest failure, not inert success)", () => {
+    useSettingsStore.getState().saveUserPreset("global-only", "仅全局", {
+      "appearance.fontSize": "large",
+    });
+    const r = applyPreset("global-only", "project", "/p");
+    expect(r.failed.length).toBeGreaterThan(0);
+    expect(r.failed[0]).toMatch(/scope/i);
+    expect(useSettingsStore.getState().projectOverrides["/p"]).toBeUndefined();
   });
 
   it("user presets: save validates, rename/delete work, unknown id fails loudly", () => {

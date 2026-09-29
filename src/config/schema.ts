@@ -61,7 +61,9 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: "窗口整体缩放比例（1.0 = 100%）",
     type: "number",
     defaultValue: 1.0,
-    scopes: ["global", "project"],
+    // project scope lands when a per-project consumer exists (today the
+    // appearance subscriber is global-only) — scopes must not overpromise.
+    scopes: ["global"],
     keywords: ["zoom", "缩放", "scale"],
     saveMode: "immediate",
     numberRange: { min: 0.5, max: 2.5, step: 0.05 },
@@ -86,13 +88,15 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.mode",
+    planned: true,
     storeKey: "agentMode",
     category: "agent",
     label: "代理模式",
     description: "code / architect / debug 工作模式",
     type: "enum",
     defaultValue: "code",
-    scopes: ["global", "project", "session"],
+    // global-only today: no per-session/project consumer resolves it yet.
+    scopes: ["global"],
     keywords: ["agent", "mode", "模式", "work mode"],
     saveMode: "immediate",
     enumValues: AGENT_MODES,
@@ -101,13 +105,16 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.autonomous",
+    planned: true,
     storeKey: "agentAutonomous",
     category: "agent",
     label: "自治执行",
     description: "允许代理在低风险操作上自动继续（高风险仍需批准）",
     type: "boolean",
     defaultValue: false,
-    scopes: ["global", "project"],
+    // global-only today: nothing resolves agent.autonomous per project yet
+    // (honest scopes — a project write must never be inert).
+    scopes: ["global"],
     keywords: ["autonomous", "auto", "自治", "自动"],
     advanced: true,
     saveMode: "staged",
@@ -131,6 +138,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.wakeEnabled",
+    planned: true,
     storeKey: "voiceWakeEnabled",
     category: "voice",
     label: "唤醒词",
@@ -145,6 +153,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.ttsEnabled",
+    planned: true,
     storeKey: "voiceTtsEnabled",
     category: "voice",
     label: "语音播报",
@@ -178,7 +187,8 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
     description: "这些目录中的项目跳过逐项权限确认",
     type: "string[]",
     defaultValue: [] as string[],
-    scopes: ["global", "project"],
+    // global-only today: TrustedFoldersManager owns the list globally.
+    scopes: ["global"],
     keywords: ["trusted", "folders", "信任", "目录"],
     advanced: true,
     // Absolute paths reveal the user's filesystem layout — excluded from

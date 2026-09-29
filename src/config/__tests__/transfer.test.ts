@@ -23,7 +23,6 @@ describe("settings transfer (R4-06 #239)", () => {
     useSettingsStore.getState().setTheme("light");
     // trustedFolders is sensitive — it must NOT survive export
     useSettingsStore.getState().addTrustedFolder("/Users/alice/secret-project");
-    useSettingsStore.getState().setProjectOverride("/p", "general.trustedFolders", ["/x/secret"]);
     const doc = exportSettings();
     expect(doc.kind).toBe("gb-settings-export");
     expect(doc.settingsVersion).toBe(CURRENT_SETTINGS_VERSION);
@@ -124,7 +123,7 @@ describe("settings transfer (R4-06 #239)", () => {
       settingsVersion: CURRENT_SETTINGS_VERSION,
       exportedAt: "",
       global: { "appearance.theme": "auto", "agent.mode": "debug" },
-      projects: { "/p": { "appearance.zoom": 1.5 } },
+      projects: { "/p": { "appearance.theme": "light" } },
     };
     const preview = previewImport(JSON.stringify(doc));
     expect(preview.ok).toBe(true);
@@ -133,7 +132,7 @@ describe("settings transfer (R4-06 #239)", () => {
     const s = useSettingsStore.getState();
     expect(s.theme).toBe("auto");
     expect(s.agentMode).toBe("debug");
-    expect(s.projectOverrides["/p"]["appearance.zoom"]).toBe(1.5);
+    expect(s.projectOverrides["/p"]["appearance.theme"]).toBe("light");
   });
 
   it("preview classifies project entries with scope tags (preview == apply surface)", () => {
@@ -142,12 +141,12 @@ describe("settings transfer (R4-06 #239)", () => {
       settingsVersion: CURRENT_SETTINGS_VERSION,
       exportedAt: "",
       global: {},
-      projects: { "/evil": { "agent.mode": "debug" } },
+      projects: { "/evil": { "appearance.theme": "light" } },
     };
     const p = previewImport(JSON.stringify(doc));
     expect(p.ok).toBe(true);
     // project entries ARE classified (not silently applied later)
-    expect(p.added).toContain("/evil:agent.mode");
+    expect(p.added).toContain("/evil:appearance.theme");
   });
 
   it("replace mode previews resets and applyImport applies them", () => {
@@ -307,7 +306,7 @@ describe("settings transfer (R4-06 #239)", () => {
 
   it("round-trips: export (opt-in projects) → preview → apply preserves values", () => {
     useSettingsStore.getState().setTheme("light");
-    useSettingsStore.getState().setProjectOverride("/a", "appearance.zoom", 1.25);
+    useSettingsStore.getState().setProjectOverride("/a", "appearance.theme", "light");
     const doc = exportSettings({ includeProjects: true });
     useSettingsStore.getState().setTheme("dark");
     useSettingsStore.getState().resetProjectOverrides("/a");
@@ -315,6 +314,6 @@ describe("settings transfer (R4-06 #239)", () => {
     expect(preview.ok).toBe(true);
     applyImport(preview);
     expect(useSettingsStore.getState().theme).toBe("light");
-    expect(useSettingsStore.getState().projectOverrides["/a"]["appearance.zoom"]).toBe(1.25);
+    expect(useSettingsStore.getState().projectOverrides["/a"]["appearance.theme"]).toBe("light");
   });
 });
