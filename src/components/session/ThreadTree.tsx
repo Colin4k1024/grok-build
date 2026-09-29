@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
+import { List } from "react-window";
 import { useSessionStore, type SessionTab } from "../../stores/sessionStore";
 import {
   listProjects, removeProject, listHistorySessions, deleteHistorySession,
@@ -70,9 +71,6 @@ function relTime(ts: number): string {
 
 interface ThreadRowProps {
   entry: ThreadEntry;
-  isActive: boolean;
-  running: boolean;
-  waiting: boolean;
   isPinned: boolean;
   /** Non-null only for the row currently being inline-renamed. */
   renameValue: string | null;
@@ -85,15 +83,11 @@ interface ThreadRowProps {
 
 /** Memoized sidebar row.
  *
- *  The tree used to be re-rendered in full — every project header, every row,
- *  every hover button — whenever ANY session's streaming or approval state
- *  moved. With a memoized row and primitive props, a background thread starting
- *  to stream now re-renders exactly one row. */
+ *  Per-row store subscriptions (running/waiting/active) mean a background
+ *  thread's streaming flip re-renders exactly one row — never the whole
+ *  tree (R5-06). All remaining props are primitives or stable callbacks. */
 const ThreadRow = memo(function ThreadRow({
   entry,
-  isActive,
-  running,
-  waiting,
   isPinned,
   renameValue,
   onOpen,
@@ -103,6 +97,12 @@ const ThreadRow = memo(function ThreadRow({
   onRenameCancel,
 }: ThreadRowProps) {
   const e = entry;
+  // Per-row selectors: this row re-renders only when ITS tab's flags flip.
+  const isActive = useSessionStore((s) => (e.tabId ? s.activeSessionId === e.tabId : false));
+  const running = useSessionStore((s) => (e.tabId ? !!s.streaming[e.tabId] : false));
+  const waiting = useSessionStore((s) =>
+    e.tabId ? (s.pendingPermissions[e.tabId]?.length ?? 0) > 0 : false
+  );
   if (renameValue !== null) {
     return (
       <input
@@ -160,15 +160,147 @@ const ThreadRow = memo(function ThreadRow({
   );
 });
 
+/** R5-06: the sidebar's scrollable content is ONE react-window List over a
+ *  flat row model — 2000 loaded threads never become 2000 DOM rows. Sections
+ *  (triage/pinned/projects/chats) are header rows; collapsing a project just
+ *  removes its thread rows from the model. The interactive stale-workspace
+ *  block, the load-more button and the archived section stay BELOW the list
+ *  (they are short and bounded). */
+
+type FlatRow =
+  | { kind: "header"; key: string; label: string; badge?: number; alert?: boolean }
+  | { kind: "project"; key: string; path: string; count: number; collapsed: boolean }
+  | { kind: "thread"; key: string; entry: ThreadEntry }
+  | { kind: "triage"; key: string; entry: ThreadEntry; unread: boolean }
+  | { kind: "hint"; key: string; text: string };
+
+const ROW_H_THREAD = 28;
+const ROW_H_PROJECT = 28;
+const ROW_H_HEADER = 22;
+const ROW_H_HINT = 24;
+
+function flatRowHeight(row: FlatRow): number {
+  switch (row.kind) {
+    case "header": return ROW_H_HEADER;
+    case "project": return ROW_H_PROJECT;
+    case "hint": return ROW_H_HINT;
+    default: return ROW_H_THREAD;
+  }
+}
+
+interface TreeRowData {
+  rows: FlatRow[];
+  pinned: Set<string>;
+  renamingKey: string | null;
+  renamingValue: string;
+  renderEntry: (e: ThreadEntry) => React.ReactNode;
+  onOpen: (e: ThreadEntry) => void;
+  onToggleProject: (path: string) => void;
+  onProjectMenu: (path: string, x: number, y: number) => void;
+  onNewSessionInDir: (path: string) => void;
+}
+
+const sectionLabelCls = "flex w-full items-center gap-1 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gb-muted";
+
+/** One row of the virtualized tree. `style` positions it inside the List. */
+function TreeVirtualRow({ ariaAttributes, index, style, ...data }: {
+  ariaAttributes: unknown;
+  index: number;
+  style: React.CSSProperties;
+} & TreeRowData) {
+  const row = data.rows[index];
+  if (!row) return null;
+  switch (row.kind) {
+    case "header":
+      return (
+        <div style={style} className={sectionLabelCls}>
+          {row.label}
+          {row.badge !== undefined && (
+            <span className="ml-1 rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{row.badge}</span>
+          )}
+          {row.alert && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" />}
+        </div>
+      );
+    case "project": {
+      return (
+        <div
+          style={style}
+          className="group flex w-full items-center gap-1 rounded-md px-2 hover:bg-gb-surface-hover"
+          onClick={() => data.onToggleProject(row.path)}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 text-gb-muted" aria-hidden="true">
+            <path d="M2 4.5A1.5 1.5 0 013.5 3h2.6a1.5 1.5 0 011.06.44l.88.88a1.5 1.5 0 001.06.44H12.5A1.5 1.5 0 0114 6.26v5.24a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
+          </svg>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-gb-text" title={row.path}>
+            {projectName(row.path)}
+          </span>
+          <button
+            className="hidden rounded p-0.5 text-[10px] text-gb-muted hover:text-gb-text group-hover:block"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              data.onProjectMenu(row.path, ev.clientX, ev.clientY);
+            }}
+            title="项目操作"
+          >
+            …
+          </button>
+          <button
+            className="hidden rounded p-0.5 text-gb-muted hover:text-gb-text group-hover:block"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              data.onNewSessionInDir(row.path);
+            }}
+            title="在此项目中新建会话"
+          >
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          <span className="rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{row.count}</span>
+        </div>
+      );
+    }
+    case "thread":
+      return <div style={style}>{data.renderEntry(row.entry)}</div>;
+    case "triage": {
+      const e = row.entry;
+      return (
+        <div
+          style={style}
+          onClick={() => data.onOpen(e)}
+          className={`flex cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors ${
+            row.unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
+          }`}
+          title={`${e.title}\n${e.cwd}\nReview the worktree diff`}
+        >
+          {row.unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-red" />}
+          <span className="min-w-0 flex-1 truncate">Review: {e.title}</span>
+          <span className="shrink-0 text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
+        </div>
+      );
+    }
+    case "hint":
+      return (
+        <div style={style} className="px-2 py-1 text-[11px] text-gb-muted/70">
+          {row.text}
+        </div>
+      );
+  }
+}
+
+/** Stable row key for the virtual list (react-window warns rowKey must be
+ *  a stable function reference — module-level keeps it constant). */
+function treeRowKey(index: number, data: TreeRowData): React.Key {
+  return data.rows[index]?.key ?? index;
+}
+
 /** Codex-style sidebar tree: Pinned / Projects (bookmarked folders and the
  *  threads that live in them, open or persisted) / Chats (everything else). */
 export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, onRenameHistory, onCloseSession }: ThreadTreeProps) {
   const tabs = useSessionStore((s) => s.tabs);
-  const activeSessionId = useSessionStore((s) => s.activeSessionId);
   const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const renameTab = useSessionStore((s) => s.renameTab);
   const streaming = useSessionStore((s) => s.streaming);
-  const pendingPermissions = useSessionStore((s) => s.pendingPermissions);
 
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
   const [history, setHistory] = useState<HistorySession[]>([]);
@@ -422,9 +554,13 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   }, []);
 
   /** Commit an inline rename: live tabs update the store AND persist when
-   *  bound to a persisted thread; history entries persist via summary.json. */
-  const commitEntryRename = (e: ThreadEntry) => {
-    const title = renaming?.value.trim();
+   *  bound to a persisted thread; history entries persist via summary.json.
+   *  Stable across renders (reads the draft through a ref) so memoized rows
+   *  never see a changing callback identity (R5-06 review). */
+  const renamingRef = useRef(renaming);
+  renamingRef.current = renaming;
+  const commitEntryRename = useCallback((e: ThreadEntry) => {
+    const title = renamingRef.current?.value.trim();
     setRenaming(null);
     if (!title) return;
     if (e.tabId) {
@@ -437,7 +573,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
       const hist = history.find((h) => h.id === e.sessionId);
       if (hist) onRenameHistory(hist, title);
     }
-  };
+  }, [history, onRenameHistory, renameTab]);
 
   const handleOpenMenu = useCallback(
     (e: ThreadEntry, x: number, y: number) => setMenu({ x, y, entry: e }),
@@ -449,19 +585,13 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   );
   const handleRenameCancel = useCallback(() => setRenaming(null), []);
 
-  /** Row props are derived once per render and handed to a memoized row, so a
-   *  state change on one thread can't re-render the other N rows. */
+  /** Render one thread row. All props are primitives or stable callbacks;
+   *  running/waiting/active subscribe per-row inside ThreadRow (R5-06). */
   const renderEntry = useCallback(
     (e: ThreadEntry) => (
       <ThreadRow
         key={e.key}
         entry={e}
-        isActive={!!e.tabId && e.tabId === activeSessionId}
-        // Three-state indicator (codex sidebar): running / waiting for
-        // approval / idle. Background threads keep their running flag via
-        // per-session state.
-        running={!!e.tabId && !!streaming[e.tabId]}
-        waiting={!!e.tabId && (pendingPermissions[e.tabId]?.length ?? 0) > 0}
         isPinned={pinned.has(e.key)}
         renameValue={renaming?.key === e.key ? renaming.value : null}
         onOpen={openEntry}
@@ -471,10 +601,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
         onRenameCancel={handleRenameCancel}
       />
     ),
-    // commitEntryRename is redefined per render on purpose (it closes over the
-    // live `renaming` draft); it is cheap and keeps rename behaviour exact.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeSessionId, streaming, pendingPermissions, pinned, renaming, openEntry, handleOpenMenu, handleRenameChange, handleRenameCancel]
+    [pinned, renaming, openEntry, handleOpenMenu, handleRenameChange, commitEntryRename, handleRenameCancel]
   );
 
   // Worktree threads awaiting review (codex review queue). Hoisted out of the
@@ -489,117 +616,84 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
   );
 
   const sectionLabel = "flex w-full items-center gap-1 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gb-muted";
+  void sectionLabel; // the virtualized list renders headers via TreeVirtualRow
+
+  const onToggleProject = useCallback((path: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+  const onProjectMenu = useCallback(
+    (path: string, x: number, y: number) => setProjectMenu({ x, y, path }),
+    []
+  );
+
+  /** The flat row model the virtual list renders (R5-06). */
+  const flatRows = useMemo<FlatRow[]>(() => {
+    const rows: FlatRow[] = [];
+    if (triage.length > 0) {
+      rows.push({ kind: "header", key: "h-triage", label: "Triage", alert: triageUnread.length > 0 });
+      for (const e of triage) {
+        rows.push({ kind: "triage", key: `triage-${e.key}`, entry: e, unread: !triageRead.has(e.cwd) });
+      }
+    }
+    if (pinnedEntries.length > 0) {
+      rows.push({ kind: "header", key: "h-pinned", label: "置顶" });
+      for (const e of pinnedEntries) rows.push({ kind: "thread", key: e.key, entry: e });
+    }
+    rows.push({ kind: "header", key: "h-projects", label: "项目" });
+    if (projectGroups.length === 0) {
+      rows.push({ kind: "hint", key: "hint-projects", text: "按 ⌘O 添加项目目录。" });
+    }
+    for (const [path, threads] of projectGroups) {
+      const collapsed = collapsedProjects.has(path);
+      rows.push({ kind: "project", key: `proj-${path}`, path, count: threads.length, collapsed });
+      if (!collapsed) {
+        for (const e of threads) rows.push({ kind: "thread", key: e.key, entry: e });
+      }
+    }
+    rows.push({ kind: "header", key: "h-chats", label: "会话" });
+    if (chatEntries.length === 0) {
+      rows.push({ kind: "hint", key: "hint-chats", text: "暂无未归档会话。" });
+    }
+    for (const e of chatEntries) rows.push({ kind: "thread", key: e.key, entry: e });
+    return rows;
+  }, [triage, triageUnread, triageRead, pinnedEntries, projectGroups, collapsedProjects, chatEntries]);
+
+  // rowProps identity must track only the DATA the rows read — streaming and
+  // approval state live in per-row store subscriptions (ThreadRow), so a
+  // background flip never rebuilds this object (R5-06).
+  const rowData = useMemo<TreeRowData>(
+    () => ({
+      rows: flatRows,
+      pinned,
+      renamingKey: renaming?.key ?? null,
+      renamingValue: renaming?.value ?? "",
+      renderEntry,
+      onOpen: openEntry,
+      onToggleProject,
+      onProjectMenu,
+      onNewSessionInDir,
+    }),
+    [flatRows, pinned, renaming, renderEntry, openEntry, onToggleProject, onProjectMenu, onNewSessionInDir]
+  );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 pb-2">
-      {/* Triage — worktree threads awaiting review (codex review queue) */}
-      {triage.length > 0 && (
-        <div className="mb-2">
-          <div className={sectionLabel}>
-            Triage
-            {triageUnread.length > 0 && (
-              <span className="ml-1 h-1.5 w-1.5 rounded-full bg-gb-red" title="有未读发现" />
-            )}
-          </div>
-          {triage.map((e) => {
-            const unread = !triageRead.has(e.cwd);
-            return (
-              <div
-                key={`triage-${e.key}`}
-                onClick={() => openEntry(e)}
-                className={`mb-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors ${
-                  unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
-                }`}
-                title={`${e.title}\n${e.cwd}\nReview the worktree diff`}
-              >
-                {unread && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gb-red" />}
-                <span className="min-w-0 flex-1 truncate">Review: {e.title}</span>
-                <span className="shrink-0 text-[10px] text-gb-muted">{relTime(e.lastActiveAt)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {pinnedEntries.length > 0 && (
-        <div className="mb-2">
-          <div className={sectionLabel}>置顶</div>
-          {pinnedEntries.map(renderEntry)}
-        </div>
-      )}
-
-      <div className="mb-2">
-        <div className={sectionLabel}>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="shrink-0">
-            <path d="M0 1.5C0 .7.7 0 1.5 0h3l1.5 1.5h2.5C9.3 1.5 10 2.2 10 3v5.5c0 .8-.7 1.5-1.5 1.5h-7C.7 10 0 9.3 0 8.5v-7z" />
-          </svg>
-          项目
-        </div>
-        {projectGroups.length === 0 && (
-          <p className="px-2 py-1 text-[11px] text-gb-muted/70">
-            按 ⌘O 添加项目目录。
-          </p>
-        )}
-        {projectGroups.map(([path, threads]) => {
-          const isCollapsed = collapsedProjects.has(path);
-          return (
-            <div key={path}>
-              <div
-                className="group flex w-full items-center gap-1 rounded-md px-2 py-1 hover:bg-gb-surface-hover"
-                onClick={() =>
-                  setCollapsedProjects((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(path)) next.delete(path);
-                    else next.add(path);
-                    return next;
-                  })
-                }
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 text-gb-muted">
-                  <path d="M2 4.5A1.5 1.5 0 013.5 3h2.6a1.5 1.5 0 011.06.44l.88.88a1.5 1.5 0 001.06.44H12.5A1.5 1.5 0 0114 6.26v5.24a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7z" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-gb-text" title={path}>
-                  {projectName(path)}
-                </span>
-                <button
-                  className="hidden rounded p-0.5 text-[10px] text-gb-muted hover:text-gb-text group-hover:block"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    setProjectMenu({ x: ev.clientX, y: ev.clientY, path });
-                  }}
-                  title="项目操作"
-                >
-                  …
-                </button>
-                <button
-                  className="hidden rounded p-0.5 text-gb-muted hover:text-gb-text group-hover:block"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    onNewSessionInDir(path);
-                  }}
-                  title="在此项目中新建会话"
-                >
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                  </svg>
-                </button>
-                <span className="rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{threads.length}</span>
-              </div>
-              {!isCollapsed && threads.map(renderEntry)}
-            </div>
-          );
-        })}
+    <div className="flex min-h-0 flex-1 flex-col px-1 pb-2">
+      <div className="min-h-0 flex-1">
+        <List
+          rowCount={flatRows.length}
+          rowHeight={(index: number, data: TreeRowData) => flatRowHeight(data.rows[index])}
+          rowComponent={TreeVirtualRow}
+          rowProps={rowData}
+          rowKey={treeRowKey}
+          overscanCount={6}
+          style={{ height: "100%" }}
+        />
       </div>
-
-      <div className="mb-2">
-        <div className={sectionLabel}>会话</div>
-        {chatEntries.length === 0 ? (
-          <p className="px-2 py-1 text-[11px] text-gb-muted/70">暂无未归档会话。</p>
-        ) : (
-          chatEntries.map(renderEntry)
-        )}
-      </div>
-
       {/* R5-02: stale-workspace governance — records whose cwd no longer
           exists live here instead of polluting the project groups. */}
       <StaleHistorySection
