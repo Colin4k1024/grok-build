@@ -177,7 +177,7 @@ jobs:
   # approval rules gate access to the signing secrets).
   release-mac:
     name: Release macOS (${{ matrix.arch }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     environment: release
     strategy:

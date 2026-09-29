@@ -54,6 +54,16 @@ if [ -z "$target" ]; then
 fi
 
 mounted=""
+mnt=""
+cleanup() {
+  if [ -n "$mounted" ]; then
+    hdiutil detach "$mounted" -force >/dev/null 2>&1 || true
+  fi
+  if [ -n "$mnt" ]; then
+    rm -rf "$mnt" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 if [[ "$target" == *.dmg ]]; then
   if [ ! -f "$target" ]; then
     echo "FAIL dmg not found: $target" >&2
