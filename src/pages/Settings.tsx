@@ -38,23 +38,25 @@ interface Section extends SettingsCategory {
   kind: SectionKind;
   /** registry category rendered as fields (kind === "registry"). */
   registryCategory?: string;
+  /** search keywords (so custom/manager sections stay findable). */
+  keywords?: string[];
   /** extra custom content rendered below the registry fields. */
   extra?: () => React.ReactNode;
   component?: () => React.ReactNode;
 }
 
 const SECTIONS: Section[] = [
-  { id: "general", label: "常规", group: "工作区", kind: "custom", component: () => <GeneralSettings /> },
-  { id: "worktrees", label: "工作树", group: "工作区", kind: "custom", component: () => <WorktreeManager /> },
-  { id: "models", label: "模型", group: "AI", kind: "custom", component: () => <ModelManager /> },
-  { id: "agent", label: "代理", group: "AI", kind: "registry", registryCategory: "agent" },
-  { id: "voice", label: "语音", group: "AI", kind: "registry", registryCategory: "voice" },
-  { id: "apikeys", label: "API Keys", group: "集成", kind: "custom", component: () => <ApiKeyManager /> },
-  { id: "mcp", label: "MCP", group: "集成", kind: "custom", component: () => <McpManager /> },
-  { id: "plugins", label: "插件", group: "集成", kind: "custom", component: () => <PluginManager /> },
-  { id: "browser", label: "浏览器", group: "集成", kind: "custom", component: () => <BrowserSettings /> },
-  { id: "appearance", label: "外观", group: "体验", kind: "registry", registryCategory: "appearance" },
-  { id: "notifications", label: "通知", group: "体验", kind: "registry", registryCategory: "notifications" },
+  { id: "general", label: "常规", group: "工作区", kind: "custom", keywords: ["general", "startup", "autostart", "update", "更新", "启动", "tray"], component: () => <GeneralSettings /> },
+  { id: "worktrees", label: "工作树", group: "工作区", kind: "custom", keywords: ["worktree", "工作树", "分支"], component: () => <WorktreeManager /> },
+  { id: "models", label: "模型", group: "AI", kind: "custom", keywords: ["model", "模型", "api"], component: () => <ModelManager /> },
+  { id: "agent", label: "代理", group: "AI", kind: "registry", registryCategory: "agent", keywords: ["agent", "代理", "autonomous", "自治"] },
+  { id: "voice", label: "语音", group: "AI", kind: "registry", registryCategory: "voice", keywords: ["voice", "语音", "stt", "tts", "播报"] },
+  { id: "apikeys", label: "API Keys", group: "集成", kind: "custom", keywords: ["api", "key", "密钥", "token"], component: () => <ApiKeyManager /> },
+  { id: "mcp", label: "MCP", group: "集成", kind: "custom", keywords: ["mcp", "server", "服务器"], component: () => <McpManager /> },
+  { id: "plugins", label: "插件", group: "集成", kind: "custom", keywords: ["plugin", "插件", "扩展"], component: () => <PluginManager /> },
+  { id: "browser", label: "浏览器", group: "集成", kind: "custom", keywords: ["browser", "浏览器", "playwright", "puppeteer"], component: () => <BrowserSettings /> },
+  { id: "appearance", label: "外观", group: "体验", kind: "registry", registryCategory: "appearance", keywords: ["appearance", "外观", "主题", "theme"] },
+  { id: "notifications", label: "通知", group: "体验", kind: "registry", registryCategory: "notifications", keywords: ["notification", "通知", "提醒"] },
   {
     id: "permissions",
     label: "权限",
@@ -135,7 +137,19 @@ export function Settings({ initialTab }: { initialTab?: string }) {
     return advanced ? all : all.filter((d) => !d.advanced);
   }, [query, advanced]);
 
-  const matchCount = query.trim() ? visibleDefs.length : 0;
+  const searching = query.trim().length > 0;
+  // Search covers registry settings AND custom/manager sections.
+  const matchingSections = useMemo(() => {
+    if (!searching) return [];
+    const q = query.trim().toLowerCase();
+    return SECTIONS.filter(
+      (s) =>
+        s.label.toLowerCase().includes(q) ||
+        (s.keywords ?? []).some((k) => k.toLowerCase().includes(q)),
+    );
+  }, [query, searching]);
+
+  const matchCount = searching ? visibleDefs.length + matchingSections.length : 0;
 
   const onFieldChange = (settingId: string, value: unknown) => {
     const def = getSetting(settingId);
@@ -168,6 +182,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       return next;
     });
     try {
+      const before = snapshotSettings();
       if (scope === "project") {
         // Never nuke the global layer from a project view with no project.
         if (!projectId) {
@@ -179,6 +194,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         const def = getSetting(settingId)!;
         setScopedValue(settingId, def.defaultValue, "global");
       }
+      const label = getSetting(settingId)?.label ?? settingId;
+      toast.success(`已重置「${label}」`, {
+        action: { label: "撤销", onClick: () => restoreSettings(before) },
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -269,8 +288,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
    *  scope resets all global values to registry defaults (undoable). */
   const onResetScope = () => {
     if (scope === "project" && projectId) {
+      if (!window.confirm("重置当前项目的全部设置覆盖？仅影响本项目，全局值不变。")) return;
+      const before = snapshotSettings();
       resetScopedValue(null, projectId);
-      toast.success("已重置当前项目的全部覆盖");
+      toast.success("已重置当前项目的全部覆盖", {
+        action: { label: "撤销", onClick: () => restoreSettings(before) },
+      });
       return;
     }
     if (scope === "project" && !projectId) {
@@ -336,18 +359,43 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   };
 
   const activeSection = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
-  const searching = query.trim().length > 0;
 
   let content: React.ReactNode;
   if (searching) {
-    content = visibleDefs.length === 0 ? (
-      <p className="py-8 text-center text-gb-xs text-gb-text-muted">没有匹配 “{query}” 的设置</p>
-    ) : (
-      <div>
-        <p className="mb-2 text-gb-xs text-gb-text-muted">搜索结果（{visibleDefs.length}）</p>
-        {visibleDefs.map((d) => renderField(d.id))}
-      </div>
-    );
+    content =
+      visibleDefs.length === 0 && matchingSections.length === 0 ? (
+        <p className="py-8 text-center text-gb-xs text-gb-text-muted">没有匹配 “{query}” 的设置</p>
+      ) : (
+        <div>
+          {visibleDefs.length > 0 && (
+            <div>
+              <p className="mb-2 text-gb-xs text-gb-text-muted">设置项（{visibleDefs.length}）</p>
+              {visibleDefs.map((d) => renderField(d.id))}
+            </div>
+          )}
+          {matchingSections.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-gb-xs text-gb-text-muted">分区（{matchingSections.length}）</p>
+              <div className="space-y-1">
+                {matchingSections.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setSection(s.id);
+                      setQuery("");
+                    }}
+                    className="flex w-full items-center justify-between rounded-gb-md border gb-border-hairline bg-gb-surface-1 px-3 py-2 text-left text-gb-sm text-gb-text-primary transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover"
+                  >
+                    <span>{s.label}</span>
+                    <span className="text-gb-xs text-gb-text-muted">{s.group} →</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
   } else if (activeSection.kind === "registry") {
     const defs = listCategories()
       .find((c) => c.category === activeSection.registryCategory)

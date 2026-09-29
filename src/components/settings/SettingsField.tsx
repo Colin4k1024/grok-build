@@ -56,7 +56,7 @@ export function SettingsField({
   useEffect(() => {
     setNumText(null);
     setNumError(null);
-  }, [flatValue, projectValue, scope]);
+  }, [flatValue, projectValue, scope, draft]);
 
   if (!def || !resolved) return null;
 
@@ -86,6 +86,11 @@ export function SettingsField({
         <div className="flex items-center gap-2">
           <span className="text-gb-sm text-gb-text-primary">{def.label}</span>
           <SettingSourceBadge source={draft !== undefined ? (scope as SettingSource) : resolved.source} />
+          {draft !== undefined && (
+            <span className="rounded-gb-sm bg-gb-warning/15 px-1.5 py-0.5 text-gb-xs text-gb-warning-text">
+              未保存
+            </span>
+          )}
           {def.requiresRestart && (
             <span className="rounded-gb-sm bg-gb-warning/15 px-1.5 py-0.5 text-gb-xs text-gb-warning-text">
               需重启
@@ -207,6 +212,7 @@ export function SettingsField({
             type="button"
             onClick={() => onReset(settingId)}
             title="重置为默认"
+            aria-label={`重置 ${def.label}`}
             className="rounded-gb-sm px-1 py-0.5 text-gb-xs text-gb-text-muted transition-colors duration-gb-fast ease-gb hover:bg-gb-surface-hover hover:text-gb-text-primary"
           >
             重置

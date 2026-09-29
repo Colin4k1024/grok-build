@@ -29,6 +29,9 @@ const LEGACY_FONT_SIZE = "gb-font-size";
 const LEGACY_ZOOM = "gb-zoom";
 const LEGACY_SANDBOX = "gb-sandbox-mode";
 const LEGACY_NOTIFICATIONS = "gb-notifications-enabled";
+const LEGACY_VOICE_WAKE = "gb-voice-wake";
+const LEGACY_VOICE_TTS = "gb-voice-tts";
+const LEGACY_AGENT_DEFAULT_MODE = "gb-agent-default-mode";
 const LEGACY_AGENT_MODE = "gb-agent-mode";
 const LEGACY_AGENT_AUTONOMOUS = "gb-agent-autonomous";
 const LEGACY_VOICE_LANG = "gb-voice-lang";
@@ -192,11 +195,18 @@ export const useSettingsStore = create<SettingsState>()(
       fontSize: initialValue("fontSize", legacyString(LEGACY_FONT_SIZE, registryDefault("fontSize") as string)) as FontSizeId,
       zoom: initialValue("zoom", Number(legacyString(LEGACY_ZOOM, String(registryDefault("zoom") ?? 1.0)))) as number,
       sandboxMode: initialValue("sandboxMode", legacyString(LEGACY_SANDBOX, registryDefault("sandboxMode") as string)) as "sandbox" | "full",
-      agentMode: initialValue("agentMode", legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string)) as AgentMode,
+      agentMode: initialValue(
+        "agentMode",
+        legacyString(
+          LEGACY_AGENT_DEFAULT_MODE,
+          legacyString(LEGACY_AGENT_MODE, registryDefault("agentMode") as string),
+        ),
+      ) as AgentMode,
       agentAutonomous: initialValue("agentAutonomous", legacyBool(LEGACY_AGENT_AUTONOMOUS, (registryDefault("agentAutonomous") as boolean) ?? false)),
       voiceLanguage: initialValue("voiceLanguage", legacyString(LEGACY_VOICE_LANG, registryDefault("voiceLanguage") as string)) as VoiceLanguage,
-      voiceWakeEnabled: (registryDefault("voiceWakeEnabled") as boolean) ?? false,
-      voiceTtsEnabled: (registryDefault("voiceTtsEnabled") as boolean) ?? false,
+      // Legacy migration reads (R4-07): the old VoiceSettings wrote these keys.
+      voiceWakeEnabled: initialValue("voiceWakeEnabled", legacyBool(LEGACY_VOICE_WAKE, (registryDefault("voiceWakeEnabled") as boolean) ?? false)),
+      voiceTtsEnabled: initialValue("voiceTtsEnabled", legacyBool(LEGACY_VOICE_TTS, (registryDefault("voiceTtsEnabled") as boolean) ?? false)),
       notificationsEnabled: initialValue("notificationsEnabled", legacyBool(LEGACY_NOTIFICATIONS, (registryDefault("notificationsEnabled") as boolean) ?? true)),
       trustedFolders: initialValue("trustedFolders", legacyJson<string[]>(LEGACY_TRUSTED, (registryDefault("trustedFolders") as string[]) ?? [])),
       projectOverrides: {},

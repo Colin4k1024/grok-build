@@ -1,14 +1,10 @@
 import { useState, useEffect } from "react";
 import { isAutostartEnabled, enableAutostart, disableAutostart } from "../../lib/tauri";
-import { setNotificationEnabled } from "../../hooks/useNotifications";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { useUpdater } from "../../hooks/useUpdater";
 
 export function GeneralSettings() {
   const [autostart, setAutostart] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Store-backed (R4-07): single source of truth for the notification gate.
-  const notifEnabled = useSettingsStore((s) => s.notificationsEnabled);
   const updater = useUpdater();
 
   useEffect(() => {
@@ -121,33 +117,6 @@ export function GeneralSettings() {
             <span
               className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
                 autostart ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </label>
-      </section>
-
-      <section>
-        <h3 className="mb-3 text-sm font-semibold text-gb-text">通知</h3>
-        <label className="flex items-center justify-between rounded-lg border border-gb-border bg-gb-surface px-4 py-3">
-          <div>
-            <p className="text-xs font-medium text-gb-text">桌面通知</p>
-            <p className="mt-0.5 text-[11px] text-gb-muted">当 Agent 回复或需要审批时通知我（窗口在后台时）</p>
-          </div>
-          <button
-            role="switch"
-            aria-checked={notifEnabled}
-            aria-label="桌面通知"
-            onClick={() => {
-              setNotificationEnabled(!notifEnabled);
-            }}
-            className={`relative h-5 w-9 rounded-full transition-colors ${
-              notifEnabled ? "bg-gb-accent" : "bg-gb-border"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-gb-bg transition-transform ${
-                notifEnabled ? "translate-x-4" : "translate-x-0.5"
               }`}
             />
           </button>

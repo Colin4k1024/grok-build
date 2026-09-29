@@ -3,6 +3,8 @@ import {
   applyImport,
   exportSettings,
   previewImport,
+  restoreSettings,
+  snapshotSettings,
   type ImportPreview,
 } from "../../config/transfer";
 import { invoke } from "../../lib/tauri";
@@ -63,9 +65,12 @@ export function SettingsTransferDialog({ open, mode, onClose }: Props) {
 
   const doApply = () => {
     if (!preview?.ok) return;
+    const before = snapshotSettings();
     const r = applyImport(preview, { mode: replaceMode ? "replace" : "merge" });
     if (r.ok) {
-      toast.success(`已应用 ${r.applied.length} 项设置`);
+      toast.success(`已应用 ${r.applied.length} 项设置`, {
+        action: { label: "撤销", onClick: () => restoreSettings(before) },
+      });
       setPreview(null);
       onClose();
     } else {

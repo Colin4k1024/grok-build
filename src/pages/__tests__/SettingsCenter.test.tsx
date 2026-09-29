@@ -143,7 +143,7 @@ describe("Settings Center (R4-07)", () => {
     expect(badges.some((b) => b.dataset.source === "project")).toBe(true);
     // reset the project override from the field
     const field = screen.getByTestId("setting-field-appearance.theme");
-    await userEvent.click(await within(field).findByRole("button", { name: "重置" }));
+    await userEvent.click(await within(field).findByRole("button", { name: "重置 主题" }));
     // override gone; global untouched
     expect(useSettingsStore.getState().projectOverrides["/proj/x"]).toBeUndefined();
     expect(useSettingsStore.getState().theme).toBe("dark");

@@ -149,7 +149,10 @@ function ToastCard({ item }: { item: ToastItem }) {
         {item.action ? (
           <button
             type="button"
-            onClick={item.action.onClick}
+            onClick={() => {
+              item.action!.onClick();
+              toast.dismiss(item.id); // action consumes the toast
+            }}
             className="mt-1 text-gb-xs text-gb-accent-text hover:underline"
           >
             {item.action.label}
