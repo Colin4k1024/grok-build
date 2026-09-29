@@ -8,6 +8,7 @@
 // that no process survives with the isolated env markers after cleanup.
 
 import { test as base, expect, _electron, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -90,41 +91,71 @@ export const test = base.extend<{ ctx: AppContext }>({
       'disabled_mcp_servers = ["Notion"]\n\n[cli]\nauto_update = false\n'
     );
 
-    const app = await _electron.launch({
-      executablePath: resolvePackedApp(),
-      args: ["."],
-      cwd: paths.workspace,
-      env: {
-        ...process.env,
-        GROK_HOME: paths.grokHome,
-        GB_JOURNAL_DIR: paths.journalDir,
-        GB_UAT_USER_DATA_DIR: paths.userData,
-        // e2e never touches a real account (issue non-goal): boot past auth
-        // via the app's documented dev escape hatch instead of seeding creds.
-        GROK_DESKTOP_AUTH: "off",
-        // Chromium honors these for the renderer — Playwright's own
-        // locale/timezoneId settings do not reach _electron apps.
-        LANG: "zh-CN.UTF-8",
-        TZ: "Asia/Shanghai",
-      },
-      timeout: 90_000,
-    });
-    const page = await app.firstWindow();
-    await page.waitForLoadState("domcontentloaded");
-    // first-run onboarding
-    const skip = page.locator("button", { hasText: "跳过" });
+    let app: ElectronApplication | null = null;
+    // Setup failures must tear down too — never leak the process or the
+    // isolated dirs when boot/onboarding fails before `use`.
     try {
-      await skip.first().waitFor({ timeout: 4000 });
-      await skip.first().click();
-      await page.waitForTimeout(400);
-    } catch { /* already completed */ }
-    await page.waitForSelector("nav[aria-label='主导航']", { timeout: 20000 });
+      app = await _electron.launch({
+        executablePath: resolvePackedApp(),
+        args: ["."],
+        cwd: paths.workspace,
+        env: {
+          ...process.env,
+          GROK_HOME: paths.grokHome,
+          GB_JOURNAL_DIR: paths.journalDir,
+          GB_UAT_USER_DATA_DIR: paths.userData,
+          // e2e never touches a real account (issue non-goal): boot past auth
+          // via the app's documented dev escape hatch instead of seeding creds.
+          GROK_DESKTOP_AUTH: "off",
+          // Chromium honors these for the renderer — Playwright's own
+          // locale/timezoneId settings do not reach _electron apps.
+          LANG: "zh-CN.UTF-8",
+          TZ: "Asia/Shanghai",
+        },
+        timeout: 90_000,
+      });
+      const page = await app.firstWindow();
+      await page.waitForLoadState("domcontentloaded");
+      // first-run onboarding
+      const skip = page.locator("button", { hasText: "跳过" });
+      try {
+        await skip.first().waitFor({ timeout: 4000 });
+        await skip.first().click();
+        await page.waitForTimeout(400);
+      } catch { /* already completed */ }
+      await page.waitForSelector("nav[aria-label='主导航']", { timeout: 20000 });
 
-    await use({ app, page, paths });
+      await use({ app, page, paths });
 
-    await app.close().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+      // No isolated process may outlive the test (the app owns its agent;
+      // a crash in the app must not orphan it — see #272 for the hard-kill gap).
+      const leaked = findIsolatedProcesses(paths.grokHome);
+      expect(leaked, `processes survived with the isolated GROK_HOME: ${leaked.join(", ")}`).toEqual([]);
+    } finally {
+      if (app) await app.close().catch(() => {});
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   },
 });
+
+/** Best-effort: live processes whose environment carries the isolated home. */
+function findIsolatedProcesses(grokHome: string): number[] {
+  if (process.platform === "win32") return [];
+  try {
+    const pids: number[] = [];
+    const out = execFileSync("pgrep", ["-f", "xai-grok-pager"], { encoding: "utf-8" });
+    for (const line of out.split("\n")) {
+      const pid = Number(line.trim());
+      if (!pid) continue;
+      try {
+        const envDump = execFileSync("ps", ["eww", "-p", String(pid)], { encoding: "utf-8" });
+        if (envDump.includes(`GROK_HOME=${grokHome}`)) pids.push(pid);
+      } catch { /* process gone */ }
+    }
+    return pids;
+  } catch {
+    return [];
+  }
+}
 
 export { expect };
