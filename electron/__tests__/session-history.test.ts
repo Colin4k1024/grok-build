@@ -399,8 +399,10 @@ describe("listHistorySessions pagination (R5-02 #258)", () => {
     const byId = new Map(items.map((i) => [i.id, i.workspace_exists]));
     expect(byId.get("00000000-0000-4000-8000-0000000000aa")).toBe(true);
     expect(byId.get("00000000-0000-4000-8000-0000000000bb")).toBe(false);
-    // empty cwd is a legit group of its own, not "stale"
-    expect(byId.get("00000000-0000-4000-8000-0000000000cc")).toBe(true);
+    // no cwd means no workspace — honest false; the renderer still keeps
+    // no-cwd sessions OUT of stale governance via the explicit cwd !== ""
+    // guard (three-way split: normal / no-cwd / stale).
+    expect(byId.get("00000000-0000-4000-8000-0000000000cc")).toBe(false);
   });
 });
 

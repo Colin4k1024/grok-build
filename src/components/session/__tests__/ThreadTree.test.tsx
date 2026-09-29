@@ -61,7 +61,9 @@ const HISTORY: HistorySession[] = [
     last_active_at: new Date(Date.now() - 7_200_000).toISOString(),
     model: "grok-4",
     num_messages: 2,
-    workspace_exists: true,
+    // honest semantics: no cwd → no workspace; the tree keeps no-cwd
+    // sessions out of stale governance via the explicit cwd !== "" guard.
+    workspace_exists: false,
   },
 ];
 

@@ -216,9 +216,11 @@ export async function listHistorySessions(query: HistoryPageQuery = {}): Promise
   const items = rest.slice(0, limit);
 
   // Only the returned page pays the filesystem stat for workspace_exists.
-  // Sessions without a cwd are a legitimate group of their own (not stale).
+  // Honest semantics: no cwd means no workspace — empty cwd is false. (The
+  // renderer keeps the three-way split: normal projects / no-cwd sessions /
+  // stale workspaces; no-cwd sessions are NOT governed as stale.)
   await mapLimit(items, 16, async (s) => {
-    s.workspace_exists = s.cwd === "" ? true : await dirExists(s.cwd);
+    s.workspace_exists = s.cwd === "" ? false : await dirExists(s.cwd);
   });
 
   const last = items[items.length - 1];
