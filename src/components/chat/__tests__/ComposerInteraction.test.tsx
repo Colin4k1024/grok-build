@@ -134,6 +134,19 @@ describe("composer status line (R4-04)", () => {
     await screen.findByText(/运行中/);
   });
 
+  it("a synchronously-throwing onCancel never leaves the composer stuck in 停止中", async () => {
+    const onCancel = vi.fn(() => {
+      throw new Error("sync boom");
+    });
+    resetStore({ isStreaming: true, activeSessionId: "s1" });
+    render(<PromptInput onSend={() => {}} onCancel={onCancel} isStreaming />);
+    await userEvent.click(screen.getByRole("button", { name: "停止" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+    // status recovers — the stop button is usable again
+    await screen.findByText(/运行中/);
+    expect(screen.getByRole("button", { name: "停止" })).toBeEnabled();
+  });
+
   it("disabled with a reason announces the reason", () => {
     render(
       <PromptInput onSend={() => {}} onCancel={() => {}} isStreaming={false} disabled disabledReason="正在创建会话…" />,

@@ -303,7 +303,12 @@ export function PromptInput({
   const handleCancel = useCallback(() => {
     if (cancelling) return;
     setCancelling(true);
-    Promise.resolve(onCancel()).finally(() => setCancelling(false));
+    // onCancel may throw synchronously — never leave the composer stuck
+    // in 停止中 with a dead stop button (R4-04/#237 follow-up).
+    Promise.resolve()
+      .then(() => onCancel())
+      .catch(() => {})
+      .finally(() => setCancelling(false));
   }, [onCancel, cancelling]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
