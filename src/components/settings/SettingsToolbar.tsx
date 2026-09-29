@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BUILTIN_PRESETS } from "../../config/presets";
+import { getSetting } from "../../config/registry";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Button, Dialog, DropdownMenu, Input, SearchField } from "../ui";
 import { ScopeSwitcher } from "./ScopeSwitcher";
@@ -47,20 +48,31 @@ export function SettingsToolbar({
   const [saveOpen, setSaveOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
 
+  // A preset may only apply at project scope if EVERY value is project-
+  // scopable — otherwise the user gets a partial-failure soup (R4-07).
+  const projectScopable = (values: Record<string, unknown>) =>
+    Object.keys(values).every((id) => getSetting(id)?.scopes.includes("project"));
+  const applicableBuiltins =
+    scope === "project" ? BUILTIN_PRESETS.filter((p) => projectScopable(p.values)) : BUILTIN_PRESETS;
+  const applicableUser =
+    scope === "project"
+      ? Object.entries(userPresets).filter(([, p]) => projectScopable(p.values))
+      : Object.entries(userPresets);
+
   const presetItems = [
-    ...BUILTIN_PRESETS.map((p) => ({
+    ...applicableBuiltins.map((p) => ({
       key: p.id,
       label: `${p.label} — ${p.description}`,
       onSelect: () => onApplyPreset(p.id),
     })),
-    ...Object.entries(userPresets).map(([id, p]) => ({
+    ...applicableUser.map(([id, p]) => ({
       key: `user:${id}`,
       label: `${p.label}（自定义）`,
       onSelect: () => onApplyPreset(id),
     })),
-    ...Object.keys(userPresets).map((id) => ({
+    ...applicableUser.map(([id, p]) => ({
       key: `del:${id}`,
-      label: `删除预设「${userPresets[id].label}」`,
+      label: `删除预设「${p.label}」`,
       danger: true,
       onSelect: () => onDeletePreset(id),
     })),

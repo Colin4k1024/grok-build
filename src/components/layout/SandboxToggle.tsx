@@ -33,10 +33,14 @@ export function SandboxToggle() {
   const tabs = useSessionStore((s) => s.tabs);
   const setTabApprovalMode = useSessionStore((s) => s.setTabApprovalMode);
 
+  // On mount, push EVERY tab unconditionally: persisted approvalMode is not
+  // proof of main-process Policy state after a restart (resumed sessions
+  // boot at 'ask'). After that, only mismatches are pushed.
+  const bootedRef = useRef(false);
+
   // Push the EFFECTIVE mode to every tab's main-process Policy — resolved
   // per project (a project override for sandboxMode is real enforcement,
-  // not a display label). Runs on mode change AND on tab-set change, so a
-  // session created after the mode flipped is pushed too.
+  // not a display label).
   useEffect(() => {
     const def = getSetting("permissions.sandboxMode");
     for (const tab of tabs) {
@@ -45,7 +49,7 @@ export function SandboxToggle() {
         ? (resolveSetting(def as never, { global: mode, project: projectLayer }).value as SandboxMode)
         : mode;
       const approval: "ask" | "full-access" = effective === "sandbox" ? "ask" : "full-access";
-      if ((tab.approvalMode ?? "ask") === approval) continue; // no-op for conforming tabs
+      if (bootedRef.current && (tab.approvalMode ?? "ask") === approval) continue;
       setTabApprovalMode(tab.id, approval);
       // Push to the main-process Policy — the real enforcement boundary.
       // Failures are non-fatal (the Policy defaults to sandbox, the safe
@@ -54,6 +58,7 @@ export function SandboxToggle() {
         console.error("[sandbox] failed to sync approval mode to main process:", e)
       );
     }
+    bootedRef.current = true;
   }, [mode, tabs, projectOverrides, setTabApprovalMode]);
 
   useEffect(() => {

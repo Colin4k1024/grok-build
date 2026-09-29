@@ -311,6 +311,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
    *  scope resets all global values to registry defaults (undoable). */
   const onResetScope = () => {
     if (scope === "project" && projectId) {
+      const hasOverrides =
+        Object.keys(useSettingsStore.getState().projectOverrides[projectId] ?? {}).length > 0;
+      if (!hasOverrides) {
+        toast.error("当前项目没有任何覆盖 — 无需重置");
+        return;
+      }
       if (!window.confirm("重置当前项目的全部设置覆盖？仅影响本项目，全局值不变。")) return;
       const before = snapshotSettings();
       resetScopedValue(null, projectId);

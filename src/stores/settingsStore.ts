@@ -65,7 +65,9 @@ export const LEGACY_KEYS: Record<string, string> = {
   sandboxMode: LEGACY_SANDBOX,
   agentMode: LEGACY_AGENT_MODE,
   agentAutonomous: LEGACY_AGENT_AUTONOMOUS,
-  voiceLanguage: LEGACY_VOICE_LANG,
+  voiceLanguage: "gb-voice-language",
+  voiceWakeEnabled: LEGACY_VOICE_WAKE,
+  voiceTtsEnabled: LEGACY_VOICE_TTS,
   notificationsEnabled: LEGACY_NOTIFICATIONS,
   trustedFolders: LEGACY_TRUSTED,
 };
@@ -252,15 +254,20 @@ export const useSettingsStore = create<SettingsState>()(
       setVoiceLanguage: (voiceLanguage) => {
         assertValidValue("voiceLanguage", voiceLanguage);
         set({ voiceLanguage });
+        // Mirror BOTH legacy keys — the merge honors them on rehydrate, so a
+        // new write must update them or the old value would resurrect.
         try { localStorage.setItem(LEGACY_VOICE_LANG, voiceLanguage); } catch {}
+        try { localStorage.setItem("gb-voice-language", voiceLanguage); } catch {}
       },
       setVoiceWakeEnabled: (voiceWakeEnabled) => {
         assertValidValue("voiceWakeEnabled", voiceWakeEnabled);
         set({ voiceWakeEnabled });
+        try { localStorage.setItem(LEGACY_VOICE_WAKE, String(voiceWakeEnabled)); } catch {}
       },
       setVoiceTtsEnabled: (voiceTtsEnabled) => {
         assertValidValue("voiceTtsEnabled", voiceTtsEnabled);
         set({ voiceTtsEnabled });
+        try { localStorage.setItem(LEGACY_VOICE_TTS, String(voiceTtsEnabled)); } catch {}
       },
       setNotificationsEnabled: (notificationsEnabled) => {
         assertValidValue("notificationsEnabled", notificationsEnabled);
