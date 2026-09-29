@@ -22,10 +22,31 @@ with network privileges.
 npm run electron:pack   # renderer build + electron:build + electron-builder
 ```
 
-`electron-builder` produces the macOS installer. Code-signing/notarization
-requires `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / team-ID env vars
-configured in CI; locally it produces an **unsigned** build usable for
-smoke testing. A signed, notarized build is a CI-only step.
+`electron-builder` produces the macOS installer. Two channels exist (R5-08):
+
+- **Unsigned smoke** — PR / `workflow_dispatch` runs of `.github/workflows/electron.yml`.
+  Artifacts upload as `grok-build-unsigned-smoke-*`; locally `npm run electron:pack`
+  produces the same unsigned build. These are for testing only.
+- **Signed release** — tag pushes (`v*`) run the `release-mac` job in the
+  protected `release` environment. That job fails fast unless the signing
+  secrets are present (never logging their values): `CSC_LINK`,
+  `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`.
+  It packs with hardened runtime + entitlements (`build/entitlements.mac*.plist`)
+  and notarization, then verifies before upload — see below.
+
+A signed, notarized build is a CI-only step (the secrets never leave the
+protected environment).
+
+### Verifying a release artifact
+
+```bash
+scripts/verify-macos-release.sh release/Grok-Build-<version>-arm64.dmg
+```
+
+Mounts the DMG read-only and runs, against the **inner** `Grok Build.app`:
+`codesign --verify --deep --strict`, `spctl --assess --type execute`,
+`xcrun stapler validate`. Exit 0 only when all three pass. An unsigned
+artifact fails all three (verified against the local smoke build).
 
 ## What's covered by automated tests
 
