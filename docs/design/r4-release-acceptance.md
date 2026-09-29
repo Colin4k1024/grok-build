@@ -11,7 +11,7 @@
 | `npm run build` | `tsc --noEmit` + vite 生产构建 | 0 类型错误、构建成功 |
 | `npm run electron:build` | 主进程/preload/设置存储 TS 编译 | 构建成功 |
 | `npm run electron:pack` | electron-builder macOS dmg/zip 产物 | `release/` 生成可安装产物 |
-| `npm run evidence` | junit + coverage → `docs/evidence/evidence-index.json`（严格模式） | 生成成功 |
+| `npm run evidence` | junit 报告 + 场景生成器（--strict）→ `docs/evidence/evidence-index.json`；该产物在 .gitignore 中，按发布生成、结果回填本文件 §5 | 生成成功且 ACCEPTED |
 | `git diff --check`（在发布分支上） | 待合并改动的空白/冲突标记 | 无输出 |
 
 CI 基线：`.github/workflows/ci.yml` 已在每个 PR 上执行 test / build /
@@ -33,7 +33,8 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 
 ## 2. 人工测试矩阵（发布窗口执行）
 
-环境：macOS 桌面包（`release/*.dmg` 安装后），窗口默认尺寸 + 窄窗口（<900px）。
+环境：macOS 桌面包（`release/*.dmg` 安装后），窗口默认尺寸 + 窄窗口
+（<1000px，触发侧栏断点；<1200px 时 Inspector 断点）。
 结果列：✅ 通过 / ❌ 失败（附说明）/ ☐ 未执行。本矩阵在发布窗口逐项执行并
 回填结果；当前状态见 §5。
 
@@ -44,7 +45,7 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 | 2 | 发送消息 → 流式输出 | composer 状态区播报"运行中"，列表跟随滚动 | ☐ |
 | 3 | 流式中点"停止" | 播报"停止中"，按钮禁用直至取消完成 | ☐ |
 | 4 | 发送失败 → 重试 | 错误可见，重试后恢复 | ☐ |
-| 5 | ⌘⇧[ / ⌘⇧] 或 ⌘1-9 切换线程 | 线程间切换，各自滚动位置独立 | ☐ |
+| 5 | ⌘⇧[ / ⌘⇧] 或 ⌘1-9 切换线程 | 会话子树保持挂载、流式不中断；消息列表绑定活动会话，切换后回到跟随最新状态 | ☐ |
 | 6 | 通过 rail 切换目的地（指针或键盘 Enter/Space） | 会话子树保持挂载（不丢流式状态），返回时原样恢复；⌘1-9 是线程跳转而非目的地切换 | ☐ |
 
 ### 2.2 设置中心
@@ -63,7 +64,7 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 | 13 | 深色 ↔ 浅色切换 | 全表面无闪烁、无纯色块残留；focus ring 均 ≥3:1 | ☐ |
 | 14 | 系统高对比度模式 | 边框层级仍可分辨，无白边失控 | ☐ |
 | 15 | 200% 缩放（appearance.zoom） | 布局不破、无横向滚动条、弹层不裁切 | ☐ |
-| 16 | 窄窗口 | rail 折叠为图标，侧栏可 ⌘B 开关，主区可读 | ☐ |
+| 16 | 窄窗口 <1000px | rail 始终为图标态（w-12，无折叠行为）；侧栏断点隐藏、可 ⌘B 开关，主区可读；<1200px 时 Inspector 隐藏 | ☐ |
 | 17 | 开启系统 reduced-motion | 页面/弹层/Toast 动效瞬时化，无残留动画 | ☐ |
 
 ### 2.4 键盘与读屏
@@ -88,8 +89,8 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 | --- | --- | --- | --- |
 | 27 | Automations：创建定时任务 | 出现在列表，状态徽章正确（R4-09 统一状态） | ☐ |
 | 28 | Automations：暂停/恢复/删除 | 状态即时切换；删除有确认；列表同步 | ☐ |
-| 29 | Plugins：浏览/安装/启用/停用 | 状态徽章与操作结果一致，失败有错误提示 | ☐ |
-| 30 | Agents / Dashboard 空态与错误态 | EmptyState/InlineNotice 呈现，重试可用 | ☐ |
+| 29 | 设置 → 插件：浏览市场/已安装、安装、启用/停用、卸载 | 状态徽章与操作结果一致，失败有错误提示 | ☐ |
+| 30 | Agents / Dashboard 空态；Automations 错误态 | Dashboard/Agents 空态呈现 EmptyState；Automations 错误态带重试（AsyncState） | ☐ |
 
 ### 2.7 安装冒烟
 | # | 步骤 | 预期 | 结果 |
@@ -126,7 +127,7 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 
 回滚后在本文件记录原因、影响范围与修复计划，再重新走 R4-10 验证。
 
-## 5. 本次验收记录（2026-09-28，SHA 见 PR #255）
+## 5. 本次验收记录（2026-09-29，分支 feat/iss-243-release-qa）
 
 自动化（全部实测通过）：
 
@@ -136,12 +137,18 @@ electron:build；本表的 pack 与 evidence 在发布时本地补跑。
 - `npm run electron:pack` — electron-builder 26.15.3 / Electron 44.4.1 /
   darwin-arm64：`release/Grok Build-0.1.0-arm64.dmg` 与 `…-mac.zip`
   （各 ~202MB）生成成功；代码签名因环境无 Developer ID 证书被跳过
-  （见已知限制 #7）。
+  （见已知限制 #7）。dmg sha256：
+  `1f8a34200d24b3ced9b61c812b5ca846ea217feb9be8267599e2ed9700399afc`。
+- `npm run evidence` — **ACCEPTED**：992 用例 0 失败，10/10 关键场景
+  （commit f0de76dc；产物 gitignored，结果记录于此）。
 - `git diff --check`（发布分支）— 无输出。
 
-安装冒烟（§2.7 #31，已执行）：挂载 dmg → 拷贝至独立目录 → 去除隔离属性 →
-启动后主进程与 helper 进程存活 12s+ → AppleScript 退出干净 → dmg 弹出。
-**通过**。#32–#34 依赖真实账号/后端，随发布窗口人工矩阵执行。
+安装冒烟（§2.7 #31，已执行，2026-09-29，针对上述 sha256 的 dmg）：
+`hdiutil attach` 挂载 → 拷贝至独立临时目录 → 去除隔离属性 → 启动后主进程
+（`Grok Build.app/Contents/MacOS/Grok Build`）与 3 个 helper 进程存活 12s+ →
+AppleScript 退出干净 → `hdiutil detach` 弹出并确认卷已消失 → 临时目录清理。
+**通过**（本项为进程级冒烟；首屏视觉无白屏由发布窗口人工确认）。
+#32–#34 依赖真实账号/后端，随发布窗口人工矩阵执行。
 
 人工矩阵状态：§2.1–§2.6 为发布窗口执行项（当前全部 ☐ 未执行，属预期——
 矩阵是发布门禁的执行模板）；§2.7 #31 已执行 ✅。

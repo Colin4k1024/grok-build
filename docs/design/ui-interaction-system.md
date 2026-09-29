@@ -4,11 +4,14 @@
 > configuration scopes, and accessibility rules. Introduced by the R4 epic
 > (#233); every new surface must conform.
 >
-> **Enforcement scope.** The token/no-emoji/focus-ring rules below are
-> machine-enforced inside `src/components/ui/` by
-> `src/components/ui/__tests__/tokenCompliance.test.ts`. Outside the shared
-> primitives, legacy call sites not yet migrated may still violate them
-> (a handful of gradient/glass utilities and a larger set of bare
+> **Enforcement scope.** Inside `src/components/ui/`,
+> `src/components/ui/__tests__/tokenCompliance.test.ts` machine-enforces the
+> token rules: no hex/rgba literals, no bare `border-gb-border`, no arbitrary
+> `z-[…]`, no hardcoded durations. The no-emoji-icon and focus-ring rules are
+> enforced separately at the rail/app-shell level by
+> `src/__tests__/accessibilityInteractions.test.tsx`. Outside the shared
+> primitives, legacy call sites not yet migrated may still violate the token
+> rules (a handful of gradient/glass utilities and a larger set of bare
 > `border-gb-border` usages remain) — treat the rules as mandatory for new
 > code and migrate legacy call sites on touch.
 
@@ -70,8 +73,19 @@ tokenCompliance contract test.
 // ✅ overlay stacking via the named scale
 <div className="z-gb-dropdown" />
 
-// ✅ page-level motion: transform/opacity only, reduced-motion aware
-<motion.div {...pageMotion(prefersReducedMotion())} />
+// ✅ page-level motion: shared utility class, transform/opacity only,
+//    reduced-motion collapses it to instant (styles.css media block)
+<div className="gb-motion-page-enter" />
+
+// ✅ or via the JS policy — transitionFor only accepts transform/opacity
+const spec = pageMotion(prefersReducedMotion());
+<div
+  style={{
+    transition: transitionFor(spec.properties, spec.durationMs),
+    transform: entered ? "none" : `translateY(${spec.translateY}px)`,
+    opacity: entered ? 1 : 0,
+  }}
+/>
 
 // ❌ raw alpha border inside shared primitives (solid white in dark)
 <div className="border border-gb-border" />
@@ -79,7 +93,8 @@ tokenCompliance contract test.
 // ❌ status conveyed by base hue text on a tint (fails AA)
 <span className="bg-gb-success/15 text-gb-success">已完成</span>
 
-// ❌ layout-animating transition (throws in dev via transitionFor)
+// ❌ layout-animating transition (transitionFor rejects non-transform/
+//    opacity properties; raw strings like this bypass the policy)
 <div style={{ transition: "width 220ms" }} />
 
 // ❌ arbitrary z-index literal inside src/components/ui/
@@ -93,7 +108,9 @@ Source of truth: `src/lib/motion.ts` + the `--gb-motion-*` tokens.
 match `MOTION_DURATIONS`; the reduced-motion block zeroes all of them);
 `src/lib/__tests__/motion.test.ts` pins the JS API behavior below.
 
-- Durations: press 120 / fast 140 / base 220 / deliberate 320 ms.
+- Durations: press 120 / fast 140 / base 220 / slow 320 ms (JS keys in
+  `MOTION_DURATIONS`; the CSS tokens name the 320ms step
+  `--gb-motion-deliberate`).
 - Easing: one curve `cubic-bezier(0.2, 0, 0, 1)`.
 - Page-level motion animates ONLY `transform` and `opacity` —
   `transitionFor()` throws in dev/test on layout properties (width/top/…),
@@ -134,12 +151,14 @@ tokenCompliance.test.ts enforces the token rules inside this directory.
 ## Configuration
 
 Typed registry (`src/config/`): schema → registry → resolver → storeBridge.
-Every `SettingDefinition` declares `id` / `category` / `type` /
-`defaultValue` / `scopes` / `keywords` / `sensitive` / `saveMode` /
-`validate` (see `src/config/types.ts`). Resolution: session > project >
-global > default, with `invalidSources` reporting. Scopes must never
-overpromise — a setting is project-scoped only when a consumer actually
-resolves it per project (today: `appearance.theme`,
+Every `SettingDefinition` declares the required `id` / `category` / `type` /
+`label` / `description` / `defaultValue` / `scopes` / `keywords` /
+`saveMode` / `validate`, plus optional `advanced` / `planned` / `sensitive` /
+`requiresRestart` / `enumValues` / `enumLabels` / `numberRange` /
+`quickValues` / `highRisk` / `storeKey` (see `src/config/types.ts`). Resolution: session >
+project > global > default, with `invalidSources` reporting. Scopes must
+never overpromise — a setting is project-scoped only when a consumer
+actually resolves it per project (today: `appearance.theme`,
 `permissions.sandboxMode`).
 
 - Sensitive settings (`sensitive: true`) never export.
