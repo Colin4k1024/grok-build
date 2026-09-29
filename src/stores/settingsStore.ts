@@ -486,11 +486,23 @@ export function syncFromFileDoc(
     }
     // event mode: real reset
     localStorage.removeItem("gb-settings");
-    const defaults: Record<string, unknown> = { projectOverrides: {} };
+    const defaults: Record<string, unknown> = { projectOverrides: {}, userPresets: {} };
     for (const def of listSettings()) {
       if (def.storeKey) defaults[def.storeKey] = def.defaultValue;
     }
     useSettingsStore.setState(defaults);
+    // Mirror defaults into the legacy keys too — otherwise the merge's
+    // legacy override resurrects the OLD value on the next rehydrate.
+    for (const def of listSettings()) {
+      const legacyKey = LEGACY_KEYS[def.storeKey ?? ""];
+      if (!legacyKey) continue;
+      try {
+        const v = def.defaultValue;
+        localStorage.setItem(legacyKey, typeof v === "string" ? v : JSON.stringify(v));
+      } catch {
+        /* storage unavailable */
+      }
+    }
   } catch {
     /* storage unavailable */
   }
