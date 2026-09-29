@@ -57,7 +57,7 @@ describe("cross-app accessibility (R4-10)", () => {
     render(<App />);
     const nav = await screen.findByRole("navigation", { name: "主导航" });
     // every rail button is tabbable and activates on Enter
-    const buttons = Array.from(nav.querySelectorAll("button:not([disabled])"));
+    const buttons = Array.from(nav.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
     expect(buttons.length).toBeGreaterThanOrEqual(6); // 5 destinations + search + sidebar toggle
     for (const btn of buttons) {
       expect(btn.tabIndex).not.toBe(-1);
