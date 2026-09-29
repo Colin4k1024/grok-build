@@ -34,6 +34,12 @@ export interface SettingDefinition<T = unknown> {
   saveMode: "immediate" | "staged";
   /** Allowed values for type === "enum". */
   enumValues?: readonly T[];
+  /** Display labels for enum values (presentation metadata, owned here). */
+  enumLabels?: Record<string, string>;
+  /** Range for type === "number". */
+  numberRange?: { min: number; max: number; step: number };
+  /** Quick-pick values for type === "number" (rendered as preset buttons). */
+  quickValues?: number[];
   /** Flat field name in the legacy settingsStore (global layer binding).
    *  Absent means the setting has no global store binding. */
   storeKey?: string;

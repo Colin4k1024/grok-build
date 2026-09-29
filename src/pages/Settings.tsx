@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSessionStore } from "../stores/sessionStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { listSettings, searchSettings, getSetting, listCategories } from "../config/registry";
 import {
   applyPreset,
+  resolveFromStore,
   resetScopedValue,
   setScopedValue,
 } from "../config/storeBridge";
+import { restoreSettings, snapshotSettings } from "../config/transfer";
 import { toast } from "../components/ui";
 import { setUnsavedGuard } from "../lib/unsavedGuard";
 import { SettingsLayout, type SettingsCategory } from "../components/settings/SettingsLayout";
@@ -79,7 +82,7 @@ const SECTIONS: Section[] = [
   },
 ];
 
-const DEFAULT_SECTION = "appearance";
+const DEFAULT_SECTION = "models";
 
 export function Settings({ initialTab }: { initialTab?: string }) {
   const [section, setSection] = useState<string>(
@@ -89,10 +92,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   const [advanced, setAdvanced] = useState(false);
   const [scope, setScope] = useState<"global" | "project">("global");
   const [transferOpen, setTransferOpen] = useState(false);
+  const [transferMode, setTransferMode] = useState<"import" | "export">("export");
 
   // Drafts keyed by `${scope}:${settingId}` — staged (high-impact) edits.
   const [drafts, setDrafts] = useState<Record<string, unknown>>({});
-  const [failures, setFailures] = useState<string[]>([]);
+  /** Per-field apply errors, keyed the same way (shown ON the field). */
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const activeTab = useSessionStore((s) => s.tabs.find((t) => t.id === s.activeSessionId));
@@ -103,6 +108,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   useEffect(() => {
     if (initialTab && SECTIONS.some((s) => s.id === initialTab)) setSection(initialTab);
   }, [initialTab]);
+
+  // If the project context disappears while in project scope, fall back to
+  // global — never let the scope switch point at nothing.
+  useEffect(() => {
+    if (scope === "project" && !projectId) setScope("global");
+  }, [scope, projectId]);
 
   const draftKey = (id: string) => `${scope}:${id}`;
   const draftCount = Object.keys(drafts).length;
@@ -130,7 +141,11 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         toast.error(e instanceof Error ? e.message : String(e));
       }
     } else {
-      setFailures([]);
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[draftKey(settingId)];
+        return next;
+      });
       setDrafts((prev) => ({ ...prev, [draftKey(settingId)]: value }));
     }
   };
@@ -142,8 +157,14 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       return next;
     });
     try {
-      if (scope === "project" && projectId) resetScopedValue(settingId, projectId);
-      else {
+      if (scope === "project") {
+        // Never nuke the global layer from a project view with no project.
+        if (!projectId) {
+          toast.error("没有活跃项目 — 无法重置项目覆盖");
+          return;
+        }
+        resetScopedValue(settingId, projectId);
+      } else {
         const def = getSetting(settingId)!;
         setScopedValue(settingId, def.defaultValue, "global");
       }
@@ -154,35 +175,111 @@ export function Settings({ initialTab }: { initialTab?: string }) {
 
   const applyDrafts = async () => {
     setSaving(true);
-    const failed: string[] = [];
+    await new Promise((r) => setTimeout(r, 0)); // let the saving state paint
+    const before = snapshotSettings();
+    const errors: Record<string, string> = {};
     const keep: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(drafts)) {
       const [draftScope, settingId] = key.split(":", 2) as ["global" | "project", string];
       try {
         setScopedValue(settingId, value, draftScope, projectId);
       } catch (e) {
-        failed.push(`${settingId}: ${e instanceof Error ? e.message : String(e)}`);
-        keep[key] = value; // failed drafts stay editable
+        errors[key] = e instanceof Error ? e.message : String(e);
+        keep[key] = value; // failed drafts stay editable AND located
       }
     }
     setSaving(false);
-    setFailures(failed);
     setDrafts(keep);
-    if (failed.length === 0) toast.success("设置已保存");
-    else toast.error(`${failed.length} 项保存失败 — 其余已应用`);
+    setFieldErrors(errors);
+    const failCount = Object.keys(errors).length;
+    if (failCount === 0) {
+      toast.success("设置已保存", {
+        action: { label: "撤销", onClick: () => restoreSettings(before) },
+      });
+    } else {
+      toast.error(`${failCount} 项保存失败 — 其余已应用`, {
+        action: { label: "全部撤销", onClick: () => restoreSettings(before) },
+      });
+    }
   };
 
   const discardDrafts = () => {
     setDrafts({});
-    setFailures([]);
+    setFieldErrors({});
+  };
+
+  /** Save the current scope's non-default values as a user preset. */
+  const onSavePreset = (id: string, label: string) => {
+    try {
+      const values: Record<string, unknown> = {};
+      for (const def of listSettings()) {
+        if (def.sensitive) continue;
+        const r = resolveFromStore(def.id, scope === "project" ? projectId : undefined);
+        if (r.overridden) values[def.id] = r.value;
+      }
+      useSettingsStore.getState().saveUserPreset(id, label, values);
+      toast.success(`预设「${label}」已保存（${Object.keys(values).length} 项）`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onDeletePreset = (presetId: string) => {
+    if (!window.confirm("删除该预设？已应用的设置不受影响。")) return;
+    try {
+      useSettingsStore.getState().deleteUserPreset(presetId);
+      toast.success("预设已删除");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** Layered reset: project scope resets only project overrides; global
+   *  scope resets all global values to registry defaults (undoable). */
+  const onResetScope = () => {
+    if (scope === "project" && projectId) {
+      resetScopedValue(null, projectId);
+      toast.success("已重置当前项目的全部覆盖");
+      return;
+    }
+    if (scope === "project" && !projectId) {
+      toast.error("没有活跃项目 — 无法重置项目覆盖");
+      return;
+    }
+    if (window.confirm("将全部全局设置重置为默认？此操作可用撤销恢复。")) {
+      const before = snapshotSettings();
+      for (const def of listSettings()) {
+        if (def.storeKey) {
+          try {
+            setScopedValue(def.id, def.defaultValue, "global");
+          } catch {
+            /* validated defaults never throw */
+          }
+        }
+      }
+      setDrafts({});
+      setFieldErrors({});
+      toast.success("已重置全部全局设置", {
+        action: { label: "撤销", onClick: () => restoreSettings(before) },
+      });
+    }
   };
 
   const onApplyPreset = (presetId: string) => {
     try {
+      const before = snapshotSettings();
       const r = applyPreset(presetId, scope, projectId);
-      if (r.failed.length > 0) toast.error(`预设部分应用失败：${r.failed[0]}`);
-      else if (r.applied.length === 0) toast.success("预设与当前设置一致");
-      else toast.success(`预设已应用（${r.applied.length} 项）`);
+      if (r.failed.length > 0) {
+        toast.error(`预设部分应用失败：${r.failed[0]}`, {
+          action: { label: "撤销", onClick: () => restoreSettings(before) },
+        });
+      } else if (r.applied.length === 0) {
+        toast.success("预设与当前设置一致");
+      } else {
+        toast.success(`预设已应用（${r.applied.length} 项）`, {
+          action: { label: "撤销", onClick: () => restoreSettings(before) },
+        });
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -200,6 +297,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         scope={scope}
         projectId={projectId}
         draft={key in drafts ? drafts[key] : undefined}
+        error={fieldErrors[key]}
         onChange={onFieldChange}
         onReset={onFieldReset}
       />
@@ -253,15 +351,24 @@ export function Settings({ initialTab }: { initialTab?: string }) {
             onScopeChange={setScope}
             projectName={projectName}
             onApplyPreset={onApplyPreset}
-            onImport={() => setTransferOpen(true)}
-            onExport={() => setTransferOpen(true)}
+            onImport={() => {
+              setTransferMode("import");
+              setTransferOpen(true);
+            }}
+            onExport={() => {
+              setTransferMode("export");
+              setTransferOpen(true);
+            }}
+            onResetScope={onResetScope}
+            onSavePreset={onSavePreset}
+            onDeletePreset={onDeletePreset}
           />
         }
         changeBar={
           <SettingsChangeBar
             count={draftCount}
             saving={saving}
-            failures={failures}
+            failures={Object.values(fieldErrors)}
             onApply={applyDrafts}
             onDiscard={discardDrafts}
           />
@@ -271,8 +378,8 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       </SettingsLayout>
       <SettingsTransferDialog
         open={transferOpen}
+        mode={transferMode}
         onClose={() => setTransferOpen(false)}
-        projectId={projectId}
       />
     </>
   );

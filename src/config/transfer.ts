@@ -179,16 +179,20 @@ export interface ImportResult {
   rolledBack?: boolean;
 }
 
-function snapshotState() {
+export interface SettingsSnapshot {
+  flat: Record<string, unknown>;
+  projectOverrides: Record<string, Record<string, unknown>>;
+  legacy: Record<string, string | null>;
+}
+
+/** Snapshot the full settings state (store + legacy mirror keys). */
+export function snapshotSettings(): SettingsSnapshot {
   const s = useSettingsStore.getState();
   const flat = Object.fromEntries(
     listSettings()
       .filter((d) => d.storeKey)
       .map((d) => [d.storeKey as string, (s as unknown as Record<string, unknown>)[d.storeKey as string]]),
   );
-  // Legacy mirror keys are written by the setters — snapshot them too, or a
-  // rollback would leave localStorage contradicting the store (the sandbox
-  // toggle's boot read is a real enforcement boundary).
   const legacy: Record<string, string | null> = {};
   for (const key of Object.values(LEGACY_KEYS)) {
     try {
@@ -202,6 +206,23 @@ function snapshotState() {
     projectOverrides: JSON.parse(JSON.stringify(s.projectOverrides)) as Record<string, Record<string, unknown>>,
     legacy,
   };
+}
+
+/** Restore a snapshot (store + legacy mirrors). */
+export function restoreSettings(snap: SettingsSnapshot): void {
+  useSettingsStore.setState({ ...snap.flat, projectOverrides: snap.projectOverrides });
+  for (const [key, value] of Object.entries(snap.legacy)) {
+    try {
+      if (value === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, value);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
+
+function snapshotState() {
+  return snapshotSettings();
 }
 
 /** Apply a VALID preview. A failed preview is a hard no-op. If any write
@@ -221,17 +242,7 @@ export function applyImport(
   const applied: string[] = [];
   const failed: string[] = [];
 
-  const rollback = () => {
-    useSettingsStore.setState({ ...before.flat, projectOverrides: before.projectOverrides });
-    for (const [key, value] of Object.entries(before.legacy)) {
-      try {
-        if (value === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
-      } catch {
-        /* storage unavailable */
-      }
-    }
-  };
+  const rollback = () => restoreSettings(before);
 
   const writes: Array<() => string | null> = [];
   const pushWrite = (

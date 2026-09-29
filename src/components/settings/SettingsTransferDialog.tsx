@@ -5,38 +5,33 @@ import {
   previewImport,
   type ImportPreview,
 } from "../../config/transfer";
+import { invoke } from "../../lib/tauri";
 import { toast } from "../ui";
 import { Button, Dialog } from "../ui";
 
 /**
  * SettingsTransferDialog (R4-07 #240): export to a file, or open a file,
  * preview its changes, and only apply after explicit confirmation.
- * Sensitive settings never export (R4-06); imports are atomic.
+ * Sensitive settings never export (R4-06); imports are atomic (rollback on
+ * any failure). Opens in "import" or "export" mode depending on the button.
  */
 
 interface Props {
   open: boolean;
+  mode: "import" | "export";
   onClose: () => void;
-  /** Current project for scope-aware preview. */
-  projectId?: string;
 }
 
-async function invokeBridge(channel: string, args?: unknown): Promise<unknown> {
-  const bridge = (window as unknown as { electron?: { invoke: (c: string, a?: unknown) => Promise<unknown> } }).electron;
-  if (!bridge) throw new Error("Electron bridge unavailable");
-  return bridge.invoke(channel, args);
-}
-
-export function SettingsTransferDialog({ open, onClose, projectId }: Props) {
+export function SettingsTransferDialog({ open, mode, onClose }: Props) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [mode, setMode] = useState<"merge" | "replace">("merge");
+  const [replaceMode, setReplaceMode] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const doExport = async () => {
     setBusy(true);
     try {
       const doc = exportSettings();
-      const r = (await invokeBridge("settings_transfer_save", {
+      const r = (await invoke("settings_transfer_save", {
         content: JSON.stringify(doc, null, 2),
         defaultPath: "grok-build-settings.json",
       })) as { path: string | null };
@@ -54,9 +49,9 @@ export function SettingsTransferDialog({ open, onClose, projectId }: Props) {
   const doImportOpen = async () => {
     setBusy(true);
     try {
-      const r = (await invokeBridge("settings_transfer_open")) as { content: string | null };
+      const r = (await invoke("settings_transfer_open")) as { content: string | null };
       if (!r.content) return;
-      const p = previewImport(r.content, { mode });
+      const p = previewImport(r.content, { mode: replaceMode ? "replace" : "merge" });
       setPreview(p);
       if (!p.ok) toast.error("导入文件无效");
     } catch (e) {
@@ -68,7 +63,7 @@ export function SettingsTransferDialog({ open, onClose, projectId }: Props) {
 
   const doApply = () => {
     if (!preview?.ok) return;
-    const r = applyImport(preview, { mode });
+    const r = applyImport(preview, { mode: replaceMode ? "replace" : "merge" });
     if (r.ok) {
       toast.success(`已应用 ${r.applied.length} 项设置`);
       setPreview(null);
@@ -84,28 +79,33 @@ export function SettingsTransferDialog({ open, onClose, projectId }: Props) {
   };
 
   return (
-    <Dialog open={open} onClose={close} title="导入 / 导出设置">
+    <Dialog open={open} onClose={close} title={mode === "export" ? "导出设置" : "导入设置"}>
       <div className="space-y-3">
         <p className="text-gb-xs text-gb-text-muted">
           导出为 JSON 文件（敏感项自动剔除）；导入前会先预览变更，确认后才写入。
         </p>
         <div className="flex gap-2">
-          <Button size="sm" onClick={doExport} loading={busy}>
-            导出到文件…
-          </Button>
-          <Button size="sm" variant="secondary" onClick={doImportOpen} loading={busy}>
-            从文件导入…
-          </Button>
+          {mode === "export" ? (
+            <Button size="sm" onClick={doExport} loading={busy}>
+              导出到文件…
+            </Button>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={doImportOpen} loading={busy}>
+              从文件选择…
+            </Button>
+          )}
         </div>
 
-        <label className="flex items-center gap-2 text-gb-xs text-gb-text-secondary">
-          <input
-            type="checkbox"
-            checked={mode === "replace"}
-            onChange={(e) => setMode(e.target.checked ? "replace" : "merge")}
-          />
-          替换模式（文档中缺失的已覆盖项将重置为默认）
-        </label>
+        {mode === "import" && (
+          <label className="flex items-center gap-2 text-gb-xs text-gb-text-secondary">
+            <input
+              type="checkbox"
+              checked={replaceMode}
+              onChange={(e) => setReplaceMode(e.target.checked)}
+            />
+            替换模式（文档中缺失的已覆盖项将重置为默认）
+          </label>
+        )}
 
         {preview && (
           <div className="rounded-gb-md border gb-border-hairline bg-gb-canvas p-3" data-testid="import-preview">
@@ -138,7 +138,6 @@ export function SettingsTransferDialog({ open, onClose, projectId }: Props) {
           </div>
         )}
       </div>
-      {projectId ? <span className="sr-only">{projectId}</span> : null}
     </Dialog>
   );
 }

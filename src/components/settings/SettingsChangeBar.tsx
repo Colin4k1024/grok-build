@@ -33,7 +33,7 @@ export function SettingsChangeBar({ count, saving, failures, onApply, onDiscard 
         <span className="text-gb-xs text-gb-text-secondary">{count} 项未保存的修改</span>
       )}
       <div className="flex-1" />
-      {count > 0 && (
+      {count > 0 ? (
         <>
           <Button variant="ghost" size="sm" onClick={onDiscard} disabled={saving}>
             放弃
@@ -42,6 +42,11 @@ export function SettingsChangeBar({ count, saving, failures, onApply, onDiscard 
             应用
           </Button>
         </>
+      ) : (
+        // failures-only state: still dismissible
+        <Button variant="ghost" size="sm" onClick={onDiscard}>
+          知道了
+        </Button>
       )}
     </div>
   );

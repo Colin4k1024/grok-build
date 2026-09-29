@@ -174,11 +174,8 @@ export default function App() {
     setSettingsTab(tab);
     setDestination("settings");
   }, []);
-  const goConversations = useCallback(() => {
-    if (destination === "settings" && !confirmLeaveIfDirty()) return;
-    setDestination("conversations");
-  }, [destination]);
-  // Rail navigation consults the unsaved-changes guard (R4-07 #240).
+  // Guarded navigation: leaving settings with staged edits confirms first.
+  // Declared before all callers (deps evaluate at render time).
   const navigateTo = useCallback(
     (d: AppDestination) => {
       if (destination === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return;
@@ -186,6 +183,7 @@ export default function App() {
     },
     [destination],
   );
+  const goConversations = useCallback(() => navigateTo("conversations"), [navigateTo]);
 
   // Deep-linked settings tab must not leak across visits: leaving the
   // settings destination resets it so the next visit opens the default tab.
@@ -342,13 +340,13 @@ export default function App() {
     const outcome = await openHistoryThread(session, {
       onOptimisticOpen: () => {
         setShowHome(false);
-        setDestination("conversations");
+        navigateTo("conversations");
         const pendingId = `pending:${session.id}`;
         setResumingIds((prev) => new Set(prev).add(pendingId));
       },
       onFocusExisting: () => {
         setShowHome(false);
-        setDestination("conversations");
+        navigateTo("conversations");
       },
       onStreamingExisting: () =>
         setSlashNotice("该线程正在运行 — 只读跟随中，回复完成后即可继续发送"),
@@ -377,7 +375,7 @@ export default function App() {
     setCreating(true);
     setError(null);
     // Creating a session is a conversation-context action — navigate there.
-    setDestination("conversations");
+    navigateTo("conversations");
     try {
       const info = await createSession(".");
       addTab({
@@ -475,7 +473,7 @@ export default function App() {
         const next = store.tabs[(idx + delta + store.tabs.length) % store.tabs.length];
         store.setActiveSession(next.id);
         setShowHome(false);
-        setDestination("conversations");
+        navigateTo("conversations");
       }
     };
     window.addEventListener("keydown", handler);
@@ -487,7 +485,7 @@ export default function App() {
   useEffect(() => {
     const open = () => {
       setShowHome(false);
-      setDestination("conversations");
+      navigateTo("conversations");
     };
     window.addEventListener("gb-open-session", open);
     return () => window.removeEventListener("gb-open-session", open);
@@ -714,7 +712,7 @@ export default function App() {
           setWorkMode: setTabWorkMode,
           copyText: (t) => writeText(t),
           showDiff: (cwd, p) => gitDiff(cwd, p),
-          newThread: () => { setActiveSession(null); setShowHome(true); setDestination("conversations"); },
+          newThread: () => { setActiveSession(null); setShowHome(true); navigateTo("conversations"); },
           openUsage: () => window.dispatchEvent(new CustomEvent("gb-open-usage")),
           openImport: () => window.dispatchEvent(new CustomEvent("gb-open-import")),
           forkCurrentThread: () => {
@@ -899,7 +897,7 @@ export default function App() {
         action: () => {
           setActiveSession(tab.id);
           setShowHome(false);
-          setDestination("conversations");
+          navigateTo("conversations");
         },
       });
     }
@@ -951,7 +949,7 @@ export default function App() {
       category: "Navigation",
       action: () => {
         setShowHome(true);
-        setDestination("conversations");
+        navigateTo("conversations");
       },
     });
 
@@ -961,13 +959,13 @@ export default function App() {
         id: "open-agents",
         title: "Open: Workspace Agents",
         category: "Navigation",
-        action: () => setDestination("agents"),
+        action: () => navigateTo("agents"),
       },
       {
         id: "open-dashboard",
         title: "Open: Dashboard",
         category: "Navigation",
-        action: () => setDestination("dashboard"),
+        action: () => navigateTo("dashboard"),
       },
       {
         id: "browse-threads",
@@ -1206,7 +1204,7 @@ export default function App() {
         <Suspense fallback={null}>
           <GlobalSearch
             onClose={() => setShowSearch(false)}
-            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); setDestination("conversations"); }}
+            onOpenTab={(id) => { setActiveSession(id); setShowHome(false); navigateTo("conversations"); }}
             onResumeThread={handleResumeThread}
           />
         </Suspense>
@@ -1241,7 +1239,7 @@ export default function App() {
         commands={paletteCommands}
         onNewSession={handleNewSession}
         onOpenSettings={() => openSettings()}
-        onOpenDashboard={() => setDestination("dashboard")}
+        onOpenDashboard={() => navigateTo("dashboard")}
         onToggleSidebar={toggleSidebarGated}
         onToggleRightPanel={toggleRightPanelGated}
         onCloseSession={() => { if (activeSessionId) handleCloseSession(activeSessionId); }}

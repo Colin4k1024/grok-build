@@ -3,7 +3,7 @@
  * Settings Center shell tests (R4-07 #240): grouped navigation, search,
  * scope awareness, source badges, staged change bar, unsaved-leave guard.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionStore } from "../../stores/sessionStore";
@@ -42,9 +42,10 @@ describe("Settings Center (R4-07)", () => {
   it("renders grouped category navigation", async () => {
     render(<Settings />);
     const nav = await screen.findByRole("navigation", { name: "设置分类" });
-    // grouped headers exist
-    expect(nav.textContent).toContain("外观");
-    expect(nav.textContent).toContain("权限");
+    // group headers exist
+    for (const g of ["工作区", "AI", "集成", "体验", "安全", "系统"]) {
+      expect(nav.textContent).toContain(g);
+    }
   });
 
   it("search filters settings by label/description/keyword", async () => {
@@ -72,20 +73,26 @@ describe("Settings Center (R4-07)", () => {
   it("source badge shows 默认 for untouched settings", async () => {
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });
-    const badges = screen.getAllByText("默认");
+    await userEvent.click(screen.getByRole("button", { name: "外观" }));
+    const badges = await screen.findAllByTestId("setting-source-badge");
     expect(badges.length).toBeGreaterThan(2);
+    expect(badges.every((b) => b.dataset.source === "default")).toBe(true);
   });
 
   it("source badge shows 全局 after a global change", async () => {
     useSettingsStore.getState().setTheme("light");
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });
-    expect(screen.getAllByText("全局").length).toBeGreaterThan(0);
+    await userEvent.click(screen.getByRole("button", { name: "外观" }));
+    const badges = await screen.findAllByTestId("setting-source-badge");
+    expect(badges.some((b) => b.dataset.source === "global")).toBe(true);
   });
 
   it("immediate settings write on change (theme)", async () => {
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });
+    await userEvent.click(screen.getByRole("button", { name: "外观" }));
+    await screen.findByTestId("setting-field-appearance.theme");
     await userEvent.click(screen.getByRole("radio", { name: "浅色" }));
     expect(useSettingsStore.getState().theme).toBe("light");
     // immediate → no change bar
@@ -118,19 +125,84 @@ describe("Settings Center (R4-07)", () => {
     expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
   });
 
-  it("project scope shows project override and resets it without touching global", async () => {
-    useSessionStore.setState({
+  it("project scope shows project override and project reset removes only the override", async () => {    useSessionStore.setState({
       tabs: [{
         id: "t1", acpSessionId: "a1", title: "T", cwd: "/proj/x", model: "m",
         reasoningEffort: "medium", createdAt: 1, lastActiveAt: 1,
       }],
       activeSessionId: "t1",
     });
+    useSettingsStore.getState().setTheme("dark"); // global
     useSettingsStore.getState().setProjectOverride("/proj/x", "appearance.theme", "light");
     render(<Settings />);
     await screen.findByRole("navigation", { name: "设置分类" });
+    await userEvent.click(screen.getByRole("button", { name: "外观" }));
     // switch to project scope
     await userEvent.click(screen.getByRole("radio", { name: /当前项目/ }));
-    await screen.findAllByText("项目");
+    const badges = await screen.findAllByTestId("setting-source-badge");
+    expect(badges.some((b) => b.dataset.source === "project")).toBe(true);
+    // reset the project override from the field
+    const field = screen.getByTestId("setting-field-appearance.theme");
+    await userEvent.click(await within(field).findByRole("button", { name: "重置" }));
+    // override gone; global untouched
+    expect(useSettingsStore.getState().projectOverrides["/proj/x"]).toBeUndefined();
+    expect(useSettingsStore.getState().theme).toBe("dark");
+  });
+
+  it("partial apply failure keeps other drafts and marks the failing field", async () => {
+    render(<Settings />);
+    await screen.findByRole("navigation", { name: "设置分类" });
+    // stage sandboxMode on 权限
+    await userEvent.click(screen.getByRole("button", { name: "权限" }));
+    await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+    // stage agentAutonomous on 代理 (sibling that should still apply)
+    await userEvent.click(screen.getByRole("button", { name: "代理" }));
+    await userEvent.click(screen.getByRole("button", { name: /高级/ }));
+    await userEvent.click(await screen.findByRole("switch", { name: "自治执行" }));
+    // force the sandbox write to fail
+    const store = useSettingsStore.getState();
+    const orig = store.setGlobalByKey;
+    const spy = vi.spyOn(store, "setGlobalByKey").mockImplementation((key: string, value: unknown) => {
+      if (key === "sandboxMode") throw new Error("模拟失败");
+      return orig(key, value);
+    });
+    try {
+      await userEvent.click(screen.getByRole("button", { name: "应用" }));
+      const bar = await screen.findByTestId("settings-change-bar");
+      expect(bar.textContent).toMatch(/保存失败/);
+      // the sibling applied; the failed draft is kept
+      expect(useSettingsStore.getState().agentAutonomous).toBe(true);
+      expect(useSettingsStore.getState().sandboxMode).toBe("sandbox");
+    } finally {
+      spy.mockRestore();
+    }
+    // navigate back to 权限 — the failing field is marked there
+    await userEvent.click(screen.getByRole("button", { name: "权限" }));
+    const field = await screen.findByTestId("setting-field-permissions.sandboxMode");
+    await waitFor(() =>
+      expect(within(field).getByRole("alert").textContent).toContain("模拟失败"),
+    );
+    // cleanup for other tests
+    useSettingsStore.getState().setAgentAutonomous(false);
+  });
+
+  it("leaving with staged edits triggers the unsaved guard", async () => {
+    const { confirmLeaveIfDirty, setUnsavedGuard } = await import("../../lib/unsavedGuard");
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      render(<Settings />);
+      await screen.findByRole("navigation", { name: "设置分类" });
+      await userEvent.click(screen.getByRole("button", { name: "权限" }));
+      await userEvent.click(screen.getByRole("radio", { name: /完全访问/ }));
+      await screen.findByTestId("settings-change-bar");
+      // guard is registered; confirmLeaveIfDirty consults it
+      expect(confirmLeaveIfDirty()).toBe(false); // user declined
+      expect(confirmSpy).toHaveBeenCalledOnce();
+      confirmSpy.mockReturnValue(true);
+      expect(confirmLeaveIfDirty()).toBe(true);
+    } finally {
+      confirmSpy.mockRestore();
+      setUnsavedGuard(null);
+    }
   });
 });

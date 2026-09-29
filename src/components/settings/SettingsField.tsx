@@ -79,7 +79,7 @@ export function SettingsField({
                 hideLabel
                 value={String(current)}
                 onChange={(v) => onChange(settingId, v)}
-                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(String(v)) }))}
+                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(def, String(v)) }))}
               />
             ) : (
               <Select
@@ -87,11 +87,11 @@ export function SettingsField({
                 hideLabel
                 value={String(current)}
                 onChange={(v) => onChange(settingId, v)}
-                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(String(v)) }))}
+                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(def, String(v)) }))}
               />
             )
           ) : (
-            <span className="text-gb-sm text-gb-text-secondary">{enumLabel(String(current))}</span>
+            <span className="text-gb-sm text-gb-text-secondary">{enumLabel(def, String(current))}</span>
           )
         )}
         {def.type === "boolean" &&
@@ -106,17 +106,39 @@ export function SettingsField({
             <span className="text-gb-sm text-gb-text-secondary">{current ? "开" : "关"}</span>
           ))}
         {def.type === "number" && (
-          <input
-            type="number"
-            aria-label={def.label}
-            disabled={!scopeAllowed}
-            className="w-20 rounded-gb-md border gb-border-control bg-gb-canvas px-2 py-1 text-gb-sm text-gb-text-primary outline-none focus:border-gb-accent"
-            value={Number(current)}
-            step={0.1}
-            min={0.5}
-            max={2.5}
-            onChange={(e) => onChange(settingId, Number(e.target.value))}
-          />
+          <div className="flex items-center gap-1.5">
+            {def.quickValues && (
+              <div className="flex gap-0.5">
+                {def.quickValues.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    disabled={!scopeAllowed}
+                    onClick={() => onChange(settingId, v)}
+                    className={[
+                      "rounded-gb-sm px-1.5 py-0.5 text-gb-xs transition-colors duration-gb-fast ease-gb",
+                      Number(current) === v
+                        ? "bg-gb-accent/15 text-gb-accent-text"
+                        : "text-gb-text-muted hover:bg-gb-surface-hover hover:text-gb-text-primary",
+                    ].join(" ")}
+                  >
+                    {Math.round(v * 100)}%
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              type="number"
+              aria-label={def.label}
+              disabled={!scopeAllowed}
+              className="w-20 rounded-gb-md border gb-border-control bg-gb-canvas px-2 py-1 text-gb-sm text-gb-text-primary outline-none focus:border-gb-accent"
+              value={Number(current)}
+              step={def.numberRange?.step ?? 0.05}
+              min={def.numberRange?.min}
+              max={def.numberRange?.max}
+              onChange={(e) => onChange(settingId, Number(e.target.value))}
+            />
+          </div>
         )}
         {def.type === "string" && (
           <input
@@ -148,23 +170,8 @@ export function SettingsField({
   );
 }
 
-/** Enum value → display label (Chinese where we have one). */
-function enumLabel(v: string): string {
-  const map: Record<string, string> = {
-    dark: "深色",
-    light: "浅色",
-    auto: "跟随系统",
-    small: "小",
-    medium: "中",
-    large: "大",
-    xlarge: "特大",
-    sandbox: "沙箱",
-    full: "完全访问",
-    code: "代码",
-    architect: "架构",
-    debug: "调试",
-    "zh-CN": "中文",
-    "en-US": "English",
-  };
-  return map[v] ?? v;
+/** Enum value → display label from the schema's enumLabels (registry owns
+ *  presentation metadata); falls back to the raw value. */
+function enumLabel(def: { enumLabels?: Record<string, string> }, v: string): string {
+  return def.enumLabels?.[v] ?? v;
 }
