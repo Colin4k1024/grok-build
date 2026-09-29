@@ -459,6 +459,9 @@ export default function App() {
         cwd: info.cwd,
         model: prefs.model || info.models[0]?.id || "",
         approvalMode: prefs.approval,
+        // The user picked this session's approval at creation — pin it so a
+        // later global sandbox flip doesn't silently re-write the choice.
+        approvalPinned: true,
         reasoningEffort: prefs.effort ?? "medium",
         createdAt: Date.now(),
         lastActiveAt: Date.now(),

@@ -60,7 +60,7 @@ export function SettingsField({
 
   if (!def || !resolved) return null;
 
-  const scopeAllowed = def.scopes.includes(scope as SettingScope);
+  const scopeAllowed = def.scopes.includes(scope as SettingScope) && !def.planned;
   const current = draft !== undefined ? draft : resolved.value;
   const shownError = error ?? numError;
   // High-risk immediate settings (e.g. a future security toggle marked
@@ -97,6 +97,11 @@ export function SettingsField({
         <div className="flex items-center gap-2">
           <span className="text-gb-sm text-gb-text-primary">{def.label}</span>
           <SettingSourceBadge source={draft !== undefined ? (scope as SettingSource) : resolved.source} />
+          {def.planned && (
+            <span className="rounded-gb-sm bg-gb-info/15 px-1.5 py-0.5 text-gb-xs text-gb-info-text">
+              规划中
+            </span>
+          )}
           {draft !== undefined && (
             <span className="rounded-gb-sm bg-gb-warning/15 px-1.5 py-0.5 text-gb-xs text-gb-warning-text">
               未保存

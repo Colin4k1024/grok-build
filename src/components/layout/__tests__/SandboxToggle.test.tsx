@@ -107,9 +107,12 @@ describe("SandboxToggle enforcement wiring", () => {
   });
 
   it("a Home-created pinned tab is pushed to the Policy on appearance", async () => {
-    // simulate a session created with an explicit approval choice
-    const t = { ...tab("t9", "/p"), approvalMode: "full-access" as const, approvalPinned: true };
-    useSessionStore.setState({ tabs: [t] });
+    // the REAL creation path: addTab with an explicit approval choice pins it
+    useSessionStore.getState().addTab({
+      id: "t9", acpSessionId: "t9", title: "t9", cwd: "/p", model: "m",
+      reasoningEffort: "medium", createdAt: 1, lastActiveAt: 1,
+      approvalMode: "full-access", approvalPinned: true,
+    });
     render(<SandboxToggle />);
     await screen.findByText("Sandbox");
     expect(setSessionApprovalMode).toHaveBeenCalledWith("t9", "full-access");

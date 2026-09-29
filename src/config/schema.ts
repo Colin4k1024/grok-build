@@ -88,6 +88,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.mode",
+    planned: true,
     storeKey: "agentMode",
     category: "agent",
     label: "代理模式",
@@ -104,6 +105,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "agent.autonomous",
+    planned: true,
     storeKey: "agentAutonomous",
     category: "agent",
     label: "自治执行",
@@ -136,6 +138,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.wakeEnabled",
+    planned: true,
     storeKey: "voiceWakeEnabled",
     category: "voice",
     label: "唤醒词",
@@ -150,6 +153,7 @@ export const SETTINGS_SCHEMA: SettingDefinition[] = [
   },
   {
     id: "voice.ttsEnabled",
+    planned: true,
     storeKey: "voiceTtsEnabled",
     category: "voice",
     label: "语音播报",

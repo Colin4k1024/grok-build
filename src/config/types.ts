@@ -26,6 +26,9 @@ export interface SettingDefinition<T = unknown> {
   keywords: string[];
   /** Hidden unless the settings UI is in Advanced mode. */
   advanced?: boolean;
+  /** Persisted but not yet consumed by any runtime path — the UI shows a
+   *  规划中 badge and disables the control instead of pretending it works. */
+  planned?: boolean;
   /** Never exported, never echoed to logs; only presence is reported. */
   sensitive?: boolean;
   /** Requires an app restart to take effect. */

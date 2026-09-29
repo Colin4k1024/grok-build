@@ -185,17 +185,36 @@ describe("SegmentedControl", () => {
         onChange={() => {}}
         options={[
           { value: "global", label: "全局" },
-          { value: "project", label: "当前项目", disabled: true },
+          { value: "project", label: "项目", disabled: true },
+          { value: "last", label: "末尾", disabled: true },
         ]}
       />,
     );
-    const global = screen.getByRole("radio", { name: "全局" });
-    global.focus();
-    expect(document.activeElement).toBe(global);
+    const global_ = screen.getByRole("radio", { name: "全局" });
+    global_.focus();
+    expect(document.activeElement).toBe(global_);
     await userEvent.keyboard("{End}");
-    // End lands on the only enabled option from the end — still 全局 (the
-    // disabled 当前项目 is skipped; focus does not get stuck/no-op).
-    expect(document.activeElement).toBe(global);
+    // End lands on the nearest enabled from the end — still 全局 here
+    expect(document.activeElement).toBe(global_);
+  });
+
+  it("End lands on the middle option when only the edge is disabled", async () => {
+    render(
+      <SegmentedControl
+        label="三档"
+        value="a"
+        onChange={() => {}}
+        options={[
+          { value: "a", label: "甲" },
+          { value: "b", label: "乙" },
+          { value: "c", label: "丙", disabled: true },
+        ]}
+      />,
+    );
+    screen.getByRole("radio", { name: "甲" }).focus();
+    await userEvent.keyboard("{End}");
+    // the disabled edge is skipped — focus lands on the middle ENABLED one
+    expect(document.activeElement).toBe(screen.getByRole("radio", { name: "乙" }));
   });
 });
 
