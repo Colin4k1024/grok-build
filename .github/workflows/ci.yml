@@ -61,3 +61,45 @@ jobs:
           name: acceptance-evidence
           path: evidence/
           retention-days: 7
+
+  rust-pty:
+    # R5-09 (#265): the PTY controller must reap its child process group on
+    # shutdown. The behavior differs per platform (process groups + hangup on
+    # unix, ConPTY on Windows), so the suite runs on both unix CI platforms.
+    name: Rust PTY controller (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          key: pty-${{ matrix.os }}
+
+      - name: Cargo test (ptyctl crates)
+        run: cargo test -p ptyctl -p ptyctl-cli
+
+      - name: Build ptyctl (release)
+        run: cargo build --release -p ptyctl-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: PTY manager integration tests (Vitest)
+        run: npx vitest run electron/__tests__/pty-manager.test.ts
+        env:
+          GROK_PTYCTL_BIN: ${{ github.workspace }}/target/release/ptyctl

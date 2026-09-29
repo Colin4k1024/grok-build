@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn as spawnChild } from "node:child_process";
 import { PtyManager, PtyError, PTY_ERR_DISABLED, resolvePtyctlBinary } from "../pty-manager";
 
 // These tests exercise a real ptyctl controller; skip where it can't run
@@ -56,6 +56,13 @@ function markerAlive(marker: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Spawn a detached bystander process in its own session/group. */
+function spawnDetached(cmd: string, args: string[]) {
+  const proc = spawnChild(cmd, args, { detached: true, stdio: "ignore" });
+  proc.unref();
+  return proc;
 }
 
 async function waitMarkerGone(marker: string, timeoutMs = 8000): Promise<boolean> {
@@ -116,11 +123,10 @@ skipped("PTY lifecycle (spawn → running → exit → disposed)", () => {
     expect(m.disposeAll()).toBe(0);
   }, 20000);
 
-  // TODO(R3-18): ptyctl's controller kill does not cascade to PTY child on
-  // macOS (shell runs in its own session via setsid). Tracked separately;
-  // skipped here so the suite stays green on developer machines. Linux CI
-  // still exercises the cascade via the process-group-aware runner.
-  it.skip("killing the controller reaps its PTY children (no zombie shells)", async () => {
+  // R5-09 (#265): the controller owns its PTY child group — SIGTERM to the
+  // controller triggers a graceful shutdown that TERMs (then KILLs) the whole
+  // group, so no shell or long-lived child outlives the session.
+  it("killing the controller reaps its PTY children (no zombie shells)", async () => {
     const m = manager();
     // The controller runs $SHELL by default; point it at a wrapper whose PTY
     // child is a distinctive long-lived sleep so leaks are ps-visible.
@@ -141,6 +147,66 @@ skipped("PTY lifecycle (spawn → running → exit → disposed)", () => {
     } finally {
       if (prevShell === undefined) delete process.env.SHELL;
       else process.env.SHELL = prevShell;
+    }
+  }, 25000);
+
+  it("a crashed controller (SIGKILL) does not leave the PTY child behind", async () => {
+    const m = manager();
+    const wrapper = path.join(tmp, "shell-wrapper-crash.sh");
+    fs.writeFileSync(wrapper, "#!/bin/sh\nexec /bin/sh -c 'sleep 300'\n");
+    fs.chmodSync(wrapper, 0o755);
+    const prevShell = process.env.SHELL;
+    process.env.SHELL = wrapper;
+    try {
+      const info = await m.open(tmp);
+      await new Promise((r) => setTimeout(r, 700));
+      expect(markerAlive("sleep 300")).toBe(true);
+
+      // No handler can run on SIGKILL — the kernel closes the PTY master,
+      // which hangs up the foreground group (the shell and its sleep).
+      process.kill(info.pid, "SIGKILL");
+      expect(await waitPidGone(info.pid)).toBe(true);
+      expect(await waitMarkerGone("sleep 300")).toBe(true);
+    } finally {
+      if (prevShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = prevShell;
+    }
+  }, 25000);
+
+  it("reaping one session never harms an unrelated process", async () => {
+    const m = manager();
+    // A bystander in its own session/group — the controller's group signal
+    // must never reach it.
+    const bystander = spawnDetached("sleep", ["301"]);
+    const wrapper = path.join(tmp, "shell-wrapper-collateral.sh");
+    fs.writeFileSync(wrapper, "#!/bin/sh\nexec /bin/sh -c 'sleep 300'\n");
+    fs.chmodSync(wrapper, 0o755);
+    const prevShell = process.env.SHELL;
+    process.env.SHELL = wrapper;
+    try {
+      expect(markerAlive("sleep 301")).toBe(true);
+      const info = await m.open(tmp);
+      await new Promise((r) => setTimeout(r, 700));
+      expect(markerAlive("sleep 300")).toBe(true);
+
+      m.dispose(info.id);
+      expect(await waitMarkerGone("sleep 300")).toBe(true);
+      // The bystander survived the reap.
+      expect(markerAlive("sleep 301")).toBe(true);
+    } finally {
+      if (prevShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = prevShell;
+      if (bystander.pid) {
+        try {
+          process.kill(-bystander.pid, "SIGKILL");
+        } catch {
+          try {
+            process.kill(bystander.pid, "SIGKILL");
+          } catch {
+            /* already gone */
+          }
+        }
+      }
     }
   }, 25000);
 });
