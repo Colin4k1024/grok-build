@@ -84,6 +84,7 @@ fi
 
 if [ -n "$mounted" ]; then
   hdiutil detach "$mounted" -force >/dev/null 2>&1 || true
+  mounted=""
 fi
 
 if [ "$failures" -gt 0 ]; then
