@@ -126,14 +126,13 @@ export const test = base.extend<{ ctx: AppContext }>({
       await page.waitForSelector("nav[aria-label='主导航']", { timeout: 20000 });
 
       await use({ app, page, paths });
-
-      // No isolated process may outlive the test (the app owns its agent;
-      // a crash in the app must not orphan it — see #272 for the hard-kill gap).
-      const leaked = findIsolatedProcesses(paths.grokHome);
-      expect(leaked, `processes survived with the isolated GROK_HOME: ${leaked.join(", ")}`).toEqual([]);
     } finally {
       if (app) await app.close().catch(() => {});
+      // After the app is closed, no isolated process may remain (the app owns
+      // its agent; a crash must not orphan it — see #272 for the hard-kill gap).
+      const leaked = findIsolatedProcesses(paths.grokHome);
       fs.rmSync(root, { recursive: true, force: true });
+      expect(leaked, `processes survived with the isolated GROK_HOME: ${leaked.join(", ")}`).toEqual([]);
     }
   },
 });
