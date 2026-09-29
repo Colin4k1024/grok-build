@@ -116,6 +116,12 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   }, [scope, projectId]);
 
   const draftKey = (id: string) => `${scope}:${id}`;
+  // The change bar counts/applies the CURRENT scope's drafts; the other
+  // scope's drafts stay staged (and still trigger the leave guard).
+  const currentScopeDrafts = Object.fromEntries(
+    Object.entries(drafts).filter(([k]) => k.startsWith(`${scope}:`)),
+  );
+  const scopeDraftCount = Object.keys(currentScopeDrafts).length;
   const draftCount = Object.keys(drafts).length;
 
   // Unsaved-changes guard for navigation away from settings.
@@ -179,7 +185,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
     const before = snapshotSettings();
     const errors: Record<string, string> = {};
     const keep: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(drafts)) {
+    for (const [key, value] of Object.entries(currentScopeDrafts)) {
       const [draftScope, settingId] = key.split(":", 2) as ["global" | "project", string];
       try {
         setScopedValue(settingId, value, draftScope, projectId);
@@ -189,7 +195,14 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       }
     }
     setSaving(false);
-    setDrafts(keep);
+    // keep the other scope's drafts staged; current scope keeps failures
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(`${scope}:`) && !(key in keep)) delete next[key];
+      }
+      return { ...next, ...keep };
+    });
     setFieldErrors(errors);
     const failCount = Object.keys(errors).length;
     if (failCount === 0) {
@@ -204,18 +217,33 @@ export function Settings({ initialTab }: { initialTab?: string }) {
   };
 
   const discardDrafts = () => {
-    setDrafts({});
+    // discard only the current scope's drafts
+    setDrafts((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith(`${scope}:`))),
+    );
     setFieldErrors({});
   };
 
-  /** Save the current scope's non-default values as a user preset. */
-  const onSavePreset = (id: string, label: string) => {
+  /** Save the current scope's non-default values as a user preset.
+   *  Collision-safe id generation (pinyin/CJK-safe). */
+  const onSavePreset = (label: string) => {
     try {
       const values: Record<string, unknown> = {};
       for (const def of listSettings()) {
         if (def.sensitive) continue;
         const r = resolveFromStore(def.id, scope === "project" ? projectId : undefined);
         if (r.overridden) values[def.id] = r.value;
+      }
+      const existing = useSettingsStore.getState().userPresets;
+      let id = label
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      if (!id) id = "preset";
+      if (existing[id]) {
+        let n = 2;
+        while (existing[`${id}-${n}`]) n += 1;
+        id = `${id}-${n}`;
       }
       useSettingsStore.getState().saveUserPreset(id, label, values);
       toast.success(`预设「${label}」已保存（${Object.keys(values).length} 项）`);
@@ -366,7 +394,7 @@ export function Settings({ initialTab }: { initialTab?: string }) {
         }
         changeBar={
           <SettingsChangeBar
-            count={draftCount}
+            count={scopeDraftCount}
             saving={saving}
             failures={Object.values(fieldErrors)}
             onApply={applyDrafts}

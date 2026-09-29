@@ -19,7 +19,8 @@ export interface SettingsToolbarProps {
   onScopeChange: (scope: "global" | "project") => void;
   projectName?: string;
   onApplyPreset: (presetId: string) => void;
-  onSavePreset: (name: string, label: string) => void;
+  /** Save the current scope's non-default values under a display name. */
+  onSavePreset: (label: string) => void;
   onDeletePreset: (presetId: string) => void;
   onResetScope: () => void;
   onImport: () => void;
@@ -135,7 +136,7 @@ export function SettingsToolbar({
             e.preventDefault();
             const name = presetName.trim();
             if (!name) return;
-            onSavePreset(name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-"), name);
+            onSavePreset(name);
             setPresetName("");
             setSaveOpen(false);
           }}
@@ -145,7 +146,7 @@ export function SettingsToolbar({
             label="预设名称"
             value={presetName}
             onChange={(e) => setPresetName(e.target.value)}
-            description="保存当前生效的全部设置为可复用预设"
+            description="保存当前生效的（非默认）设置为可复用预设"
             autoFocus
           />
           <div className="flex justify-end gap-2">

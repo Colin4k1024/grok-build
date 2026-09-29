@@ -1,14 +1,17 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getSetting } from "../../config/registry";
 import { resolveFromStore } from "../../config/storeBridge";
 import type { SettingScope, SettingSource } from "../../config/types";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { Select, SegmentedControl, Switch } from "../ui";
 import { SettingSourceBadge } from "./SettingSourceBadge";
 
 /**
  * SettingsField (R4-07 #240): one settings row driven ENTIRELY by the
  * registry — label/description/control/source/validation/reset all come
- * from the setting definition. Pages never redeclare defaults.
+ * from the setting definition. Pages never redeclare defaults. Subscribes
+ * to the exact store slices so preset/reset/import/sync writes re-render
+ * the row immediately.
  */
 
 export interface SettingsFieldProps {
@@ -35,15 +38,44 @@ export function SettingsField({
   onReset,
 }: SettingsFieldProps) {
   const def = getSetting(settingId);
+  // Reactive store slices — the row re-renders when either layer changes.
+  const flatValue = useSettingsStore((s) =>
+    def?.storeKey ? (s as unknown as Record<string, unknown>)[def.storeKey] : undefined,
+  );
+  const projectValue = useSettingsStore((s) =>
+    projectId ? s.projectOverrides[projectId]?.[settingId] : undefined,
+  );
   const resolved = useMemo(
     () => (def ? resolveFromStore(settingId, projectId) : null),
-    [def, settingId, projectId, draft], // draft in deps: re-resolve after apply
+    [def, settingId, projectId, flatValue, projectValue],
   );
+  // Number fields keep a local text buffer: intermediate keystrokes are
+  // never validated/toasted; commit happens on blur/Enter when valid.
+  const [numText, setNumText] = useState<string | null>(null);
+  const [numError, setNumError] = useState<string | null>(null);
+  useEffect(() => {
+    setNumText(null);
+    setNumError(null);
+  }, [flatValue, projectValue, scope]);
+
   if (!def || !resolved) return null;
 
   const scopeAllowed = def.scopes.includes(scope as SettingScope);
   const current = draft !== undefined ? draft : resolved.value;
   const overridable = resolved.overridden || draft !== undefined;
+  const shownError = error ?? numError;
+
+  const commitNumber = () => {
+    if (numText === null) return;
+    const v = Number(numText);
+    if (numText.trim() === "" || Number.isNaN(v) || !def.validate(v)) {
+      setNumError(`有效范围：${def.numberRange?.min ?? "-"} ~ ${def.numberRange?.max ?? "-"}`);
+      return; // keep editing — never throw a toast for keystrokes
+    }
+    setNumError(null);
+    setNumText(null);
+    onChange(settingId, v);
+  };
 
   return (
     <div
@@ -61,9 +93,9 @@ export function SettingsField({
           )}
         </div>
         <p className="mt-0.5 text-gb-xs text-gb-text-muted">{def.description}</p>
-        {error ? (
+        {shownError ? (
           <p role="alert" className="mt-0.5 text-gb-xs text-gb-danger-text">
-            {error}
+            {shownError}
           </p>
         ) : null}
       </div>
@@ -79,7 +111,10 @@ export function SettingsField({
                 hideLabel
                 value={String(current)}
                 onChange={(v) => onChange(settingId, v)}
-                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(def, String(v)) }))}
+                options={(def.enumValues ?? []).map((v) => ({
+                  value: String(v),
+                  label: enumLabel(def, String(v)),
+                }))}
               />
             ) : (
               <Select
@@ -87,7 +122,10 @@ export function SettingsField({
                 hideLabel
                 value={String(current)}
                 onChange={(v) => onChange(settingId, v)}
-                options={(def.enumValues ?? []).map((v) => ({ value: String(v), label: enumLabel(def, String(v)) }))}
+                options={(def.enumValues ?? []).map((v) => ({
+                  value: String(v),
+                  label: enumLabel(def, String(v)),
+                }))}
               />
             )
           ) : (
@@ -130,13 +168,22 @@ export function SettingsField({
             <input
               type="number"
               aria-label={def.label}
+              aria-invalid={shownError ? true : undefined}
               disabled={!scopeAllowed}
               className="w-20 rounded-gb-md border gb-border-control bg-gb-canvas px-2 py-1 text-gb-sm text-gb-text-primary outline-none focus:border-gb-accent"
-              value={Number(current)}
+              value={numText ?? String(current)}
               step={def.numberRange?.step ?? 0.05}
               min={def.numberRange?.min}
               max={def.numberRange?.max}
-              onChange={(e) => onChange(settingId, Number(e.target.value))}
+              onChange={(e) => setNumText(e.target.value)}
+              onBlur={commitNumber}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitNumber();
+                if (e.key === "Escape") {
+                  setNumText(null);
+                  setNumError(null);
+                }
+              }}
             />
           </div>
         )}

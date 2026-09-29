@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { Login } from "./pages/Login";
 import { useAcpEventListener } from "./hooks/useAcpSession";
 import { useNotifications } from "./hooks/useNotifications";
@@ -170,19 +170,20 @@ export default function App() {
   // stable shell — no conditional full-page returns that would destroy the
   // rail/sidebar/titlebar state on every switch.
   const [destination, setDestination] = useState<AppDestination>("conversations");
+  // Ref mirror so the guarded navigator is stable (no stale-closure bypass
+  // from []-deps effects/shortcuts — R4-07 review).
+  const destinationRef = useRef(destination);
+  destinationRef.current = destination;
   const openSettings = useCallback((tab?: string) => {
     setSettingsTab(tab);
     setDestination("settings");
   }, []);
   // Guarded navigation: leaving settings with staged edits confirms first.
-  // Declared before all callers (deps evaluate at render time).
-  const navigateTo = useCallback(
-    (d: AppDestination) => {
-      if (destination === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return;
-      setDestination(d);
-    },
-    [destination],
-  );
+  // Stable identity — reads the live destination from the ref.
+  const navigateTo = useCallback((d: AppDestination) => {
+    if (destinationRef.current === "settings" && d !== "settings" && !confirmLeaveIfDirty()) return;
+    setDestination(d);
+  }, []);
   const goConversations = useCallback(() => navigateTo("conversations"), [navigateTo]);
 
   // Deep-linked settings tab must not leak across visits: leaving the

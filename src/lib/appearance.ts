@@ -13,12 +13,10 @@ export const FONT_SIZES = [
   { id: "xlarge", label: "特大", px: 17 },
 ] as const;
 
-export const ZOOM_LEVELS = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5] as const;
-
 export function applyFontSize(id: string) {
   const size = FONT_SIZES.find((s) => s.id === id) ?? FONT_SIZES[1];
   document.documentElement.style.setProperty("font-size", `${size.px}px`);
-  document.documentElement.dataset.fontSize = id;
+  document.documentElement.dataset.fontSize = size.id; // validated, never raw
 }
 
 export function applyZoom(zoom: number) {
@@ -45,9 +43,15 @@ export function bootstrapAppearance() {
 }
 
 // Live application: any store change (settings UI, presets, imports,
-// multi-window sync) is reflected immediately.
+// multi-window sync) is reflected immediately. Narrow selector — only
+// fontSize/zoom changes repaint.
 if (typeof window !== "undefined") {
+  let prevFont = useSettingsStore.getState().fontSize;
+  let prevZoom = useSettingsStore.getState().zoom;
   useSettingsStore.subscribe((s) => {
+    if (s.fontSize === prevFont && s.zoom === prevZoom) return;
+    prevFont = s.fontSize;
+    prevZoom = s.zoom;
     applyFontSize(s.fontSize);
     applyZoom(s.zoom);
   });
