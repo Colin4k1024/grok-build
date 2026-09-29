@@ -94,8 +94,10 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
   // mutation anywhere — nothing can cross-talk into parallel workers.
   let suiteHome: string;
   let suiteJournal: string;
-  let realSessionsBefore: string[];
   const transports: AcpTransport[] = [];
+  /** Every per-test cwd used this run — the exact markers that must never
+   *  appear in the REAL user sessions dir. */
+  const runCwds: string[] = [];
 
   function makeTransport(): AcpTransport {
     const t = new AcpTransport({
@@ -108,7 +110,6 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
   beforeAll(async () => {
     suiteHome = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-home-"));
     suiteJournal = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-journal-"));
-    realSessionsBefore = snapshotSessions(REAL_SESSIONS_DIR);
     transport = makeTransport();
     await transport.connect();
   }, SLOW);
@@ -125,6 +126,7 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
 
   beforeEach(() => {
     tmp = tmpRoot();
+    runCwds.push(tmp);
   });
 
   afterEach(() => {
@@ -241,13 +243,23 @@ describe.skipIf(SKIP)("ACP transport: single connection, multi-session (R3-02 #1
   }, SLOW);
 
   it("never writes test sessions into the real user GROK_HOME (R5-01 #257)", () => {
-    // Earlier tests in this suite created real sessions through the real
-    // agent binary — they must have landed in the isolated suite home, which
-    // proves the persistence boundary is genuinely covered (not skipped).
+    // This suite created real sessions through the real agent binary using
+    // cwds under runCwds — those sessions must have landed in the isolated
+    // suite home, proving the persistence boundary is genuinely covered.
+    // (The cwd basename survives the agent's percent-encoding of the dir
+    // name, so it is a stable marker in both homes.)
+    const markers = runCwds.map((cwd) => path.basename(cwd));
     const isolated = snapshotSessions(path.join(suiteHome, "sessions"));
     expect(isolated.length).toBeGreaterThan(0);
-    // The real user sessions dir must be identical to the pre-suite snapshot.
-    expect(snapshotSessions(REAL_SESSIONS_DIR)).toEqual(realSessionsBefore);
+    expect(isolated.some((e) => markers.some((m) => e.includes(m)))).toBe(true);
+    // …and none of this run's markers may appear anywhere in the REAL user
+    // sessions dir. A live app may legitimately change unrelated entries
+    // between snapshots, so we assert on our own markers instead of
+    // freezing the whole directory.
+    const realNow = snapshotSessions(REAL_SESSIONS_DIR);
+    for (const m of markers) {
+      expect(realNow.some((e) => e.includes(m))).toBe(false);
+    }
   });
 });
 
