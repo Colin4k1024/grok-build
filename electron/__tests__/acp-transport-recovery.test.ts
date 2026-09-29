@@ -46,8 +46,68 @@ function makeEmitCollector() {
   return { events, emit: (e: Record<string, unknown>) => events.push(e) };
 }
 
+/** Recursive, sorted relative listing of a sessions dir; missing dir = empty
+ *  listing (clean profiles may not have created it yet). */
+function snapshotSessions(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  const out: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    const entries = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        out.push(`${relPath}/`);
+        walk(path.join(dir, entry.name), relPath);
+      } else {
+        out.push(relPath);
+      }
+    }
+  };
+  walk(root, "");
+  return out;
+}
+
+/** The REAL user sessions dir — the suite must never write here (R5-01). */
+const REAL_SESSIONS_DIR = path.join(
+  process.env.GROK_HOME ?? path.join(os.homedir(), ".grok"),
+  "sessions",
+);
+
 describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () => {
   let tmp: string;
+  // Suite-level isolation (R5-01 / #257): every transport spawns its agent
+  // with a throwaway GROK_HOME/GB_JOURNAL_DIR via constructor injection, so
+  // no test session ever lands in the real user data dir. Every instance is
+  // tracked and disposed in afterAll — even if a test fails mid-way — before
+  // the temp dirs are removed, so no agent process can race the cleanup.
+  let suiteHome: string;
+  let suiteJournal: string;
+  let realSessionsBefore: string[];
+  const transports: AcpTransport[] = [];
+
+  function makeTransport(): AcpTransport {
+    const t = new AcpTransport({
+      childEnv: { GROK_HOME: suiteHome, GB_JOURNAL_DIR: suiteJournal },
+    });
+    transports.push(t);
+    return t;
+  }
+
+  beforeAll(() => {
+    suiteHome = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-recovery-home-"));
+    suiteJournal = fs.mkdtempSync(path.join(os.tmpdir(), "gb-acp-recovery-journal-"));
+    realSessionsBefore = snapshotSessions(REAL_SESSIONS_DIR);
+  });
+
+  afterAll(async () => {
+    for (const t of transports.splice(0)) {
+      try { await t.dispose(); } catch { /* already disposed */ }
+    }
+    fs.rmSync(suiteHome, { recursive: true, force: true });
+    fs.rmSync(suiteJournal, { recursive: true, force: true });
+  });
 
   beforeEach(() => {
     tmp = tmpRoot();
@@ -58,8 +118,7 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
   });
 
   it("agent process death surfaces an Error event to every session", async () => {
-    process.env.GROK_AGENT_BIN = AGENT_BIN;
-    const transport = new AcpTransport();
+    const transport = makeTransport();
     await transport.connect();
 
     const collectorA = makeEmitCollector();
@@ -87,8 +146,7 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
   }, SLOW);
 
   it("a fresh transport can resume a persisted session via session/load", async () => {
-    process.env.GROK_AGENT_BIN = AGENT_BIN;
-    const transport1 = new AcpTransport();
+    const transport1 = makeTransport();
     await transport1.connect();
 
     const collector = makeEmitCollector();
@@ -99,7 +157,7 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
     // transport1 (simulating a restart) and resume with transport2.
     await transport1.dispose();
 
-    const transport2 = new AcpTransport();
+    const transport2 = makeTransport();
     await transport2.connect();
     const collector2 = makeEmitCollector();
     const resumedId = await transport2.loadSession("persist-1", agentSessionId, tmp, collector2.emit);
@@ -129,8 +187,7 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
   });
 
   it("resource cleanup: last session close reclaims process and connection", async () => {
-    process.env.GROK_AGENT_BIN = AGENT_BIN;
-    const transport = new AcpTransport();
+    const transport = makeTransport();
     await transport.connect();
     const collector = makeEmitCollector();
     await transport.createSession("cleanup-test", tmp, collector.emit);
@@ -147,6 +204,16 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
     expect(internals.proc).toBeNull();
     expect(internals.ws).toBeNull();
   }, SLOW);
+
+  it("never writes test sessions into the real user GROK_HOME (R5-01 #257)", () => {
+    // Earlier tests in this suite created and resumed real sessions through
+    // the real agent binary — they must have landed in the isolated suite
+    // home, which proves the persistence boundary is genuinely covered.
+    const isolated = snapshotSessions(path.join(suiteHome, "sessions"));
+    expect(isolated.length).toBeGreaterThan(0);
+    // The real user sessions dir must be identical to the pre-suite snapshot.
+    expect(snapshotSessions(REAL_SESSIONS_DIR)).toEqual(realSessionsBefore);
+  });
 });
 
 if (SKIP) {
