@@ -259,6 +259,10 @@ export function Settings({ initialTab }: { initialTab?: string }) {
       const values: Record<string, unknown> = {};
       for (const def of listSettings()) {
         if (def.sensitive) continue;
+        // Only capture settings that can be APPLIED at the current scope, so
+        // a project-scope preset never carries global-only entries that would
+        // fail with scope_not_allowed on every apply.
+        if (!def.scopes.includes(scope as never)) continue;
         const r = resolveFromStore(def.id, scope === "project" ? projectId : undefined);
         if (r.overridden) values[def.id] = r.value;
       }
