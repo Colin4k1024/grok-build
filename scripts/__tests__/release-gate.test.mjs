@@ -154,6 +154,16 @@ describe("buildReport", () => {
     expect(report.summary.failed).toBe(1);
     expect(report.summary.skipped).toBe(1);
   });
+
+  it("summary counts always add up (passed + failed + skipped == total)", () => {
+    // Guards against the user-data-unchanged counting bug: a step pushed into
+    // results must also be counted in passed/failed/skipped.
+    const steps = [step("a"), step("b", { cmd: ["fail"] }), step("c", { prereqs: ["b"] }), step("d", { platform: "linux" })];
+    const g = runReleaseGate({ steps, runner: failRunner, platform: "darwin" });
+    const meta = { commit: "x", branch: "m", platform: "darwin", arch: "arm64", node: "n", npm: "n", electron: "e", generatedAt: "t" };
+    const report = JSON.parse(buildReport(g, meta).json);
+    expect(report.summary.passed + report.summary.failed + report.summary.skipped).toBe(report.summary.total);
+  });
 });
 
 describe("defineSteps", () => {

@@ -318,6 +318,7 @@ async function main() {
     output: userDataUnchanged ? undefined : "user sessions dir changed during the gate",
   });
   if (!userDataUnchanged) gate.failed.push("user-data-unchanged");
+  else gate.passed.push("user-data-unchanged");
 
   const meta = collectMeta();
   const artifacts = listArtifacts(outDir);
