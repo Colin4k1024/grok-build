@@ -22,9 +22,23 @@ mkdir -p "$RELEASE_DIR"
 
 echo "==> Generating SHA256 checksums..."
 cd "$RELEASE_DIR"
-if ls *.dmg *.zip *.exe *.AppImage *.deb *.rpm 2>/dev/null | head -1 > /dev/null; then
-  shasum -a 256 *.dmg *.zip *.exe *.AppImage *.deb *.rpm 2>/dev/null > checksums.sha256 || true
-  echo "    checksums.sha256 written"
+# nullglob: unmatched globs expand to nothing (a platform builds only a subset
+# of these extensions), so the guard doesn't error on the missing ones and skip
+# checksums entirely (pipefail + literal-glob false negative).
+shopt -s nullglob
+artifacts=(*.dmg *.zip *.exe *.AppImage *.deb *.rpm)
+shopt -u nullglob
+if [ "${#artifacts[@]}" -gt 0 ]; then
+  # shasum is macOS/BSD; sha256sum is GNU (Git Bash on Windows has the latter).
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${artifacts[@]}" > checksums.sha256
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${artifacts[@]}" > checksums.sha256
+  else
+    echo "    neither shasum nor sha256sum available — cannot checksum" >&2
+    exit 1
+  fi
+  echo "    checksums.sha256 written (${#artifacts[@]} artifacts)"
 else
   echo "    No artifacts found in $RELEASE_DIR — skipping"
 fi
@@ -46,13 +60,15 @@ cat > "$RELEASE_DIR/sbom.json" << SBOMEOF
   },
   "artifacts": $(node -e "
     const fs = require('fs');
-    const path = require('path');
-    const dir = '$RELEASE_DIR';
-    const files = fs.readdirSync(dir).filter(f =>
+    // Read the dir from argv, not a baked-in string: on Windows the path has
+    // backslashes that a baked-in 'C:\Users\...' JS string would mangle (\U,
+    // \r, \n are JS escapes), making readdirSync throw and silently emit [].
+    const dir = process.argv[1];
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f =>
       /\\.(dmg|zip|exe|AppImage|deb|rpm|blockmap|yml)\$/.test(f)
-    );
+    ) : [];
     console.log(JSON.stringify(files));
-  " 2>/dev/null || echo "[]")
+  " "$RELEASE_DIR" 2>/dev/null || echo "[]")
 }
 SBOMEOF
 echo "    sbom.json written"
