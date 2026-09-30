@@ -295,7 +295,7 @@ function listArtifacts(dir) {
 // ---- CLI -------------------------------------------------------------------
 
 async function main() {
-  const outDir = DEFAULT_OUT_DIR;
+  const outDir = parseOutDirArg(process.argv.slice(2)) ?? DEFAULT_OUT_DIR;
   fs.mkdirSync(outDir, { recursive: true });
 
   // Snapshot the real user data dir BEFORE the gate — the final
@@ -340,8 +340,11 @@ async function main() {
   process.exit(gate.failed.length === 0 ? 0 : 1);
 }
 
-/** Recursive, sorted relative listing of a sessions dir (missing = empty). */
-function snapshotSessions(root) {
+/** Recursive, sorted listing of a sessions dir hashed with per-file size, so
+ *  an in-place modification of an existing session file (the most likely
+ *  corruption mode — a stray append) changes the hash, not just a rename/add.
+ *  Missing dir = empty string. */
+export function snapshotSessions(root) {
   if (!fs.existsSync(root)) return "";
   const out = [];
   const walk = (dir, rel) => {
@@ -351,12 +354,23 @@ function snapshotSessions(root) {
         out.push(`${r}/`);
         walk(path.join(dir, entry.name), r);
       } else {
-        out.push(r);
+        let size = -1;
+        try { size = fs.statSync(path.join(dir, entry.name)).size; } catch { /* unreadable */ }
+        out.push(`${r}\t${size}`);
       }
     }
   };
   walk(root, "");
   return crypto.createHash("sha256").update(out.join("\n")).digest("hex");
+}
+
+/** Parse --out-dir <path> / --out-dir=<path> from argv; undefined if absent. */
+export function parseOutDirArg(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--out-dir" && i + 1 < argv.length) return argv[++i];
+    if (argv[i]?.startsWith("--out-dir=")) return argv[i].slice("--out-dir=".length);
+  }
+  return undefined;
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);

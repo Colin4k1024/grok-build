@@ -323,14 +323,32 @@ jobs:
 
   # R5-10 / #266: the single auditable release gate. Runs `npm run release:gate`
   # (unit → build → electron → e2e → evidence → pack → checksums → feed-verify →
-  # uat → macos-smoke → user-data-unchanged) and uploads release-report.{json,md}.
+  # uat → host-platform install smoke → user-data-unchanged) on each platform so
+  # the platform-gated smoke steps (macos/linux/windows) all execute in CI.
   # `if: always()` on the upload surfaces the failure summary even when the gate
-  # fails. Notarization needs the `release` environment's Apple secrets.
+  # fails. The macOS leg uses the `release` environment for Apple notarization
+  # secrets; linux/win32 legs run without it (secrets are mac-only).
   release-gate:
-    name: R5 Release Gate (audit report)
+    name: R5 Release Gate (${{ matrix.label }})
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: macos-latest
-    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rust-target: aarch64-apple-darwin
+            label: macOS ARM
+            release-env: release
+          - platform: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            label: Windows x64
+            release-env: none
+          - platform: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            label: Linux x64
+            release-env: none
+    runs-on: ${{ matrix.platform }}
+    environment: ${{ matrix.release-env == 'none' && '' || matrix.release-env }}
     steps:
       - uses: actions/checkout@v4
 
@@ -343,7 +361,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.rust-target }}
 
       - name: Setup protoc
         uses: arduino/setup-protoc@v3
@@ -370,7 +388,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release-report
+          name: release-report-${{ matrix.label }}
           path: |
             release/release-report.json
             release/release-report.md

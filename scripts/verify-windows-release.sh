@@ -40,8 +40,11 @@ fi
 SETUP="$1"
 APP_NAME="Grok Build"
 
-# 1. Silent install (NSIS /S /D=<dir>).
-"$SETUP" /S "/D=$INSTALL_DIR" >/dev/null 2>&1
+# 1. Silent install (NSIS /S /D=<dir>). MSYS converts leading-slash args passed
+#    to native exes (the reason this file already uses `tasklist //FI`), so
+#    disable arg conversion for the installer and give NSIS a native Windows
+#    path (cygpath -w) — a POSIX mktemp path would make /D hang or fail.
+MSYS2_ARG_CONV_EXCL='*' "$SETUP" /S "/D=$(cygpath -w "$INSTALL_DIR")" >/dev/null 2>&1
 report $? "silent install" "NSIS setup exited non-zero"
 APP_EXE="$INSTALL_DIR/$APP_NAME.exe"
 [ -f "$APP_EXE" ]
@@ -64,7 +67,7 @@ fi
 
 # 4. Silent uninstall + verify the install dir is gone.
 if [ -f "$UNINSTALLER" ]; then
-  "$UNINSTALLER" /S >/dev/null 2>&1
+  MSYS2_ARG_CONV_EXCL='*' "$UNINSTALLER" /S >/dev/null 2>&1
   report $? "silent uninstall" "uninstaller exited non-zero"
 fi
 # The uninstaller removes its own files; the temp parent is cleaned by the trap.

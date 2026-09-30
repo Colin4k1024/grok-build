@@ -11,6 +11,8 @@ import {
   buildReport,
   collectMeta,
   defineSteps,
+  snapshotSessions,
+  parseOutDirArg,
 } from "../release-gate.mjs";
 
 /** A runner that returns pass for everything. */
@@ -186,5 +188,49 @@ describe("collectMeta", () => {
     expect(meta.node).toBe(process.versions.node);
     expect(meta.commit).toMatch(/^[0-9a-f]{7,40}$/);
     expect(meta.generatedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe("snapshotSessions", () => {
+  it("detects in-place content/size changes, not just renames or adds", () => {
+    const fs = require("node:fs");
+    const os = require("node:os");
+    const path = require("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gb-snap-"));
+    try {
+      fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+      const f = path.join(dir, "sessions", "a.json");
+      fs.writeFileSync(f, "first");
+      const before = snapshotSessions(path.join(dir, "sessions"));
+      // Append — same file, different content + size. Must change the hash.
+      fs.writeFileSync(f, "first plus more");
+      const after = snapshotSessions(path.join(dir, "sessions"));
+      expect(before).not.toBe(after);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is stable when nothing changes", () => {
+    const fs = require("node:fs");
+    const os = require("node:os");
+    const path = require("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gb-snap-"));
+    try {
+      fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "sessions", "a.json"), "stable");
+      expect(snapshotSessions(path.join(dir, "sessions")))
+        .toBe(snapshotSessions(path.join(dir, "sessions")));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("parseOutDirArg", () => {
+  it("parses --out-dir <path> and --out-dir=<path>", () => {
+    expect(parseOutDirArg(["--out-dir", "x"])).toBe("x");
+    expect(parseOutDirArg(["--out-dir=y"])).toBe("y");
+    expect(parseOutDirArg([])).toBeUndefined();
   });
 });
