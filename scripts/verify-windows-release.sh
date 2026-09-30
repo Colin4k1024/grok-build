@@ -26,8 +26,12 @@ report() { # report <ok> <label> [detail]
 }
 
 cleanup() {
+  # MSYS2_ARG_CONV_EXCL='*' matches the step-4 uninstall: Git Bash rewrites the
+  # leading /S passed to a native exe, so without it the cleanup uninstall runs
+  # non-silently — and the NSIS async self-copy can leave $UNINSTALLER present
+  # at EXIT, launching a modal dialog that hangs a headless CI runner.
   if [ -n "${UNINSTALLER:-}" ] && [ -f "$UNINSTALLER" ]; then
-    "$UNINSTALLER" /S >/dev/null 2>&1 || true
+    MSYS2_ARG_CONV_EXCL='*' "$UNINSTALLER" /S >/dev/null 2>&1 || true
   fi
   rm -rf "$INSTALL_DIR" 2>/dev/null || true
 }
