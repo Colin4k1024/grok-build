@@ -46,6 +46,23 @@ function makeEmitCollector() {
   return { events, emit: (e: Record<string, unknown>) => events.push(e) };
 }
 
+/** Poll a collector for an event of `type` within `timeoutMs`. The watchdog
+ *  reaps the agent with a SIGTERM grace before exiting, so the Error surfaces
+ *  after a delay rather than instantly. */
+async function waitForEvent(
+  collector: ReturnType<typeof makeEmitCollector>,
+  type: string,
+  timeoutMs: number
+): Promise<Record<string, unknown> | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = collector.events.find((e) => e.type === type);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return collector.events.find((e) => e.type === type);
+}
+
 /** Recursive, sorted relative listing of a sessions dir; missing dir = empty
  *  listing (clean profiles may not have created it yet). */
 function snapshotSessions(root: string): string[] {
@@ -128,16 +145,20 @@ describe.skipIf(SKIP)("ACP transport crash/restart recovery (R3-02 #187)", () =>
     await transport.createSession("crash-a", tmp, collectorA.emit);
     await transport.createSession("crash-b", tmp, collectorB.emit);
 
-    // Kill the transport's agent process — simulating a crash.
-    const proc = (transport as unknown as { proc: { kill: (sig: string) => void; killed: boolean } }).proc;
-    proc.kill("SIGKILL");
+    // Simulate the agent dying: close the watchdog's IPC channel so it reaps
+    // the agent (no orphan — the class #272 fixes) and exits; the transport
+    // observes the exit and surfaces an Error. SIGKILLing transport.proc would
+    // kill the watchdog without running handlers, orphaning the real agent
+    // (Codex review P2); disconnect exercises the intended reap path.
+    const proc = (transport as unknown as { proc: { disconnect: () => void; connected: boolean } }).proc;
+    if (proc.connected) proc.disconnect();
 
-    // Wait for the transport to detect the death and emit errors.
-    await new Promise((r) => setTimeout(r, 500));
+    // The watchdog reaps the agent with a SIGTERM grace before exiting, so the
+    // Error surfaces after a delay — poll rather than a fixed wait.
+    const aError = await waitForEvent(collectorA, "Error", SLOW);
+    const bError = await waitForEvent(collectorB, "Error", SLOW);
 
     // Both sessions should have received an Error event — no silent loss.
-    const aError = collectorA.events.find((e) => e.type === "Error");
-    const bError = collectorB.events.find((e) => e.type === "Error");
     expect(aError).toBeDefined();
     expect(bError).toBeDefined();
 
