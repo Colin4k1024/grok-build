@@ -20,16 +20,16 @@ independent runnable step still runs — the report is always complete.
 | unit | — | `npm test` |
 | build | unit | `npm run build` (tsc + vite + bundle budget gate) |
 | electron-build | build | `npm run electron:build` |
-| e2e | build | `npm run test:e2e` |
 | evidence | unit | `npm run evidence` |
 | pack | electron-build | `npm run electron:pack` |
+| e2e | pack | `npm run test:e2e` (xvfb-run on linux if present) |
 | checksums | pack | `scripts/release-checksums.sh` |
 | feed-verify | pack | `scripts/verify-update-feed.mjs <latest*.yml> <release/>` |
-| uat | pack | `npm run uat:run` (strict report) |
+| uat | pack | `desktop-uat.mjs report --strict --run <latest>` (skip in CI; human-driven) |
 | macos-smoke | pack (darwin) | `scripts/verify-macos-release.sh <dmg>` |
-| linux-smoke | pack (linux) | `xvfb-run -a <AppImage>` |
+| linux-smoke | pack (linux) | `scripts/verify-linux-release.sh <AppImage>` |
 | windows-smoke | pack (win32) | `scripts/verify-windows-release.sh <exe>` |
-| user-data-unchanged | (wraps the whole gate) | `~/.grok/sessions` sha256 before == after |
+| user-data-unchanged | (wraps the whole gate) | `~/.grok/sessions` sha256 (names+sizes) before == after |
 
 Platform-smoke steps run only on their host platform (a `linux` smoke is
 `skipped` on `darwin`, recorded with the reason). A null artifact (no manifest

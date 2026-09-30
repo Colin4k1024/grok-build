@@ -63,9 +63,13 @@ if [ -f "$APP_EXE" ]; then
   tasklist //FI "IMAGENAME eq $(basename "$APP_EXE")" //NH 2>/dev/null | grep -qi "$(basename "$APP_EXE")"
   report $? "app launched (process present)" "no matching process after launch"
 
-  # 3. Exit the app (kill the process tree).
+  # 3. Exit the app (kill the process tree), then verify it actually exited.
   taskkill //F //IM "$(basename "$APP_EXE")" //T >/dev/null 2>&1 || kill "$app_pid" 2>/dev/null || true
-  report 0 "app exited"
+  if kill -0 "$app_pid" 2>/dev/null; then
+    report 1 "app exited" "process still alive after terminate"
+  else
+    report 0 "app exited"
+  fi
 fi
 
 # 4. Silent uninstall + verify the install dir is gone.

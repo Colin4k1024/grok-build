@@ -51,7 +51,11 @@ for _ in $(seq 1 20); do
 done
 kill -9 "$app_pid" 2>/dev/null || true
 wait "$app_pid" 2>/dev/null || true
-report 0 "app exited (terminated cleanly)"
+if kill -0 "$app_pid" 2>/dev/null; then
+  report 1 "app exited (terminated cleanly)" "process still alive"
+else
+  report 0 "app exited (terminated cleanly)"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "linux release verification FAILED ($failures checks)"

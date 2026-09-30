@@ -85,26 +85,42 @@ describe("runReleaseGate", () => {
 
   it("skips platform-gated steps on non-matching platforms", () => {
     const steps = [
-      step("macos-smoke", { platform: "darwin", prereqs: ["pack"] }),
       step("pack"),
+      step("macos-smoke", { platform: "darwin", prereqs: ["pack"] }),
       step("linux-smoke", { platform: "linux" }),
     ];
     const g = runReleaseGate({ steps, runner: passRunner, platform: "darwin" });
     const mac = g.results.find((r) => r.id === "macos-smoke");
     const linux = g.results.find((r) => r.id === "linux-smoke");
-    expect(mac.status).toBe("pass"); // darwin on darwin
+    expect(mac.status).toBe("pass"); // darwin on darwin, after pack
     expect(linux.status).toBe("skipped");
     expect(linux.skipReason).toMatch(/platform darwin/);
   });
 
+  it("skips a step declared before its prereq (misordered), rather than running it vacuously", () => {
+    // Robustness: a prereq that hasn't executed yet is NOT satisfied, so a
+    // misordered step (before its prereq) is skipped instead of running against
+    // a not-yet-produced artifact — guards the e2e-before-pack class of bug.
+    const steps = [
+      step("e2e", { prereqs: ["pack"] }), // declared before pack — must skip
+      step("pack"),
+    ];
+    const g = runReleaseGate({ steps, runner: passRunner });
+    const e2e = g.results.find((r) => r.id === "e2e");
+    expect(e2e.status).toBe("skipped");
+    expect(e2e.skipReason).toMatch(/prerequisite pack did not pass/);
+    expect(g.passed).toEqual(["pack"]);
+  });
+
   it("skips a null-cmd step (no artifact) without failing dependents that also have null cmd", () => {
     const steps = [
-      step("feed-verify", { cmd: null, prereqs: ["pack"] }), // no manifest
       step("pack"),
+      step("feed-verify", { cmd: null, prereqs: ["pack"] }), // no manifest — pack passed
     ];
     const g = runReleaseGate({ steps, runner: passRunner });
     const feed = g.results.find((r) => r.id === "feed-verify");
     expect(feed.status).toBe("skipped");
+    expect(feed.skipReason).toMatch(/artifact/);
     expect(g.failed).toEqual([]);
   });
 });

@@ -53,10 +53,12 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
     { id: "unit", name: "Unit + integration tests", cmd: ["npm", "test"] },
     { id: "build", name: "Renderer build + bundle budget", prereqs: ["unit"], cmd: ["npm", "run", "build"] },
     { id: "electron-build", name: "Electron main/preload build", prereqs: ["build"], cmd: ["npm", "run", "electron:build"] },
-    // e2e's fixture resolves the packed app from release/* — it needs pack,
-    // not build. On linux, Electron needs a display; wrap in xvfb-run ONLY if
-    // xvfb-run is present (CI installs it; a local linux box with a real
-    // display + no xvfb should run plain, not ENOENT).
+    { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
+    { id: "pack", name: "Package (electron-builder)", prereqs: ["electron-build"], cmd: ["npm", "run", "electron:pack"] },
+    // e2e's fixture resolves the packed app from release/* — it MUST run after
+    // pack (declared here, after pack in the array). On linux, Electron needs a
+    // display; wrap in xvfb-run ONLY if xvfb-run is present (CI installs it; a
+    // local linux box with a real display + no xvfb runs plain).
     {
       id: "e2e",
       name: "Electron Playwright E2E",
@@ -66,8 +68,6 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
           ? ["xvfb-run", "-a", "npm", "run", "test:e2e"]
           : ["npm", "run", "test:e2e"],
     },
-    { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
-    { id: "pack", name: "Package (electron-builder)", prereqs: ["electron-build"], cmd: ["npm", "run", "electron:pack"] },
     {
       id: "checksums",
       name: "Release checksums + SBOM",
@@ -183,9 +183,12 @@ export function runReleaseGate({ steps, runner = defaultRunner, platform = proce
   const passed = [];
   for (const step of steps) {
     const prereqs = step.prereqs ?? [];
+    // A prereq that hasn't executed yet (undefined in byId) is NOT satisfied —
+    // this catches a misordered step (declared before its prereq) instead of
+    // running it vacuously. The step is skipped with the reason.
     const failedPrereq = prereqs.find((p) => {
       const r = byId.get(p);
-      return r && r.status !== "pass";
+      return !r || r.status !== "pass";
     });
     let result;
     if (failedPrereq) {
