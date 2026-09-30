@@ -145,6 +145,33 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     expect(reaped).toBe(true);
   }, 15_000);
 
+  it("does not leak ELECTRON_RUN_AS_NODE into the agent process", async () => {
+    // The watchdog is forked with ELECTRON_RUN_AS_NODE=1 (so Electron runs it
+    // as Node); that must NOT propagate into the agent or its children, or an
+    // Electron-based tool the agent launches would boot as plain Node (P2).
+    const envFile = path.join(tmp, "env-flag");
+    const stub = path.join(tmp, "env-stub.cjs");
+    fs.writeFileSync(
+      stub,
+      `"use strict";\nrequire("fs").writeFileSync(${JSON.stringify(
+        envFile
+      )}, process.env.ELECTRON_RUN_AS_NODE === "1" ? "LEAKED" : "clean");\nsetInterval(() => {}, 60000);`
+    );
+    const w = forkWatchdog(process.execPath, [stub]);
+
+    // Wait for the stub to record its env flag.
+    const flag = await new Promise<string>((resolve, reject) => {
+      const deadline = Date.now() + 5000;
+      const tick = () => {
+        if (fs.existsSync(envFile)) return resolve(fs.readFileSync(envFile, "utf-8").trim());
+        if (Date.now() > deadline) reject(new Error("env flag not written"));
+        else setTimeout(tick, 50);
+      };
+      tick();
+    });
+    expect(flag).toBe("clean");
+  }, 10_000);
+
   // POSIX-only: SIGTERM-driven dispose and signal-number semantics. On win32,
   // child.kill("SIGTERM") force-terminates via TerminateProcess (handlers
   // never run) and self-signal exits with code 1, so these would fail

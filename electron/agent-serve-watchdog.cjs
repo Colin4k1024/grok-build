@@ -37,9 +37,15 @@ try {
   process.exit(2);
 }
 
+const childEnv = { ...process.env };
+// ELECTRON_RUN_AS_NODE is set on the watchdog's env so Electron forks it as
+// plain Node; it must NOT leak into the agent serve process or its children —
+// if the agent launches an Electron-based tool (e.g. VS Code, \`electron .\`),
+// the variable would force it to boot as plain Node and fail (Codex P2).
+delete childEnv.ELECTRON_RUN_AS_NODE;
 const child = spawn(agentBin, agentArgs, {
   stdio: ["ignore", "inherit", "inherit"],
-  env: process.env,
+  env: childEnv,
 });
 
 let shuttingDown = false;
