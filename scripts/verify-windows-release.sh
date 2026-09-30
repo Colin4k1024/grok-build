@@ -64,7 +64,14 @@ if [ -f "$APP_EXE" ]; then
   report $? "app launched (process present)" "no matching process after launch"
 
   # 3. Exit the app (kill the process tree), then verify it actually exited.
+  # taskkill returns as soon as termination is initiated, but an Electron tree
+  # takes a moment to tear down — poll like verify-linux-release.sh does, or a
+  # loaded CI runner reports a flaky "still alive".
   taskkill //F //IM "$(basename "$APP_EXE")" //T >/dev/null 2>&1 || kill "$app_pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    kill -0 "$app_pid" 2>/dev/null || break
+    sleep 0.2
+  done
   if kill -0 "$app_pid" 2>/dev/null; then
     report 1 "app exited" "process still alive after terminate"
   else
