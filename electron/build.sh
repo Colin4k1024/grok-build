@@ -19,3 +19,6 @@ else
   sed -i '' -E 's|require\("\./([a-zA-Z0-9_-]+)"\)|require("./\1.cjs")|g' dist-electron/*.cjs
 fi
 echo "✓ Electron main+preload built to dist-electron/"
+# R5-08 (#272): ship the pre-built CJS parent-death watchdog alongside the
+# compiled units (it is hand-written CJS, not compiled from .ts).
+cp electron/agent-serve-watchdog.cjs dist-electron/agent-serve-watchdog.cjs

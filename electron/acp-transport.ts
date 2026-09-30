@@ -21,7 +21,7 @@
  * per-tab stdio `AcpSession` model. The transport is not constructed.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -383,9 +383,18 @@ export class AcpTransport {
     ];
     // Merge order: process env → key store → explicit child env (wins).
     const env = { ...process.env, ...readKeyStore(), ...this.childEnv };
-    const proc = spawn(this.agentBin, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
+    // R5-08 (#272): run the agent serve under a parent-death watchdog so an
+    // Electron hard-kill/crash reaps the orphaned agent process. The watchdog
+    // is forked with an IPC channel; when the channel breaks (parent gone —
+    // fires even on SIGKILL, since the kernel closes the parent's fds) it
+    // SIGTERMs the agent and escalates to SIGKILL after a grace. kill() also
+    // reaches the watchdog via proc.disconnect() (NOT kill("SIGTERM") — win32
+    // force-terminates on SIGTERM without running handlers, which would orphan
+    // the agent), triggering the same graceful reap.
+    const watchdogPath = path.join(__dirname, "agent-serve-watchdog.cjs");
+    const proc = fork(watchdogPath, [this.agentBin, JSON.stringify(args)], {
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
     });
     this.proc = proc;
     proc.stderr?.on("data", (c: Buffer) => {
@@ -397,6 +406,12 @@ export class AcpTransport {
     });
     proc.on("exit", (code, signal) => {
       console.error(`[acp-transport] exited code=${code} signal=${signal}`);
+      // Stale-generation guard (R5-08 #272): the watchdog lingers up to ~2.2s
+      // after kill() returns (SIGTERM flush window), so its exit can fire AFTER
+      // a new connect() has respawned this.proc. Ignore exits from any process
+      // other than the current one — otherwise a slow old reap would flip the
+      // healthy new transport not-ready and error every session.
+      if (proc !== this.proc) return;
       if (!this.disposed && this.ready) {
         // The agent died unexpectedly — surface to all sessions and mark
         // not-ready so the next call reconnects.
@@ -834,15 +849,24 @@ export class AcpTransport {
     this.ready = false;
     try { this.ws?.close(); } catch { /* already closed */ }
     this.ws = null;
-    if (this.proc) {
-      try { this.proc.kill("SIGTERM"); } catch { /* already dead */ }
-      // Give it a moment, then force.
-      await new Promise((r) => setTimeout(r, 200));
-      try {
-        if (this.proc && !this.proc.killed) {
-          this.proc.kill("SIGKILL");
-        }
-      } catch { /* already dead */ }
+    const proc = this.proc;
+    if (proc) {
+      // Trigger the watchdog's cross-platform disconnect reap. On win32,
+      // ChildProcess.kill("SIGTERM") is a forceful TerminateProcess — signal
+      // handlers never run — so the watchdog would die instantly and the agent
+      // it supervises would be orphaned (the same class #272 fixes). IPC
+      // disconnect closes the channel on every platform and fires the
+      // watchdog's 'disconnect' reap (SIGTERM → grace → SIGKILL the agent).
+      try { if (proc.connected) proc.disconnect(); } catch { /* channel gone */ }
+      // Force-kill the watchdog only if it hasn't self-terminated after the
+      // reap window (a stuck process). We do NOT block on the full reap — the
+      // watchdog reaps in the background and exits on its own; a stale exit is
+      // ignored by the generation guard in spawnServe. unref() so app-quit
+      // never waits on this timer.
+      const force = setTimeout(() => {
+        try { if (!proc.killed) proc.kill("SIGKILL"); } catch { /* already dead */ }
+      }, 3000);
+      force.unref();
     }
     this.proc = null;
     this.transportPending.clear();
