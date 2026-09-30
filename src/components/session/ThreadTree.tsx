@@ -120,6 +120,7 @@ const ThreadRow = memo(function ThreadRow({
   }
   return (
     <div
+      data-testid="thread-row"
       onClick={() => onOpen(e)}
       onContextMenu={(ev) => {
         ev.preventDefault();

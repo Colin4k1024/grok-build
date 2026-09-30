@@ -433,3 +433,56 @@ describe("stale workspace governance (R5-02 #258)", () => {
     expect(screen.getByText("Test leftover A")).toBeInTheDocument();
   });
 });
+
+describe("R5-06 virtualization (#262)", () => {
+  it("2000 history threads do not synchronously create 2000 DOM rows", async () => {
+    // All in one project so the flat model is one group + 2000 thread rows.
+    const MANY: HistorySession[] = Array.from({ length: 2000 }, (_, i) => ({
+      id: `acp-big-${i}`,
+      session_id: `acp-big-${i}`,
+      title: `Thread ${i}`,
+      cwd: "/w/big",
+      updated_at: Date.now() - i * 1000,
+      last_active_at: new Date(Date.now() - i * 1000).toISOString(),
+      model: "grok-4",
+      num_messages: 1,
+      workspace_exists: true,
+    }));
+    mockHistory.value = MANY;
+    setup();
+
+    await screen.findByText("Thread 0");
+    // The project badge confirms all 2000 are loaded into the row model...
+    expect(screen.getByText("2000")).toBeInTheDocument();
+    // ...but react-window renders only the virtualized window, not 2000 rows.
+    const rendered = document.querySelectorAll('[data-testid="thread-row"]');
+    expect(rendered.length).toBeLessThan(2000);
+    // A bounded viewport holds well under a hundred — far from the full list.
+    expect(rendered.length).toBeLessThan(100);
+  });
+
+  it("a background tab's streaming flip updates only its own row indicator", async () => {
+    // Two live tabs in one project; both rows mount in the bounded viewport.
+    installTab({ id: "tab-a", acpSessionId: "bg-a", title: "Thread A", cwd: "/w/pair" });
+    installTab({
+      id: "tab-b",
+      acpSessionId: "bg-b",
+      title: "Thread B",
+      cwd: "/w/pair",
+      lastActiveAt: Date.now() - 2000,
+    });
+    setup();
+
+    await screen.findByText("Thread A");
+    await screen.findByText("Thread B");
+    // Neither row shows a running dot yet.
+    expect(document.querySelectorAll('span[title="运行中"]').length).toBe(0);
+
+    // Flip streaming on tab-b only. Its per-row selector re-renders; tab-a's
+    // selector returns the same value and must not re-render (R5-06).
+    useSessionStore.getState().setSessionStreaming("tab-b", true);
+    await waitFor(() => {
+      expect(document.querySelectorAll('span[title="运行中"]').length).toBe(1);
+    });
+  });
+});
