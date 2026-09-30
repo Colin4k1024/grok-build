@@ -39,6 +39,25 @@ export default defineConfig(async () => ({
   base: "./",
   plugins: [react()],
   clearScreen: false,
+  build: {
+    rollupOptions: {
+      output: {
+        // R5-06 (#262): stable vendor chunks keep the entry lean and let the
+        // heavy stacks cache independently of app code.
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/prosemirror-/.test(id)) return "vendor-prosemirror";
+          if (
+            /react-markdown|remark-|rehype-|micromark|mdast|hast-|unist|unified|vfile|lowlight|highlight\.js|decode-named|devlop|comma-separated|property-information|space-separated|zwitch|html-url-attributes/.test(id)
+          ) {
+            return "vendor-markdown";
+          }
+          if (/[\/]react[\/]|[\/]react-dom[\/]|[\/]scheduler[\/]|zustand/.test(id)) return "vendor-react";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
