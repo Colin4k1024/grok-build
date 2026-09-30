@@ -79,14 +79,24 @@ if [ -f "$APP_EXE" ]; then
   fi
 fi
 
-# 4. Silent uninstall + verify the install dir is gone.
+# 4. Silent uninstall + verify the install dir is gone. NSIS uninstallers can't
+#    delete themselves while running: without _?= the process copies to %TEMP%,
+#    re-executes the copy, and the INVOKED process exits immediately while the
+#    copy deletes files ASYNCHRONOUSLY. A one-shot [ ! -f ] check races it and
+#    fails every time (deletion of a few-hundred-MB dir is still in progress).
+#    Poll for the app exe's removal with a timeout instead.
+uninstall_rc=0
 if [ -f "$UNINSTALLER" ]; then
   MSYS2_ARG_CONV_EXCL='*' "$UNINSTALLER" /S >/dev/null 2>&1
-  report $? "silent uninstall" "uninstaller exited non-zero"
+  uninstall_rc=$?
+  report "$uninstall_rc" "silent uninstall" "uninstaller exited non-zero"
 fi
-# The uninstaller removes its own files; the temp parent is cleaned by the trap.
-[ ! -f "$APP_EXE" ]
-report $? "install dir cleaned" "app still present after uninstall"
+cleaned=0
+for _ in $(seq 1 100); do
+  [ -f "$APP_EXE" ] || { cleaned=1; break; }
+  sleep 0.3
+done
+report "$cleaned" "install dir cleaned" "app still present after uninstall (polled ~30s)"
 
 if [ "$failures" -gt 0 ]; then
   echo "windows release verification FAILED ($failures checks)"
