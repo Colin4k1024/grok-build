@@ -52,13 +52,15 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
     { id: "build", name: "Renderer build + bundle budget", prereqs: ["unit"], cmd: ["npm", "run", "build"] },
     { id: "electron-build", name: "Electron main/preload build", prereqs: ["build"], cmd: ["npm", "run", "electron:build"] },
     // e2e's fixture resolves the packed app from release/* — it needs pack,
-    // not build. On linux, Electron needs a display, so wrap in xvfb-run.
+    // not build. On linux, Electron needs a display; wrap in xvfb-run ONLY if
+    // xvfb-run is present (CI installs it; a local linux box with a real
+    // display + no xvfb should run plain, not ENOENT).
     {
       id: "e2e",
       name: "Electron Playwright E2E",
       prereqs: ["pack"],
       cmd: () =>
-        process.platform === "linux"
+        process.platform === "linux" && hasBin("xvfb-run")
           ? ["xvfb-run", "-a", "npm", "run", "test:e2e"]
           : ["npm", "run", "test:e2e"],
     },
@@ -313,6 +315,16 @@ function findLatestManifest(dir) {
     return found ? path.join(dir, found) : null;
   } catch {
     return null;
+  }
+}
+
+/** True if a binary is on PATH (POSIX `command -v`). Used to gate the linux
+ *  e2e xvfb-run wrap on actual availability. */
+function hasBin(name) {
+  try {
+    return spawnSync("command", ["-v", name], { shell: true, encoding: "utf-8" }).status === 0;
+  } catch {
+    return false;
   }
 }
 
