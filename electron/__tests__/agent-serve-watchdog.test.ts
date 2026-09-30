@@ -11,6 +11,7 @@ import { fork } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { AcpTransport } from "../acp-transport";
 
 const WATCHDOG = path.resolve(__dirname, "..", "agent-serve-watchdog.cjs");
 
@@ -118,6 +119,31 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     });
     expect(code).toBe(7);
   }, 10_000);
+
+  it("transport kill() reaps the agent via IPC disconnect (cross-platform, no SIGTERM dependency)", async () => {
+    // Inject a real watchdog (running a stub agent) as the transport's proc,
+    // then dispose() — which calls kill(). kill() must reach the watchdog's
+    // reap via disconnect(), NOT kill("SIGTERM") (which force-terminates on
+    // win32 without running handlers — the #272 P1 regression). Runs on win32.
+    const pidFile = path.join(tmp, "agent.pid");
+    const stub = writeStubAgent(pidFile);
+    const w = forkWatchdog(process.execPath, [stub]);
+
+    const pid = await waitForPid(pidFile);
+    expect(pidAlive(pid)).toBe(true);
+
+    const transport = new AcpTransport();
+    // Simulate spawnServe having installed the watchdog as the live proc.
+    (transport as unknown as { proc: typeof w }).proc = w;
+    (transport as unknown as { ready: boolean }).ready = true;
+    watchdogs.push(w);
+
+    await transport.dispose(); // → kill() → disconnect() the watchdog → reap
+
+    // The watchdog reaps the agent via the cross-platform disconnect path.
+    const reaped = await waitForReap(pid, 4000);
+    expect(reaped).toBe(true);
+  }, 15_000);
 
   // POSIX-only: SIGTERM-driven dispose and signal-number semantics. On win32,
   // child.kill("SIGTERM") force-terminates via TerminateProcess (handlers

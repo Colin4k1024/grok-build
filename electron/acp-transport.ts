@@ -847,15 +847,24 @@ export class AcpTransport {
     this.ready = false;
     try { this.ws?.close(); } catch { /* already closed */ }
     this.ws = null;
-    if (this.proc) {
-      try { this.proc.kill("SIGTERM"); } catch { /* already dead */ }
-      // Give it a moment, then force.
-      await new Promise((r) => setTimeout(r, 200));
-      try {
-        if (this.proc && !this.proc.killed) {
-          this.proc.kill("SIGKILL");
-        }
-      } catch { /* already dead */ }
+    const proc = this.proc;
+    if (proc) {
+      // Trigger the watchdog's cross-platform disconnect reap. On win32,
+      // ChildProcess.kill("SIGTERM") is a forceful TerminateProcess — signal
+      // handlers never run — so the watchdog would die instantly and the agent
+      // it supervises would be orphaned (the same class #272 fixes). IPC
+      // disconnect closes the channel on every platform and fires the
+      // watchdog's 'disconnect' reap (SIGTERM → grace → SIGKILL the agent).
+      try { if (proc.connected) proc.disconnect(); } catch { /* channel gone */ }
+      // Force-kill the watchdog only if it hasn't self-terminated after the
+      // reap window (a stuck process). We do NOT block on the full reap — the
+      // watchdog reaps in the background and exits on its own; a stale exit is
+      // ignored by the generation guard in spawnServe. unref() so app-quit
+      // never waits on this timer.
+      const force = setTimeout(() => {
+        try { if (!proc.killed) proc.kill("SIGKILL"); } catch { /* already dead */ }
+      }, 3000);
+      force.unref();
     }
     this.proc = null;
     this.transportPending.clear();
