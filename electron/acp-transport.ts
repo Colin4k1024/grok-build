@@ -404,6 +404,12 @@ export class AcpTransport {
     });
     proc.on("exit", (code, signal) => {
       console.error(`[acp-transport] exited code=${code} signal=${signal}`);
+      // Stale-generation guard (R5-08 #272): the watchdog lingers up to ~2.2s
+      // after kill() returns (SIGTERM flush window), so its exit can fire AFTER
+      // a new connect() has respawned this.proc. Ignore exits from any process
+      // other than the current one — otherwise a slow old reap would flip the
+      // healthy new transport not-ready and error every session.
+      if (proc !== this.proc) return;
       if (!this.disposed && this.ready) {
         // The agent died unexpectedly — surface to all sessions and mark
         // not-ready so the next call reconnects.
