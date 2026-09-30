@@ -88,6 +88,8 @@ function forkWatchdog(agentBin: string, agentArgs: string[]): ReturnType<typeof 
 }
 
 describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
+  // Cross-platform: IPC disconnect (the hard-kill mechanism) and exit-code
+  // forwarding. These run on every CI leg including windows-latest.
   it("reaps the agent child when the parent IPC disconnects (hard-kill analog)", async () => {
     const pidFile = path.join(tmp, "agent.pid");
     const stub = writeStubAgent(pidFile);
@@ -97,49 +99,12 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     expect(pidAlive(pid)).toBe(true);
 
     // Simulate the owning app being hard-killed: close the IPC channel. The
-    // kernel closes the parent's fds the same way on a real SIGKILL.
+    // kernel closes the parent's fds the same way on a real SIGKILL; this is
+    // the cross-platform mechanism (works on win32 too).
     w.disconnect();
 
     // The watchdog SIGTERMs the agent, then SIGKILLs after a grace.
     const reaped = await waitForReap(pid, 8000);
-    expect(reaped).toBe(true);
-  }, 15_000);
-
-  it("reaps the agent on an explicit SIGTERM dispose (graceful, then escalate)", async () => {
-    const pidFile = path.join(tmp, "agent.pid");
-    const stub = writeStubAgent(pidFile);
-    const w = forkWatchdog(process.execPath, [stub]);
-
-    const pid = await waitForPid(pidFile);
-    expect(pidAlive(pid)).toBe(true);
-
-    w.kill("SIGTERM"); // the transport's explicit dispose path
-
-    // The watchdog SIGTERMs the agent first (graceful flush); the stub exits
-    // on SIGTERM, so it is reaped well before the SIGKILL escalation.
-    const reaped = await waitForReap(pid, 3000);
-    expect(reaped).toBe(true);
-  }, 15_000);
-
-  it("escalates to SIGKILL if the agent ignores SIGTERM", async () => {
-    const pidFile = path.join(tmp, "agent.pid");
-    // A stub that traps SIGTERM and stays alive — the watchdog must escalate.
-    const stub = path.join(tmp, "stub-agent-stubborn.cjs");
-    fs.writeFileSync(
-      stub,
-      `"use strict";\nprocess.on("SIGTERM", () => {});\nrequire("fs").writeFileSync(${JSON.stringify(
-        pidFile
-      )}, String(process.pid));\nsetInterval(() => {}, 60000);`
-    );
-    const w = forkWatchdog(process.execPath, [stub]);
-
-    const pid = await waitForPid(pidFile);
-    expect(pidAlive(pid)).toBe(true);
-
-    w.kill("SIGTERM"); // explicit dispose
-
-    // SIGTERM is ignored; the watchdog escalates to SIGKILL after the grace.
-    const reaped = await waitForReap(pid, 4000);
     expect(reaped).toBe(true);
   }, 15_000);
 
@@ -154,16 +119,60 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     expect(code).toBe(7);
   }, 10_000);
 
-  it("preserves the signal number when the agent dies by signal (not a fixed 129)", async () => {
-    // A stub that kills itself with SIGTERM — the watchdog must forward
-    // 128 + signum (143), not collapse every signal to 129 (Codex P3).
-    const stub = path.join(tmp, "sigterm-agent.cjs");
-    fs.writeFileSync(stub, `"use strict"; process.kill(process.pid, "SIGTERM");`);
-    const w = forkWatchdog(process.execPath, [stub]);
+  // POSIX-only: SIGTERM-driven dispose and signal-number semantics. On win32,
+  // child.kill("SIGTERM") force-terminates via TerminateProcess (handlers
+  // never run) and self-signal exits with code 1, so these would fail
+  // deterministically on the windows-latest CI leg — gate them out.
+  describe.skipIf(process.platform === "win32")("POSIX signal paths", () => {
+    it("reaps the agent on an explicit SIGTERM dispose (graceful, then escalate)", async () => {
+      const pidFile = path.join(tmp, "agent.pid");
+      const stub = writeStubAgent(pidFile);
+      const w = forkWatchdog(process.execPath, [stub]);
 
-    const code = await new Promise<number>((resolve) => {
-      w.on("exit", (c) => resolve(c ?? -1));
-    });
-    expect(code).toBe(128 + 15); // SIGTERM
-  }, 10_000);
+      const pid = await waitForPid(pidFile);
+      expect(pidAlive(pid)).toBe(true);
+
+      w.kill("SIGTERM"); // the transport's explicit dispose path
+
+      // The watchdog SIGTERMs the agent first (graceful flush); the stub exits
+      // on SIGTERM, so it is reaped well before the SIGKILL escalation.
+      const reaped = await waitForReap(pid, 3000);
+      expect(reaped).toBe(true);
+    }, 15_000);
+
+    it("escalates to SIGKILL if the agent ignores SIGTERM", async () => {
+      const pidFile = path.join(tmp, "agent.pid");
+      // A stub that traps SIGTERM and stays alive — the watchdog must escalate.
+      const stub = path.join(tmp, "stub-agent-stubborn.cjs");
+      fs.writeFileSync(
+        stub,
+        `"use strict";\nprocess.on("SIGTERM", () => {});\nrequire("fs").writeFileSync(${JSON.stringify(
+          pidFile
+        )}, String(process.pid));\nsetInterval(() => {}, 60000);`
+      );
+      const w = forkWatchdog(process.execPath, [stub]);
+
+      const pid = await waitForPid(pidFile);
+      expect(pidAlive(pid)).toBe(true);
+
+      w.kill("SIGTERM"); // explicit dispose
+
+      // SIGTERM is ignored; the watchdog escalates to SIGKILL after the grace.
+      const reaped = await waitForReap(pid, 4000);
+      expect(reaped).toBe(true);
+    }, 15_000);
+
+    it("preserves the signal number when the agent dies by signal (not a fixed 129)", async () => {
+      // A stub that kills itself with SIGTERM — the watchdog must forward
+      // 128 + signum (143), not collapse every signal to 129 (Codex P3).
+      const stub = path.join(tmp, "sigterm-agent.cjs");
+      fs.writeFileSync(stub, `"use strict"; process.kill(process.pid, "SIGTERM");`);
+      const w = forkWatchdog(process.execPath, [stub]);
+
+      const code = await new Promise<number>((resolve) => {
+        w.on("exit", (c) => resolve(c ?? -1));
+      });
+      expect(code).toBe(128 + 15); // SIGTERM
+    }, 10_000);
+  });
 });
