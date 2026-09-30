@@ -60,13 +60,15 @@ cat > "$RELEASE_DIR/sbom.json" << SBOMEOF
   },
   "artifacts": $(node -e "
     const fs = require('fs');
-    const path = require('path');
-    const dir = '$RELEASE_DIR';
-    const files = fs.readdirSync(dir).filter(f =>
+    // Read the dir from argv, not a baked-in string: on Windows the path has
+    // backslashes that a baked-in 'C:\Users\...' JS string would mangle (\U,
+    // \r, \n are JS escapes), making readdirSync throw and silently emit [].
+    const dir = process.argv[1];
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f =>
       /\\.(dmg|zip|exe|AppImage|deb|rpm|blockmap|yml)\$/.test(f)
-    );
+    ) : [];
     console.log(JSON.stringify(files));
-  " 2>/dev/null || echo "[]")
+  " "$RELEASE_DIR" 2>/dev/null || echo "[]")
 }
 SBOMEOF
 echo "    sbom.json written"
