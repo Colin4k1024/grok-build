@@ -12,10 +12,12 @@
  *   unit → build → electron-build → e2e → evidence → pack → checksums →
  *   feed-verify → uat → platform install smoke (host only) → user-data-unchanged
  *
- * Outputs (in ./release/ unless --out-dir overrides):
+ * Outputs (the report goes to ./release/ unless --out-dir overrides; the
+ * artifacts electron-builder produces always live in ./release/ and are
+ * scanned there regardless of the report dir):
  *   release-report.json   — machine-readable, one entry per step
  *   release-report.md     — human-readable summary
- *   (checksums.sha256 / sbom.json come from release-checksums.sh)
+ *   (checksums.sha256 / sbom.json come from release-checksums.sh in release/)
  *
  * Exit code 0 only when every step passed; 1 otherwise. The report is always
  * written, even on failure, so a broken release produces a complete failure
@@ -359,6 +361,10 @@ function listArtifacts(dir) {
 // ---- CLI -------------------------------------------------------------------
 
 async function main() {
+  // --out-dir is the REPORT output dir. electron-builder always writes
+  // artifacts to release/ (build.directories.output), so artifact-dependent
+  // steps scan DEFAULT_OUT_DIR regardless of where the report lands — a
+  // custom --out-dir must not make the gate "pass" while scanning an empty dir.
   const outDir = parseOutDirArg(process.argv.slice(2)) ?? DEFAULT_OUT_DIR;
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -366,7 +372,7 @@ async function main() {
   // user-data-unchanged step compares against this.
   const userDataBefore = snapshotSessions(path.join(process.env.GROK_HOME ?? path.join(os.homedir(), ".grok"), "sessions"));
 
-  const steps = defineSteps({ outDir });
+  const steps = defineSteps({ artifactsDir: DEFAULT_OUT_DIR });
   const gate = runReleaseGate({ steps });
 
   // The user-data-unchanged check wraps the whole gate.
@@ -383,8 +389,10 @@ async function main() {
   else gate.passed.push("user-data-unchanged");
 
   const meta = collectMeta();
-  const artifacts = listArtifacts(outDir);
-  const checksumsPath = path.join(outDir, "checksums.sha256");
+  // Artifacts + checksums always live in release/ (electron-builder output),
+  // not the report dir.
+  const artifacts = listArtifacts(DEFAULT_OUT_DIR);
+  const checksumsPath = path.join(DEFAULT_OUT_DIR, "checksums.sha256");
   const checksumsFile = fs.existsSync(checksumsPath)
     ? path.relative(REPO_ROOT, checksumsPath)
     : null;
