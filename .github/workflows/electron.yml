@@ -338,17 +338,17 @@ jobs:
           - platform: macos-latest
             rust-target: aarch64-apple-darwin
             label: macOS ARM
-            release-env: release
           - platform: windows-latest
             rust-target: x86_64-pc-windows-msvc
             label: Windows x64
-            release-env: none
           - platform: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
             label: Linux x64
-            release-env: none
     runs-on: ${{ matrix.platform }}
-    environment: ${{ matrix.release-env == 'none' && '' || matrix.release-env }}
+    # Apple notarization secrets live in the `release` environment; only the
+    # macOS leg needs it. The expression yields '' for non-mac legs, which
+    # GitHub treats as no environment (no deployment record / junk env).
+    environment: ${{ matrix.platform == 'macos-latest' && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
 
