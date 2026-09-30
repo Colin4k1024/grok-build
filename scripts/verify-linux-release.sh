@@ -29,9 +29,17 @@ fi
 APP="$1"
 chmod +x "$APP" 2>/dev/null || true
 
-# 1. Launch under Xvfb. The app does not auto-quit, so background it and bound
-#    the smoke ourselves.
-xvfb-run -a "$APP" --no-sandbox >/dev/null 2>&1 &
+# 1. Launch under Xvfb (or directly if xvfb-run is absent and a display is
+#    available — a local linux desktop with a real DISPLAY + no xvfb). The app
+#    does not auto-quit, so background it and bound the smoke ourselves.
+if command -v xvfb-run >/dev/null 2>&1; then
+  xvfb-run -a "$APP" --no-sandbox >/dev/null 2>&1 &
+elif [ -n "${DISPLAY:-}" ]; then
+  "$APP" --no-sandbox >/dev/null 2>&1 &
+else
+  report 1 "app launched" "no xvfb-run and no DISPLAY — cannot launch headless"
+  exit 1
+fi
 app_pid=$!
 
 # 2. Wait for boot, then confirm the process is alive (it didn't crash on
