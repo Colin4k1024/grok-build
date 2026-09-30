@@ -224,7 +224,12 @@ export function collectMeta() {
   const nodeV = process.versions.node;
   const npmV = (() => {
     try {
-      return spawnSync("npm", ["--version"], { encoding: "utf-8" }).stdout?.trim() ?? "";
+      return spawnSync("npm", ["--version"], {
+        encoding: "utf-8",
+        // win32 has no npm.exe (only npm.cmd); shell:true resolves it, same as
+        // defaultRunner — without this, meta.npm is blank on Windows.
+        shell: process.platform === "win32",
+      }).stdout?.trim() ?? "";
     } catch {
       return "";
     }
