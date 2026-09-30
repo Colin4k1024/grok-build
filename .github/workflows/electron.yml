@@ -320,3 +320,58 @@ jobs:
             release/*.zip
             release/latest*.yml
           if-no-files-found: error
+
+  # R5-10 / #266: the single auditable release gate. Runs `npm run release:gate`
+  # (unit → build → electron → e2e → evidence → pack → checksums → feed-verify →
+  # uat → macos-smoke → user-data-unchanged) and uploads release-report.{json,md}.
+  # `if: always()` on the upload surfaces the failure summary even when the gate
+  # fails. Notarization needs the `release` environment's Apple secrets.
+  release-gate:
+    name: R5 Release Gate (audit report)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: 25.1
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Export PROTOC for build scripts
+        run: echo "PROTOC=$(which protoc)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release gate (single auditable command)
+        run: npm run release:gate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Upload release report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-report
+          path: |
+            release/release-report.json
+            release/release-report.md
+          if-no-files-found: warn
