@@ -35,6 +35,12 @@ describe("checkBundleBudget (R5-06 #262)", () => {
     writeDist(100 * 1024, { "vendor-a.js": 200 * 1024 });
     const r = checkBundleBudget(tmp);
     expect(r.ok).toBe(true);
+    // The entry must be flagged as the entry regardless of the host path
+    // separator (index.html uses forward slashes; path.join would break this
+    // on win32 — Codex P1 regression guard).
+    const entryRow = r.rows.find((row) => row.isEntry);
+    expect(entryRow).toBeTruthy();
+    expect(entryRow.file).toBe("assets/index-abc.js");
     expect(r.entry).toBe("assets/index-abc.js");
   });
 

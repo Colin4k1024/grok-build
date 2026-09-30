@@ -41,8 +41,11 @@ export function checkBundleBudget(distDir) {
   }
 
   const rows = files.map((f) => {
-    const rel = path.join("assets", f);
-    const buf = fs.readFileSync(path.join(distDir, rel));
+    // Forward-slash rel: index.html always references the entry with forward
+    // slashes (regex below), so the entry match must too — path.join would emit
+    // backslashes on win32 and misclassify the entry as a chunk (Codex P1).
+    const rel = `assets/${f}`;
+    const buf = fs.readFileSync(path.join(distDir, "assets", f));
     return {
       file: rel,
       raw: buf.length,
