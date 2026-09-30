@@ -54,12 +54,24 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
     { id: "build", name: "Renderer build + bundle budget", prereqs: ["unit"], cmd: ["npm", "run", "build"] },
     { id: "electron-build", name: "Electron main/preload build", prereqs: ["build"], cmd: ["npm", "run", "electron:build"] },
     { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
-    { id: "pack", name: "Package (electron-builder, --publish never)", prereqs: ["electron-build"], cmd: ["npx", "electron-builder", "--publish", "never", "-c.mac.notarize=true"] },
+    // The pack gate the package/release-mac CI jobs run right before
+    // electron-builder: extraResources only catches a MISSING file, and the
+    // smokes never exercise the pager, so an empty/truncated Rust binary
+    // would otherwise pass the gate and ship an empty-shell installer (the
+    // ISS-071 failure mode check-agent-bin.mjs exists to block).
+    {
+      id: "agent-bins",
+      name: "Pack gate — Rust agent binaries present and non-empty",
+      prereqs: ["electron-build"],
+      cmd: agentBinsCmd(),
+    },
+    { id: "pack", name: "Package (electron-builder, --publish never)", prereqs: ["agent-bins", "electron-build"], cmd: ["npx", "electron-builder", "--publish", "never", "-c.mac.notarize=true"] },
     // e2e's fixture resolves the packed app from release/* — it MUST run after
     // pack. The Playwright visual snapshots have darwin-only baselines (#261),
     // so the suite is darwin-only (ci.yml runs e2e on mac only); skip on
-    // win/linux to avoid a snapshot-baseline mismatch red. On linux, Electron
-    // also needs a display (xvfb-run if present).
+    // win/linux to avoid a snapshot-baseline mismatch red. (The LINUX smoke is
+    // what needs a virtual display — verify-linux-release.sh starts its own
+    // Xvfb — not e2e.)
     {
       id: "e2e",
       name: "Electron Playwright E2E",
@@ -120,6 +132,21 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
       platform: "win32",
       cmd: () => { const e = find(".exe")(); return e ? ["bash", "scripts/verify-windows-release.sh", e] : null; },
     },
+  ];
+}
+
+/** The pre-pack agent-binary gate, mirroring the package/release-mac CI jobs
+ *  (electron-builder is only told the extraResources PATHS — a present-but-
+ *  empty binary packs fine and the smokes never exercise the pager). One
+ *  binary per call, chained — check-agent-bin.mjs takes a single path. The
+ *  win32 build bundles xai-grok-pager.exe / ptyctl.exe.
+ *  @param {NodeJS.Platform} [platform] defaults to process.platform
+ *  @returns {string[]} */
+export function agentBinsCmd(platform = process.platform) {
+  const ext = platform === "win32" ? ".exe" : "";
+  return [
+    "bash", "-c",
+    `node scripts/check-agent-bin.mjs target/release/xai-grok-pager${ext} && node scripts/check-agent-bin.mjs target/release/ptyctl${ext}`,
   ];
 }
 

@@ -399,9 +399,10 @@ jobs:
             cp "target/${{ matrix.rust-target }}/release/ptyctl" target/release/ptyctl
           fi
 
-      # The ubuntu leg's e2e step launches Electron, which needs a display;
-      # the gate wraps e2e in xvfb-run only when xvfb-run is present (CI installs
-      # it here; a local linux box with a real display runs plain).
+      # The ubuntu leg's linux-smoke step launches the packaged AppImage, which
+      # needs a display; verify-linux-release.sh starts its OWN dedicated Xvfb
+      # when DISPLAY is absent (CI has none). e2e itself is darwin-only
+      # (Playwright snapshot baselines, #261).
       - name: Install Xvfb (linux only)
         if: matrix.platform == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y xvfb

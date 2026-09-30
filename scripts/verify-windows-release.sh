@@ -2,7 +2,7 @@
 # Windows release verification (R5-10 / #266).
 #
 # Usage (Git Bash on windows-latest CI):
-#   scripts/verify-windows-release.sh release/Grok-Build-Setup-0.1.0.exe
+#   scripts/verify-windows-release.sh release/Grok-Build-0.1.0-x64.exe
 #
 # Silently installs the NSIS setup, launches the app, confirms a window
 # process exists, exits it, then silently uninstalls and verifies nothing is

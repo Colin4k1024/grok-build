@@ -14,6 +14,7 @@ import {
   snapshotSessions,
   parseOutDirArg,
   shellForCommand,
+  agentBinsCmd,
 } from "../release-gate.mjs";
 
 /** A runner that returns pass for everything. */
@@ -189,12 +190,17 @@ describe("defineSteps", () => {
     const ids = steps.map((s) => s.id);
     expect(ids).toContain("unit");
     expect(ids).toContain("build");
+    expect(ids).toContain("agent-bins");
     expect(ids).toContain("pack");
     expect(ids).toContain("uat");
     expect(ids).toContain("macos-smoke");
-    // pack depends on electron-build, which depends on build
+    // pack depends on the agent-binary gate, which depends on electron-build
     const pack = steps.find((s) => s.id === "pack");
-    expect(pack.prereqs).toContain("electron-build");
+    expect(pack.prereqs).toContain("agent-bins");
+    const bins = steps.find((s) => s.id === "agent-bins");
+    expect(bins.prereqs).toContain("electron-build");
+    // the binary gate runs BEFORE pack in the array (it's a pre-pack check).
+    expect(ids.indexOf("agent-bins")).toBeLessThan(ids.indexOf("pack"));
     // pack pins --publish never (a gate must not auto-publish on a tag).
     expect(pack.cmd.join(" ")).toMatch(/--publish never/);
     // e2e runs AFTER pack in the array (its fixture needs the packed app).
@@ -281,6 +287,27 @@ describe("shellForCommand", () => {
   });
 });
 
+describe("agentBinsCmd", () => {
+  // The gate must carry the pre-pack agent-binary check the CI jobs run
+  // (extraResources only catches a MISSING file — an empty binary would pack
+  // and smoke-pass as an empty-shell installer, the ISS-071 failure mode).
+  it("checks BOTH Rust agent binaries, chained via bash -c", () => {
+    const cmd = agentBinsCmd("darwin");
+    expect(cmd[0]).toBe("bash");
+    expect(cmd[1]).toBe("-c");
+    expect(cmd[2]).toMatch(/xai-grok-pager\b/);
+    expect(cmd[2]).toMatch(/ptyctl\b/);
+    expect(cmd[2]).toMatch(/&&/);
+  });
+
+  it("suffixes .exe only on win32 (extraResources bundle the .exe names)", () => {
+    expect(agentBinsCmd("win32")[2]).toMatch(/xai-grok-pager\.exe/);
+    expect(agentBinsCmd("win32")[2]).toMatch(/ptyctl\.exe/);
+    expect(agentBinsCmd("darwin")[2]).not.toMatch(/\.exe/);
+    expect(agentBinsCmd("linux")[2]).not.toMatch(/\.exe/);
+  });
+});
+
 describe("collectMeta", () => {
   it("records platform, arch, node version, and a commit hash", () => {
     const meta = collectMeta();
@@ -356,7 +383,10 @@ describe("latestUatRunCmd", () => {
 
   it("fails locally (no CI) when no run exists, with an actionable reminder", () => {
     const { latestUatRunCmd } = require("../release-gate.mjs");
-    const cmd = latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: undefined });
+    // ci: "" pins the LOCAL branch — ci: undefined would fall through to
+    // process.env.CI, and under GitHub Actions (CI=true) this test would get
+    // the {skip} object instead of the bash command and crash on cmd.join.
+    const cmd = latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: "" });
     expect(cmd).not.toBeNull();
     expect(cmd.join(" ")).toMatch(/no UAT run recorded/);
   });

@@ -21,13 +21,14 @@ independent runnable step still runs — the report is always complete.
 | build | unit | `npm run build` (tsc + vite + bundle budget gate) |
 | electron-build | build | `npm run electron:build` |
 | evidence | unit | `npm run evidence` |
-| pack | electron-build | `npx electron-builder --publish never` |
-| e2e | pack | `npm run test:e2e` (xvfb-run on linux if present) |
+| agent-bins | electron-build | `check-agent-bin.mjs xai-grok-pager[.exe] && … ptyctl[.exe]` (pre-pack CI gate) |
+| pack | agent-bins | `npx electron-builder --publish never` |
+| e2e | pack (darwin) | `npm run test:e2e` (Playwright snapshots are darwin-only, #261) |
 | checksums | pack | `scripts/release-checksums.sh` |
 | feed-verify | pack | `scripts/verify-update-feed.mjs <latest*.yml> <release/>` |
 | uat | pack | `desktop-uat.mjs report --strict --run <latest>` (skip in CI; human-driven) |
 | macos-smoke | pack (darwin) | `scripts/verify-macos-release.sh <dmg>` |
-| linux-smoke | pack (linux) | `scripts/verify-linux-release.sh <AppImage>` |
+| linux-smoke | pack (linux) | `scripts/verify-linux-release.sh <AppImage>` (own Xvfb; extract-and-run when libfuse2 is absent) |
 | windows-smoke | pack (win32) | `scripts/verify-windows-release.sh <exe>` |
 | user-data-unchanged | (wraps the whole gate) | `~/.grok/sessions` sha256 (names+sizes) before == after |
 
