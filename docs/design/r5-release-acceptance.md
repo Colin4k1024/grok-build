@@ -21,7 +21,7 @@ independent runnable step still runs — the report is always complete.
 | build | unit | `npm run build` (tsc + vite + bundle budget gate) |
 | electron-build | build | `npm run electron:build` |
 | evidence | unit | `npm run evidence` |
-| pack | electron-build | `npm run electron:pack` |
+| pack | electron-build | `npx electron-builder --publish never` |
 | e2e | pack | `npm run test:e2e` (xvfb-run on linux if present) |
 | checksums | pack | `scripts/release-checksums.sh` |
 | feed-verify | pack | `scripts/verify-update-feed.mjs <latest*.yml> <release/>` |

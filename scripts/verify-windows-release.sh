@@ -96,7 +96,12 @@ for _ in $(seq 1 100); do
   [ -f "$APP_EXE" ] || { cleaned=1; break; }
   sleep 0.3
 done
-report "$cleaned" "install dir cleaned" "app still present after uninstall (polled ~30s)"
+# report: 0 = PASS. cleaned=1 means the app exe was removed (success).
+if [ "$cleaned" -eq 1 ]; then
+  report 0 "install dir cleaned"
+else
+  report 1 "install dir cleaned" "app still present after uninstall (polled ~30s)"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "windows release verification FAILED ($failures checks)"
