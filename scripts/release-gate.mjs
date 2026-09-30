@@ -7,9 +7,9 @@
  *
  *   npm run release:gate
  *
- * Sequence (continue-on-failure; a step whose prerequisite failed is skipped,
- * not run — but every runnable step runs so the report is complete):
- *   unit → build → electron-build → e2e → evidence → pack → checksums →
+ * Sequence (continue-on-failure; a step whose prerequisite failed — or hasn't
+ * run yet — is skipped, not run, so misordered steps can't run vacuously):
+ *   unit → build → electron-build → evidence → pack → e2e → checksums →
  *   feed-verify → uat → platform install smoke (host only) → user-data-unchanged
  *
  * Outputs (the report goes to ./release/ unless --out-dir overrides; the
