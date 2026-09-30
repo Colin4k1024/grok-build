@@ -82,8 +82,10 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
       name: "Linux AppImage launch smoke (Xvfb)",
       prereqs: ["pack"],
       platform: "linux",
+      // Bounded by verify-linux-release.sh (launch → confirm alive → terminate);
+      // a bare `xvfb-run -a <AppImage>` would hang CI — Electron never self-exits.
       cmd: findArtifact(releaseDir, ".AppImage")
-        ? ["xvfb-run", "-a", findArtifact(releaseDir, ".AppImage"), "--no-sandbox"]
+        ? ["bash", "scripts/verify-linux-release.sh", findArtifact(releaseDir, ".AppImage")]
         : null,
     },
     {
