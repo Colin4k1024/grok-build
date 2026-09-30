@@ -13,6 +13,7 @@ import {
   defineSteps,
   snapshotSessions,
   parseOutDirArg,
+  shellForCommand,
 } from "../release-gate.mjs";
 
 /** A runner that returns pass for everything. */
@@ -250,6 +251,32 @@ describe("defineSteps", () => {
       expect(cmdStr).toContain("latest-linux.yml");
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("shellForCommand", () => {
+  // Regression (#266 review P2): a blanket win32 shell:true flattened argv —
+  // cmd.exe stripped the quoting around `bash -c "<chain>"` so the chain's
+  // &&/; never reached bash as one argument and failing chains (feed-verify,
+  // the UAT no-run reminder) passed vacuously on Windows.
+  it("enables shell ONLY for npm/npx shims on win32", () => {
+    expect(shellForCommand("npm", "win32")).toBe(true);
+    expect(shellForCommand("npx", "win32")).toBe(true);
+    expect(shellForCommand("npm.cmd", "win32")).toBe(true);
+  });
+
+  it("never shells bash/node commands on win32 (argv must stay intact)", () => {
+    expect(shellForCommand("bash", "win32")).toBe(false);
+    expect(shellForCommand("node", "win32")).toBe(false);
+  });
+
+  it("never shells anything on POSIX platforms", () => {
+    for (const p of ["darwin", "linux"]) {
+      expect(shellForCommand("npm", p)).toBe(false);
+      expect(shellForCommand("npx", p)).toBe(false);
+      expect(shellForCommand("bash", p)).toBe(false);
+      expect(shellForCommand("node", p)).toBe(false);
     }
   });
 });

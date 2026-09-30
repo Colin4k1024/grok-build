@@ -241,9 +241,9 @@ export function collectMeta() {
     try {
       return spawnSync("npm", ["--version"], {
         encoding: "utf-8",
-        // win32 has no npm.exe (only npm.cmd); shell:true resolves it, same as
-        // defaultRunner — without this, meta.npm is blank on Windows.
-        shell: process.platform === "win32",
+        // npm is a .cmd shim on win32 — same shell policy as defaultRunner
+        // (without this, meta.npm is blank on Windows).
+        shell: shellForCommand("npm"),
       }).stdout?.trim() ?? "";
     } catch {
       return "";
@@ -306,16 +306,27 @@ function renderMarkdown(report) {
 
 // ---- defaults + helpers -----------------------------------------------------
 
+/** Whether a command must be spawned with shell:true on the given platform.
+ *  On win32, npm/npx exist only as .cmd shims, which Node (>=18, after
+ *  CVE-2024-27980) refuses to spawn without a shell — so the shims need it.
+ *  A blanket shell:true, though, flattens argv for every other command:
+ *  cmd.exe strips the quoting around `bash -c "<chain>"`, so the chain's
+ *  `&&`/`;` never reach bash as ONE argument and a failing chain (feed-verify,
+ *  the UAT no-run reminder) can pass vacuously. shell is therefore enabled
+ *  ONLY for the npm/npx shims; bash/node keep their argv on every platform.
+ *  @param {string} cmdHead the executable being spawned (cmd[0])
+ *  @param {NodeJS.Platform} [platform] defaults to process.platform
+ *  @returns {boolean} */
+export function shellForCommand(cmdHead, platform = process.platform) {
+  return platform === "win32" && /^(npm|npx)(\.cmd)?$/i.test(cmdHead);
+}
+
 function defaultRunner(cmd) {
-  // On win32 there is no npm.exe — npm is npm.cmd, and spawnSync without a
-  // shell can't execute .cmd shims (ENOENT). shell:true lets the OS resolve
-  // npm/node on every platform. The commands are hardcoded (no user input),
-  // so shell quoting is not a concern here.
   const r = spawnSync(cmd[0], cmd.slice(1), {
     cwd: REPO_ROOT,
     encoding: "utf-8",
     maxBuffer: 10 * 1024 * 1024,
-    shell: process.platform === "win32",
+    shell: shellForCommand(cmd[0]),
   });
   const output = (r.stdout ?? "") + (r.stderr ?? "");
   return { status: r.status === 0 ? 0 : 1, output: output.trim() };
