@@ -130,4 +130,17 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     });
     expect(code).toBe(7);
   }, 10_000);
+
+  it("preserves the signal number when the agent dies by signal (not a fixed 129)", async () => {
+    // A stub that kills itself with SIGTERM — the watchdog must forward
+    // 128 + signum (143), not collapse every signal to 129 (Codex P3).
+    const stub = path.join(tmp, "sigterm-agent.cjs");
+    fs.writeFileSync(stub, `"use strict"; process.kill(process.pid, "SIGTERM");`);
+    const w = forkWatchdog(process.execPath, [stub]);
+
+    const code = await new Promise<number>((resolve) => {
+      w.on("exit", (c) => resolve(c ?? -1));
+    });
+    expect(code).toBe(128 + 15); // SIGTERM
+  }, 10_000);
 });

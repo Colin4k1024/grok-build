@@ -21,6 +21,7 @@
 "use strict";
 
 const { spawn } = require("node:child_process");
+const os = require("node:os");
 
 const [agentBin, agentArgsJson] = process.argv.slice(2);
 if (!agentBin) {
@@ -69,7 +70,17 @@ child.on("error", (e) => {
 });
 child.on("exit", (code, signal) => {
   // Forward the agent's exit so the transport's crash/restart path surfaces
-  // correctly (it watches this process's exit).
-  const exitCode = typeof code === "number" ? code : (signal ? 128 + 1 : 0);
+  // correctly (it watches this process's exit). Preserve the signal number
+  // (128 + signum, the shell convention) so an OOM-kill (137) is distinct from
+  // a SIGTERM reap (143) or a segfault (139) — not collapsed to a fixed 129.
+  let exitCode;
+  if (typeof code === "number") {
+    exitCode = code;
+  } else if (signal) {
+    const signum = os.constants.signals[signal];
+    exitCode = typeof signum === "number" ? 128 + signum : 1;
+  } else {
+    exitCode = 0;
+  }
   process.exit(exitCode);
 });
