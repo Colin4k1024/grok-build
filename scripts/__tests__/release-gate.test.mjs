@@ -310,11 +310,21 @@ describe("parseOutDirArg", () => {
 });
 
 describe("latestUatRunCmd", () => {
-  it("skips (null) in CI when no recorded run exists (.uat/ is gitignored)", () => {
+  it("skips with a specific reason in CI when no recorded run exists (.uat/ is gitignored)", () => {
     const { latestUatRunCmd } = require("../release-gate.mjs");
-    // A fresh CI checkout has no .uat/runs — the step must skip, not fail, or
-    // the release-gate job is permanently red on every tag push.
-    expect(latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: "1" })).toBeNull();
+    // A fresh CI checkout has no .uat/runs — the step must skip (not fail), or
+    // the release-gate job is permanently red on every tag push. The skip
+    // reason must say UAT is human-driven, not "missing prerequisite artifact."
+    const r = latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: "1" });
+    expect(r).not.toBeNull();
+    expect(r).not.toBeNull();
+    expect(r.skip).toMatch(/human-driven/);
+  });
+
+  it("a lazy cmd returning {skip} propagates the custom reason (not the generic artifact one)", () => {
+    const r = runStep({ id: "uat", name: "UAT", cmd: () => ({ skip: "human-driven" }) }, passRunner);
+    expect(r.status).toBe("skipped");
+    expect(r.skipReason).toBe("human-driven");
   });
 
   it("fails locally (no CI) when no run exists, with an actionable reminder", () => {

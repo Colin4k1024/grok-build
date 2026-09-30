@@ -141,7 +141,9 @@ export function latestUatRunCmd({ runsDir = path.join(REPO_ROOT, ".uat", "runs")
   } catch { /* fall through */ }
   // No recorded run. In CI there never is one (.uat/ is gitignored) — skip
   // rather than fail: UAT is human-driven, verified at the release window.
-  if (ci) return null;
+  // Return a SPECIFIC skip reason so the report doesn't misattribute it to a
+  // missing prerequisite artifact.
+  if (ci) return { skip: "no UAT run recorded (UAT is human-driven; verified at the release window, not in CI)" };
   return ["bash", "-c", "echo 'no UAT run recorded — run `npm run uat:prepare && npm run uat:run` (human-driven) first, then re-run the gate' >&2; exit 1"];
 }
 
@@ -156,7 +158,13 @@ export function latestUatRunCmd({ runsDir = path.join(REPO_ROOT, ".uat", "runs")
  * @returns {StepResult}
  */
 export function runStep(step, runner = defaultRunner) {
-  const cmd = typeof step.cmd === "function" ? step.cmd() : step.cmd;
+  let cmd = typeof step.cmd === "function" ? step.cmd() : step.cmd;
+  // A lazy cmd may return { skip: "reason" } to skip with a SPECIFIC reason
+  // (e.g. the uat step skips in CI because UAT is human-driven, not because a
+  // prereq artifact is missing — the generic reason would misreport it).
+  if (cmd && typeof cmd === "object" && !Array.isArray(cmd) && "skip" in cmd) {
+    return { id: step.id, name: step.name, status: "skipped", durationMs: 0, skipReason: cmd.skip };
+  }
   if (cmd === null) {
     return { id: step.id, name: step.name, status: "skipped", durationMs: 0, skipReason: "no artifact produced by a prerequisite" };
   }
