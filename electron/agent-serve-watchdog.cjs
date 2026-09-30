@@ -43,26 +43,26 @@ const child = spawn(agentBin, agentArgs, {
 });
 
 let shuttingDown = false;
-/** @param {boolean} immediate — true on an explicit transport SIGTERM (kill
- *  fast); false on parent-disconnect (we have time, no one is killing us). */
-function reapThenExit(immediate) {
+/** SIGTERM the agent (let it flush journals/session state), then SIGKILL after
+ *  a grace. Same path for parent-disconnect and explicit transport dispose —
+ *  the watchdog runs as its own process, so the grace is affordable either way
+ *  (the transport stops watching after its 200ms, but this process reaps to
+ *  completion). Never SIGKILL outright: that would deny the journal-writing
+ *  agent its graceful-shutdown window (Codex review P2). */
+function reapThenExit() {
   if (shuttingDown) return;
   shuttingDown = true;
-  try { child.kill(immediate ? "SIGKILL" : "SIGTERM"); } catch { /* already dead */ }
-  if (immediate) {
-    setTimeout(() => process.exit(0), 50);
-  } else {
-    setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* dead */ } }, 2000);
-    setTimeout(() => process.exit(0), 2200);
-  }
+  try { child.kill("SIGTERM"); } catch { /* already dead */ }
+  setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* dead */ } }, 2000);
+  setTimeout(() => process.exit(0), 2200);
 }
 
 // Parent gone (IPC closed) — the primary signal for hard-kill/crash. Fires
 // even when the parent was SIGKILLed, because the kernel closes its fds.
-process.on("disconnect", () => reapThenExit(false));
-// Explicit dispose from the transport — reap immediately.
-process.on("SIGTERM", () => reapThenExit(true));
-process.on("SIGINT", () => reapThenExit(true));
+process.on("disconnect", reapThenExit);
+// Explicit dispose from the transport — same graceful reap.
+process.on("SIGTERM", reapThenExit);
+process.on("SIGINT", reapThenExit);
 
 child.on("error", (e) => {
   console.error(`[agent-serve-watchdog] child spawn error: ${e.message}`);

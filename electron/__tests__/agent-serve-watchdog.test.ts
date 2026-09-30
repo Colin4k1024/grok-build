@@ -105,7 +105,7 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
     expect(reaped).toBe(true);
   }, 15_000);
 
-  it("reaps the agent immediately on an explicit SIGTERM (transport dispose)", async () => {
+  it("reaps the agent on an explicit SIGTERM dispose (graceful, then escalate)", async () => {
     const pidFile = path.join(tmp, "agent.pid");
     const stub = writeStubAgent(pidFile);
     const w = forkWatchdog(process.execPath, [stub]);
@@ -115,10 +115,33 @@ describe("agent-serve parent-death watchdog (R5-08 #272)", () => {
 
     w.kill("SIGTERM"); // the transport's explicit dispose path
 
-    // Immediate SIGKILL path — well under the grace timeout.
-    const reaped = await waitForReap(pid, 2000);
+    // The watchdog SIGTERMs the agent first (graceful flush); the stub exits
+    // on SIGTERM, so it is reaped well before the SIGKILL escalation.
+    const reaped = await waitForReap(pid, 3000);
     expect(reaped).toBe(true);
-  }, 10_000);
+  }, 15_000);
+
+  it("escalates to SIGKILL if the agent ignores SIGTERM", async () => {
+    const pidFile = path.join(tmp, "agent.pid");
+    // A stub that traps SIGTERM and stays alive — the watchdog must escalate.
+    const stub = path.join(tmp, "stub-agent-stubborn.cjs");
+    fs.writeFileSync(
+      stub,
+      `"use strict";\nprocess.on("SIGTERM", () => {});\nrequire("fs").writeFileSync(${JSON.stringify(
+        pidFile
+      )}, String(process.pid));\nsetInterval(() => {}, 60000);`
+    );
+    const w = forkWatchdog(process.execPath, [stub]);
+
+    const pid = await waitForPid(pidFile);
+    expect(pidAlive(pid)).toBe(true);
+
+    w.kill("SIGTERM"); // explicit dispose
+
+    // SIGTERM is ignored; the watchdog escalates to SIGKILL after the grace.
+    const reaped = await waitForReap(pid, 4000);
+    expect(reaped).toBe(true);
+  }, 15_000);
 
   it("forwards the agent's exit code to the transport", async () => {
     const stub = path.join(tmp, "exit-agent.cjs");

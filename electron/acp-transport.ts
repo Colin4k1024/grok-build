@@ -21,7 +21,7 @@
  * per-tab stdio `AcpSession` model. The transport is not constructed.
  */
 
-import { spawn, fork, type ChildProcess } from "node:child_process";
+import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
