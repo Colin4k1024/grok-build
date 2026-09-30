@@ -375,6 +375,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron-builder's extraResources pull target/release/xai-grok-pager +
+      # ptyctl; a fresh CI checkout has neither, so the gate's pack step would
+      # fail with "file source doesn't exist". Build + stage them first (mirrors
+      # the package job).
+      - name: Build Rust agent binary
+        run: cargo build --release --target ${{ matrix.rust-target }} -p xai-grok-pager-bin -p ptyctl-cli
+
+      - name: Stage agent binary
+        shell: bash
+        run: |
+          mkdir -p target/release
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.rust-target }}/release/xai-grok-pager.exe" target/release/xai-grok-pager.exe
+            cp "target/${{ matrix.rust-target }}/release/ptyctl.exe" target/release/ptyctl.exe
+          else
+            cp "target/${{ matrix.rust-target }}/release/xai-grok-pager" target/release/xai-grok-pager
+            cp "target/${{ matrix.rust-target }}/release/ptyctl" target/release/ptyctl
+          fi
+
+      # The ubuntu leg's e2e/uat steps launch Electron, which needs a display;
+      # xvfb-run is provided by verify-linux-release.sh for the smoke step, but
+      # the gate's e2e step wraps itself in xvfb-run only if xvfb is present.
+      - name: Install Xvfb (linux only)
+        if: matrix.platform == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Run release gate (single auditable command)
         run: npm run release:gate
         env:

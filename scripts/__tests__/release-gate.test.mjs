@@ -183,10 +183,33 @@ describe("defineSteps", () => {
     expect(mac.platform).toBe("darwin");
   });
 
-  it("feed-verify cmd is null when no manifest exists (skips gracefully)", () => {
+  it("feed-verify cmd resolves to null when no manifest exists (skips gracefully)", () => {
     const steps = defineSteps({ outDir: "/tmp/nope-no-artifacts" });
     const feed = steps.find((s) => s.id === "feed-verify");
-    expect(feed.cmd).toBeNull();
+    // cmd is a lazy function resolved at run time (after pack); call it.
+    const resolved = typeof feed.cmd === "function" ? feed.cmd() : feed.cmd;
+    expect(resolved).toBeNull();
+  });
+
+  it("resolves smoke/feed cmd lazily at run time (after pack), not at define time", () => {
+    // A fresh dir has no artifacts; the lazy cmds return null (skip) until pack
+    // produces them. This is the core fix for "smoke steps silently skipped."
+    const tmp = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "gb-lazy-"));
+    try {
+      const steps = defineSteps({ outDir: tmp });
+      const mac = steps.find((s) => s.id === "macos-smoke");
+      const feed = steps.find((s) => s.id === "feed-verify");
+      // Before any artifact: both resolve to null.
+      expect((typeof mac.cmd === "function" ? mac.cmd() : mac.cmd)).toBeNull();
+      expect((typeof feed.cmd === "function" ? feed.cmd() : feed.cmd)).toBeNull();
+      // Simulate pack producing a manifest + DMG.
+      require("node:fs").writeFileSync(require("node:path").join(tmp, "latest-mac.yml"), "version: 1.0\n");
+      require("node:fs").writeFileSync(require("node:path").join(tmp, "x.dmg"), "dmg");
+      expect((typeof feed.cmd === "function" ? feed.cmd() : feed.cmd)).not.toBeNull();
+      expect((typeof mac.cmd === "function" ? mac.cmd() : mac.cmd)).not.toBeNull();
+    } finally {
+      require("node:fs").rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

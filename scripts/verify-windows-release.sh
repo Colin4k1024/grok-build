@@ -49,7 +49,10 @@ report $? "silent install" "NSIS setup exited non-zero"
 APP_EXE="$INSTALL_DIR/$APP_NAME.exe"
 [ -f "$APP_EXE" ]
 report $? "installed app exists" "$APP_EXE missing after install"
-UNINSTALLER="$INSTALL_DIR/uninstall.exe"
+# electron-builder's NSIS template names the uninstaller "Uninstall <product>.exe"
+# (with the spaced productName), not uninstall.exe — glob for it so the
+# uninstall step actually runs.
+UNINSTALLER="$(find "$INSTALL_DIR" -maxdepth 1 -iname 'uninstall*.exe' | head -n1)"
 
 # 2. Launch and confirm a process/window exists.
 if [ -f "$APP_EXE" ]; then

@@ -40,17 +40,28 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 /** Default output directory for reports + artifacts. */
 export const DEFAULT_OUT_DIR = path.join(REPO_ROOT, "release");
 
-/** The real release-gate step sequence. `cmd` is run via the runner. */
+/** The real release-gate step sequence. Artifact-dependent `cmd`s are LAZY
+ *  functions resolved at RUN time (after `pack` has produced artifacts), so
+ *  a fresh checkout doesn't skip every smoke/feed step. Platform-dependent
+ *  steps (e2e on linux needs Xvfb) branch on process.platform. */
 export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
   const releaseDir = artifactsDir ?? outDir;
-  const dmg = findArtifact(releaseDir, ".dmg");
-  const app = findArtifact(releaseDir, ".app");
-  const latestYml = findLatestManifest(releaseDir);
+  const find = (ext) => () => findArtifact(releaseDir, ext);
   return [
     { id: "unit", name: "Unit + integration tests", cmd: ["npm", "test"] },
     { id: "build", name: "Renderer build + bundle budget", prereqs: ["unit"], cmd: ["npm", "run", "build"] },
     { id: "electron-build", name: "Electron main/preload build", prereqs: ["build"], cmd: ["npm", "run", "electron:build"] },
-    { id: "e2e", name: "Electron Playwright E2E", prereqs: ["build"], cmd: ["npm", "run", "test:e2e"] },
+    // e2e's fixture resolves the packed app from release/* — it needs pack,
+    // not build. On linux, Electron needs a display, so wrap in xvfb-run.
+    {
+      id: "e2e",
+      name: "Electron Playwright E2E",
+      prereqs: ["pack"],
+      cmd: () =>
+        process.platform === "linux"
+          ? ["xvfb-run", "-a", "npm", "run", "test:e2e"]
+          : ["npm", "run", "test:e2e"],
+    },
     { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
     { id: "pack", name: "Package (electron-builder)", prereqs: ["electron-build"], cmd: ["npm", "run", "electron:pack"] },
     {
@@ -63,59 +74,83 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
       id: "feed-verify",
       name: "Update-feed manifest consistency",
       prereqs: ["pack"],
-      // verify-update-feed needs a manifest; skip gracefully if pack produced none.
-      cmd: latestYml
-        ? ["node", "scripts/verify-update-feed.mjs", latestYml, releaseDir]
-        : null,
+      cmd: () => {
+        const m = findLatestManifest(releaseDir);
+        return m ? ["node", "scripts/verify-update-feed.mjs", m, releaseDir] : null;
+      },
     },
-    { id: "uat", name: "Desktop UAT (strict report)", prereqs: ["pack"], cmd: ["npm", "run", "uat:run"] },
+    // UAT is human-driven (cmdRun blocks until the operator quits the app);
+    // the gate verifies the LATEST run's strict report rather than launching
+    // an interactive session. Fails clearly if no run is recorded.
+    {
+      id: "uat",
+      name: "Desktop UAT strict report (latest run)",
+      prereqs: ["pack"],
+      cmd: () => latestUatRunCmd(),
+    },
     {
       id: "macos-smoke",
       name: "macOS DMG signature + launch smoke",
       prereqs: ["pack"],
       platform: "darwin",
-      // verify-macos-release verifies the app/DMG (codesign/spctl/staple/launch).
-      cmd: dmg ? ["bash", "scripts/verify-macos-release.sh", dmg] : null,
+      cmd: () => { const d = find(".dmg")(); return d ? ["bash", "scripts/verify-macos-release.sh", d] : null; },
     },
     {
       id: "linux-smoke",
       name: "Linux AppImage launch smoke (Xvfb)",
       prereqs: ["pack"],
       platform: "linux",
-      // Bounded by verify-linux-release.sh (launch → confirm alive → terminate);
-      // a bare `xvfb-run -a <AppImage>` would hang CI — Electron never self-exits.
-      cmd: findArtifact(releaseDir, ".AppImage")
-        ? ["bash", "scripts/verify-linux-release.sh", findArtifact(releaseDir, ".AppImage")]
-        : null,
+      cmd: () => { const a = find(".AppImage")(); return a ? ["bash", "scripts/verify-linux-release.sh", a] : null; },
     },
     {
       id: "windows-smoke",
       name: "Windows install/launch/exit/uninstall smoke",
       prereqs: ["pack"],
       platform: "win32",
-      cmd: findArtifact(releaseDir, ".exe")
-        ? ["bash", "scripts/verify-windows-release.sh", findArtifact(releaseDir, ".exe")]
-        : null,
+      cmd: () => { const e = find(".exe")(); return e ? ["bash", "scripts/verify-windows-release.sh", e] : null; },
     },
   ];
 }
 
+/** Find the latest UAT run id (most recent dir under .uat/runs/) and build a
+ *  `report --strict` command; if no run exists, return a command that fails
+ *  with an actionable message (UAT is human-driven — the gate can't conjure
+ *  a run, only verify one was completed). */
+function latestUatRunCmd() {
+  const runsDir = path.join(REPO_ROOT, ".uat", "runs");
+  try {
+    if (fs.existsSync(runsDir)) {
+      const latest = fs
+        .readdirSync(runsDir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort()
+        .pop();
+      if (latest) return ["node", "scripts/desktop-uat.mjs", "report", "--strict", "--run", latest];
+    }
+  } catch { /* fall through to the failing diagnostic */ }
+  return ["bash", "-c", "echo 'no UAT run recorded — run `npm run uat:prepare && npm run uat:run` (human-driven) first, then re-run the gate' >&2; exit 1"];
+}
+
 /**
  * Run a step's command via the injected runner (default: spawnSync). The
- * caller is responsible for platform gating and prereq skipping; this only
- * executes the command. A null cmd → skipped (no artifact to test).
+ * caller handles platform gating and prereq skipping; this resolves a lazy
+ * `cmd` (function) at RUN time — after prerequisites like `pack` have
+ * produced artifacts — so artifact-dependent steps scan the release dir when
+ * they actually run, not before the gate starts. A null cmd → skipped.
  * @param {Step} step
  * @param {(cmd: string[]) => { status: 0|1, output: string }} runner
  * @returns {StepResult}
  */
 export function runStep(step, runner = defaultRunner) {
-  if (step.cmd === null) {
+  const cmd = typeof step.cmd === "function" ? step.cmd() : step.cmd;
+  if (cmd === null) {
     return { id: step.id, name: step.name, status: "skipped", durationMs: 0, skipReason: "no artifact produced by a prerequisite" };
   }
   const start = Date.now();
   let res;
   try {
-    res = runner(step.cmd);
+    res = runner(cmd);
   } catch (e) {
     return { id: step.id, name: step.name, status: "fail", durationMs: Date.now() - start, output: String(e?.message ?? e) };
   }
@@ -242,7 +277,16 @@ function renderMarkdown(report) {
 // ---- defaults + helpers -----------------------------------------------------
 
 function defaultRunner(cmd) {
-  const r = spawnSync(cmd[0], cmd.slice(1), { cwd: REPO_ROOT, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 });
+  // On win32 there is no npm.exe — npm is npm.cmd, and spawnSync without a
+  // shell can't execute .cmd shims (ENOENT). shell:true lets the OS resolve
+  // npm/node on every platform. The commands are hardcoded (no user input),
+  // so shell quoting is not a concern here.
+  const r = spawnSync(cmd[0], cmd.slice(1), {
+    cwd: REPO_ROOT,
+    encoding: "utf-8",
+    maxBuffer: 10 * 1024 * 1024,
+    shell: process.platform === "win32",
+  });
   const output = (r.stdout ?? "") + (r.stderr ?? "");
   return { status: r.status === 0 ? 0 : 1, output: output.trim() };
 }
@@ -260,7 +304,10 @@ function findArtifact(dir, ext) {
 function findLatestManifest(dir) {
   try {
     if (!fs.existsSync(dir)) return null;
-    return fs.readdirSync(dir).find((f) => /^latest.*\.yml$/i.test(f)) ?? null;
+    const found = fs.readdirSync(dir).find((f) => /^latest.*\.yml$/i.test(f));
+    // Return the full path (verify-update-feed reads it relative to cwd,
+    // so a bare filename resolves to <repo>/latest-mac.yml which doesn't exist).
+    return found ? path.join(dir, found) : null;
   } catch {
     return null;
   }
@@ -322,7 +369,10 @@ async function main() {
 
   const meta = collectMeta();
   const artifacts = listArtifacts(outDir);
-  const checksumsFile = fs.existsSync(path.join(outDir, "checksums.sha256")) ? "release/checksums.sha256" : null;
+  const checksumsPath = path.join(outDir, "checksums.sha256");
+  const checksumsFile = fs.existsSync(checksumsPath)
+    ? path.relative(REPO_ROOT, checksumsPath)
+    : null;
 
   // macOS signature status (best-effort from the smoke step output).
   const macSmoke = gate.results.find((r) => r.id === "macos-smoke");
