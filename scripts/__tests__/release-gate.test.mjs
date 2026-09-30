@@ -231,6 +231,27 @@ describe("defineSteps", () => {
       require("node:fs").rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("feed-verify verifies EVERY manifest (multi-platform pack), not just the first", () => {
+    const fs = require("node:fs");
+    const os = require("node:os");
+    const path = require("node:path");
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gb-multi-manifest-"));
+    try {
+      const steps = defineSteps({ outDir: tmp });
+      const feed = steps.find((s) => s.id === "feed-verify");
+      fs.writeFileSync(path.join(tmp, "latest-mac.yml"), "version: 1.0\n");
+      fs.writeFileSync(path.join(tmp, "latest-linux.yml"), "version: 1.0\n");
+      const resolved = typeof feed.cmd === "function" ? feed.cmd() : feed.cmd;
+      expect(resolved).not.toBeNull();
+      const cmdStr = resolved.join(" ");
+      // Both manifests appear in the verification command.
+      expect(cmdStr).toContain("latest-mac.yml");
+      expect(cmdStr).toContain("latest-linux.yml");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("collectMeta", () => {

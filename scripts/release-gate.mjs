@@ -78,9 +78,15 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
       id: "feed-verify",
       name: "Update-feed manifest consistency",
       prereqs: ["pack"],
+      // Verify EVERY latest*.yml (a multi-platform/format pack produces more
+      // than one); the package/release-mac CI jobs loop the same way.
       cmd: () => {
-        const m = findLatestManifest(releaseDir);
-        return m ? ["node", "scripts/verify-update-feed.mjs", m, releaseDir] : null;
+        const manifests = listLatestManifests(releaseDir);
+        if (manifests.length === 0) return null;
+        const checks = manifests
+          .map((m) => `node scripts/verify-update-feed.mjs "${m}" "${releaseDir}"`)
+          .join(" && ");
+        return ["bash", "-c", checks];
       },
     },
     // UAT is human-driven (cmdRun blocks until the operator quits the app);
@@ -316,15 +322,18 @@ function findArtifact(dir, ext) {
   }
 }
 
-function findLatestManifest(dir) {
+/** Return ALL latest*.yml update manifests in dir as full paths (the package
+ *  and release-mac CI jobs loop over every manifest — a multi-platform/format
+ *  pack produces more than one, and each must be verified). */
+function listLatestManifests(dir) {
   try {
-    if (!fs.existsSync(dir)) return null;
-    const found = fs.readdirSync(dir).find((f) => /^latest.*\.yml$/i.test(f));
-    // Return the full path (verify-update-feed reads it relative to cwd,
-    // so a bare filename resolves to <repo>/latest-mac.yml which doesn't exist).
-    return found ? path.join(dir, found) : null;
+    if (!fs.existsSync(dir)) return [];
+    return fs
+      .readdirSync(dir)
+      .filter((f) => /^latest.*\.yml$/i.test(f))
+      .map((f) => path.join(dir, f));
   } catch {
-    return null;
+    return [];
   }
 }
 
