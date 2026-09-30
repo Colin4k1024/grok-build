@@ -5,19 +5,27 @@
 **Out of scope:** upstream `xai-org/grok-build`; production release publish; deleting user history data.
 **Review gate:** Codex independent review per issue (code review before merge). Pass = APPROVE, no dimension <= 3.
 
-## Totals (as of 2026-09-30, #262 + #272 merged)
+# Goal State — R5: Close All Open Issues (PAUSED by user request)
+
+**Goal:** Close all open issues on `Colin4k1024/grok-build`.
+**Scope:** R5 EPIC #256 + children #257–#266 + #272/#274 filed during execution. **Base branch:** `main`.
+**Out of scope:** upstream `xai-org/grok-build`; production release publish; deleting user history data.
+**Review gate:** Codex independent review per issue (code review before merge). Pass = APPROVE, no dimension <= 3.
+
+## Totals (as paused, 2026-09-30 — #266 in review)
 - Total open at start: **11** (EPIC #256, #257–#266) + #272, #274 filed later
 - Closed + merged to main: **10** — #257, #259, #263, #265, #258, #260, #264, #261, **#262**, **#272**
-- Remaining open: **3** — #256 (EPIC), #266 (final gate), #274 (VoiceOver — human window)
-- main HEAD: (post-#272, see git log)
+- Remaining open: **3** — #256 (EPIC), #266 (release gate — in Codex review, 24 rounds), #274 (VoiceOver — human window)
+- main HEAD: 5201b7cf (post-#272). #266 on branch `feat/r5-10-release-gate` (pushed, NOT merged).
 
 ## Dependency graph
 - Wave 1: #257 ✅ #259 ✅ #263 ✅ #265 ✅ — COMPLETE
 - Wave 2: #258 ✅ #260 ✅ #264 ✅ — COMPLETE
 - Wave 3: #261 ✅ #262 ✅ — COMPLETE
-- Wave 4: #266 (←#262 ✅ + #272 ✅) — UNBLOCKED, ready to build
+- Wave 4: #266 (←#262 ✅ + #272 ✅) — IN REVIEW (Codex r24, 1 P2 pending)
 - #272 ✅ independent (agent-serve parent-death watchdog)
 - #274 stays open for a human VoiceOver run at the release window
+- EPIC #256 closes last.
 - EPIC #256 closes last.
 
 ## Progress log
@@ -36,6 +44,6 @@
 
 ## Resume instructions
 1. #262 ✅ merged. #272 ✅ merged.
-2. #266 (release gate aggregation) — UNBLOCKED (#262 + #272 done; no P0/P1 open bug remains). Build `npm run release:gate` orchestrator + cross-platform install smoke + release-report.json/md.
+2. #266 (release gate) — on `feat/r5-10-release-gate`, Codex review through r24. **One P2 pending:** `defaultRunner` uses blanket `shell: true` on win32, which flattens argv → the `bash -c "<chain>"` feed-verify and the uat `bash -c "echo…; exit 1"` commands pass vacuously on Windows. Fix: don't blanket-shell; spawn `.cmd` shims only for `npm`/`npx` (e.g. resolve `npm`→`npm.cmd` on win32 without shell, or pass shell only when cmd[0] is npm/npx), so the `bash -c` multi-arg commands keep their argv. Then re-run `codex review --base main` until APPROVE, squash-merge to main with `Closes #266`. 23 gate unit tests + the build/electron/YAML are green.
 3. #274 stays open for a human VoiceOver run at the release window (HUMAN_BLOCKED — needs a person to toggle ⌘F5); maximize automation via an AX-tree focus-order harness first.
 4. Close EPIC #256 when all children close.
