@@ -56,17 +56,16 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
     { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
     { id: "pack", name: "Package (electron-builder, --publish never)", prereqs: ["electron-build"], cmd: ["npx", "electron-builder", "--publish", "never", "-c.mac.notarize=true"] },
     // e2e's fixture resolves the packed app from release/* — it MUST run after
-    // pack (declared here, after pack in the array). On linux, Electron needs a
-    // display; wrap in xvfb-run ONLY if xvfb-run is present (CI installs it; a
-    // local linux box with a real display + no xvfb runs plain).
+    // pack. The Playwright visual snapshots have darwin-only baselines (#261),
+    // so the suite is darwin-only (ci.yml runs e2e on mac only); skip on
+    // win/linux to avoid a snapshot-baseline mismatch red. On linux, Electron
+    // also needs a display (xvfb-run if present).
     {
       id: "e2e",
       name: "Electron Playwright E2E",
       prereqs: ["pack"],
-      cmd: () =>
-        process.platform === "linux" && hasBin("xvfb-run")
-          ? ["xvfb-run", "-a", "npm", "run", "test:e2e"]
-          : ["npm", "run", "test:e2e"],
+      platform: "darwin",
+      cmd: ["npm", "run", "test:e2e"],
     },
     {
       id: "checksums",
@@ -83,8 +82,10 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
       cmd: () => {
         const manifests = listLatestManifests(releaseDir);
         if (manifests.length === 0) return null;
+        // Single-quote each path so shell metacharacters ($, spaces, etc.) in
+        // the absolute release dir don't break the bash -c chain.
         const checks = manifests
-          .map((m) => `node scripts/verify-update-feed.mjs "${m}" "${releaseDir}"`)
+          .map((m) => `node scripts/verify-update-feed.mjs '${m}' '${releaseDir}'`)
           .join(" && ");
         return ["bash", "-c", checks];
       },
@@ -342,16 +343,6 @@ function listLatestManifests(dir) {
       .map((f) => path.join(dir, f));
   } catch {
     return [];
-  }
-}
-
-/** True if a binary is on PATH (POSIX `command -v`). Used to gate the linux
- *  e2e xvfb-run wrap on actual availability. */
-function hasBin(name) {
-  try {
-    return spawnSync("command", ["-v", name], { shell: true, encoding: "utf-8" }).status === 0;
-  } catch {
-    return false;
   }
 }
 
