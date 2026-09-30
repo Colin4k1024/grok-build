@@ -54,7 +54,7 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
     { id: "build", name: "Renderer build + bundle budget", prereqs: ["unit"], cmd: ["npm", "run", "build"] },
     { id: "electron-build", name: "Electron main/preload build", prereqs: ["build"], cmd: ["npm", "run", "electron:build"] },
     { id: "evidence", name: "Evidence (JUnit + generator)", prereqs: ["unit"], cmd: ["npm", "run", "evidence"] },
-    { id: "pack", name: "Package (electron-builder)", prereqs: ["electron-build"], cmd: ["npm", "run", "electron:pack"] },
+    { id: "pack", name: "Package (electron-builder, --publish never)", prereqs: ["electron-build"], cmd: ["npx", "electron-builder", "--publish", "never"] },
     // e2e's fixture resolves the packed app from release/* — it MUST run after
     // pack (declared here, after pack in the array). On linux, Electron needs a
     // display; wrap in xvfb-run ONLY if xvfb-run is present (CI installs it; a

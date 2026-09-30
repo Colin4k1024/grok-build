@@ -194,6 +194,10 @@ describe("defineSteps", () => {
     // pack depends on electron-build, which depends on build
     const pack = steps.find((s) => s.id === "pack");
     expect(pack.prereqs).toContain("electron-build");
+    // pack pins --publish never (a gate must not auto-publish on a tag).
+    expect(pack.cmd.join(" ")).toMatch(/--publish never/);
+    // e2e runs AFTER pack in the array (its fixture needs the packed app).
+    expect(ids.indexOf("pack")).toBeLessThan(ids.indexOf("e2e"));
     // platform smoke is gated
     const mac = steps.find((s) => s.id === "macos-smoke");
     expect(mac.platform).toBe("darwin");
