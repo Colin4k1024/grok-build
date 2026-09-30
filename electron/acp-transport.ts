@@ -21,7 +21,7 @@
  * per-tab stdio `AcpSession` model. The transport is not constructed.
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -383,9 +383,16 @@ export class AcpTransport {
     ];
     // Merge order: process env → key store → explicit child env (wins).
     const env = { ...process.env, ...readKeyStore(), ...this.childEnv };
-    const proc = spawn(this.agentBin, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
+    // R5-08 (#272): run the agent serve under a parent-death watchdog so an
+    // Electron hard-kill/crash reaps the orphaned agent process. The watchdog
+    // is forked with an IPC channel; when the channel breaks (parent gone —
+    // fires even on SIGKILL, since the kernel closes the parent's fds) it
+    // SIGTERMs the agent and escalates to SIGKILL. An explicit dispose
+    // (SIGTERM from kill()) reaps the agent immediately.
+    const watchdogPath = path.join(__dirname, "agent-serve-watchdog.cjs");
+    const proc = fork(watchdogPath, [this.agentBin, JSON.stringify(args)], {
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      env: { ...env, ELECTRON_RUN_AS_NODE: "1" },
     });
     this.proc = proc;
     proc.stderr?.on("data", (c: Buffer) => {
