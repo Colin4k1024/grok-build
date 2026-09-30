@@ -267,3 +267,38 @@ describe("parseOutDirArg", () => {
     expect(parseOutDirArg([])).toBeUndefined();
   });
 });
+
+describe("latestUatRunCmd", () => {
+  it("skips (null) in CI when no recorded run exists (.uat/ is gitignored)", () => {
+    const { latestUatRunCmd } = require("../release-gate.mjs");
+    // A fresh CI checkout has no .uat/runs — the step must skip, not fail, or
+    // the release-gate job is permanently red on every tag push.
+    expect(latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: "1" })).toBeNull();
+  });
+
+  it("fails locally (no CI) when no run exists, with an actionable reminder", () => {
+    const { latestUatRunCmd } = require("../release-gate.mjs");
+    const cmd = latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: undefined });
+    expect(cmd).not.toBeNull();
+    expect(cmd.join(" ")).toMatch(/no UAT run recorded/);
+  });
+
+  it("reports --strict on the latest run when one exists", () => {
+    const fs = require("node:fs");
+    const os = require("node:os");
+    const path = require("node:path");
+    const { latestUatRunCmd } = require("../release-gate.mjs");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gb-uat-"));
+    try {
+      fs.mkdirSync(path.join(dir, "runs", "run-3"), { recursive: true });
+      fs.mkdirSync(path.join(dir, "runs", "run-1"), { recursive: true });
+      const cmd = latestUatRunCmd({ runsDir: path.join(dir, "runs"), ci: "1" });
+      expect(cmd).not.toBeNull();
+      // Picks the lexically-latest run id.
+      expect(cmd.join(" ")).toContain("run-3");
+      expect(cmd.join(" ")).toContain("--strict");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

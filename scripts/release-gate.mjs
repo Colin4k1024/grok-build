@@ -113,11 +113,11 @@ export function defineSteps({ outDir = DEFAULT_OUT_DIR, artifactsDir } = {}) {
 }
 
 /** Find the latest UAT run id (most recent dir under .uat/runs/) and build a
- *  `report --strict` command; if no run exists, return a command that fails
- *  with an actionable message (UAT is human-driven — the gate can't conjure
- *  a run, only verify one was completed). */
-function latestUatRunCmd() {
-  const runsDir = path.join(REPO_ROOT, ".uat", "runs");
+ *  `report --strict` command; if no run exists, skip in CI (UAT is human-driven
+ *  and .uat/ is gitignored, so a fresh CI checkout never has a run — the gate
+ *  would be permanently red otherwise) but fail locally with an actionable
+ *  reminder. Testable via injected runsDir/ci. */
+export function latestUatRunCmd({ runsDir = path.join(REPO_ROOT, ".uat", "runs"), ci = process.env.CI } = {}) {
   try {
     if (fs.existsSync(runsDir)) {
       const latest = fs
@@ -128,7 +128,10 @@ function latestUatRunCmd() {
         .pop();
       if (latest) return ["node", "scripts/desktop-uat.mjs", "report", "--strict", "--run", latest];
     }
-  } catch { /* fall through to the failing diagnostic */ }
+  } catch { /* fall through */ }
+  // No recorded run. In CI there never is one (.uat/ is gitignored) — skip
+  // rather than fail: UAT is human-driven, verified at the release window.
+  if (ci) return null;
   return ["bash", "-c", "echo 'no UAT run recorded — run `npm run uat:prepare && npm run uat:run` (human-driven) first, then re-run the gate' >&2; exit 1"];
 }
 
