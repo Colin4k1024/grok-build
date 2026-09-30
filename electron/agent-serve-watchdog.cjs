@@ -5,10 +5,11 @@
  * AcpTransport forks this module with an IPC channel and re-execs the agent
  * serve binary as its own child, forwarding stderr. When the IPC channel
  * breaks (Electron main hard-killed/crashed — the kernel closes the parent's
- * fds, so 'disconnect' fires even on SIGKILL), the watchdog reaps the agent
- * serve (SIGTERM → SIGKILL after a grace) and exits. An explicit SIGTERM from
- * the transport reaps the child immediately (the transport is disposing in a
- * hurry).
+ * fds, so 'disconnect' fires even on SIGKILL) OR the transport calls
+ * proc.disconnect() to dispose, the watchdog reaps the agent serve
+ * (SIGTERM → 2s grace → SIGKILL) and exits. disconnect() is the cross-platform
+ * trigger; kill('SIGTERM') would force-terminate on win32 without running
+ * handlers (orphaning the agent), so the transport never uses it for teardown.
  *
  * This mirrors the ptyctl parent-death watcher (#265) but on the owning-app
  * side: ptyctl polls getppid()==1; here the IPC channel's kernel-level
@@ -50,11 +51,11 @@ const child = spawn(agentBin, agentArgs, {
 
 let shuttingDown = false;
 /** SIGTERM the agent (let it flush journals/session state), then SIGKILL after
- *  a grace. Same path for parent-disconnect and explicit transport dispose —
- *  the watchdog runs as its own process, so the grace is affordable either way
- *  (the transport stops watching after its 200ms, but this process reaps to
- *  completion). Never SIGKILL outright: that would deny the journal-writing
- *  agent its graceful-shutdown window (Codex review P2). */
+ *  a 2s grace. Same path for parent-disconnect and transport dispose (both
+ *  arrive as 'disconnect'); the watchdog runs as its own process, so the grace
+ *  is affordable either way and the transport does not block on it. Never
+ *  SIGKILL outright: that would deny the journal-writing agent its
+ *  graceful-shutdown window (Codex review P2). */
 function reapThenExit() {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -65,8 +66,11 @@ function reapThenExit() {
 
 // Parent gone (IPC closed) — the primary signal for hard-kill/crash. Fires
 // even when the parent was SIGKILLed, because the kernel closes its fds.
+// The transport's dispose() reaches this same path via proc.disconnect().
 process.on("disconnect", reapThenExit);
-// Explicit dispose from the transport — same graceful reap.
+// External SIGTERM/SIGINT (e.g. a process manager) — same graceful reap.
+// The transport itself does NOT send SIGTERM (win32 force-terminates without
+// running handlers); it uses disconnect() instead.
 process.on("SIGTERM", reapThenExit);
 process.on("SIGINT", reapThenExit);
 

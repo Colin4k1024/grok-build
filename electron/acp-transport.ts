@@ -387,8 +387,10 @@ export class AcpTransport {
     // Electron hard-kill/crash reaps the orphaned agent process. The watchdog
     // is forked with an IPC channel; when the channel breaks (parent gone —
     // fires even on SIGKILL, since the kernel closes the parent's fds) it
-    // SIGTERMs the agent and escalates to SIGKILL. An explicit dispose
-    // (SIGTERM from kill()) reaps the agent immediately.
+    // SIGTERMs the agent and escalates to SIGKILL after a grace. kill() also
+    // reaches the watchdog via proc.disconnect() (NOT kill("SIGTERM") — win32
+    // force-terminates on SIGTERM without running handlers, which would orphan
+    // the agent), triggering the same graceful reap.
     const watchdogPath = path.join(__dirname, "agent-serve-watchdog.cjs");
     const proc = fork(watchdogPath, [this.agentBin, JSON.stringify(args)], {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
