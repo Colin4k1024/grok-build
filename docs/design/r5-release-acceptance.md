@@ -66,7 +66,10 @@ Exit code 0 only when **every** step passed; 1 otherwise.
 
 ## CI
 
-A `release-gate` job (tag-triggered, `protected release` env for Apple
-secrets) runs `npm run release:gate` and uploads `release-report.{json,md}` +
-the artifacts as release assets. Cross-platform coverage comes from a platform
-matrix (darwin/linux/win32), each leg running its host smoke.
+A `release-gate` job (tag-triggered; the macOS leg uses the `release`
+environment for Apple notarization secrets) runs `npm run release:gate` and
+uploads `release-report.{json,md}` as a per-platform workflow artifact
+(`release-report-<label>`). Packaged release artifacts are uploaded by the
+separate `release-mac` job, not this gate job. Cross-platform coverage comes
+from a platform matrix (darwin/linux/win32), each leg running its host smoke;
+the macOS leg also notarizes.
