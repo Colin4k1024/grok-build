@@ -486,3 +486,47 @@ describe("R5-06 virtualization (#262)", () => {
     });
   });
 });
+
+describe("R5-06 Codex review fixes", () => {
+  it("rows spread react-window's listitem ARIA so the list is not announced empty", async () => {
+    mockHistory.value = HISTORY;
+    setup();
+
+    await screen.findByText("Old thread");
+    // react-window v2 passes role=listitem + aria-posinset/setsize; the row
+    // component must spread them or screen readers see an empty list (P3).
+    const items = document.querySelectorAll('[role="listitem"]');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute("aria-posinset")).toBeTruthy();
+    expect(items[0].getAttribute("aria-setsize")).toBeTruthy();
+  });
+
+  it("below-list archived sections stay reachable inside the scroll-capped wrapper", async () => {
+    const user = userEvent.setup();
+    const many: HistorySession[] = Array.from({ length: 30 }, (_, i) => ({
+      ...HISTORY[0],
+      id: `arch-${i}`,
+      session_id: `arch-${i}`,
+      title: `Archived ${i}`,
+      cwd: "/w/big",
+    }));
+    mockHistory.value = many;
+    // Pre-archive every entry so they land in the 已归档 section, not the list.
+    localStorage.setItem(
+      "gb-archived-threads",
+      JSON.stringify(many.map((h) => `hist-${h.id}`))
+    );
+    setup();
+
+    await screen.findByText("已归档");
+    await user.click(screen.getByText("已归档"));
+
+    // Expanded entries render inside the scroll-capped wrapper (P1 fix) — they
+    // are queryable, not clipped away, and the wrapper carries overflow-y-auto.
+    const wrapper = document.querySelector('[data-testid="below-list-scroll"]');
+    expect(wrapper).toBeTruthy();
+    expect(wrapper!.className).toContain("overflow-y-auto");
+    expect(wrapper!.textContent).toContain("Archived 0");
+    expect(wrapper!.textContent).toContain("Archived 29");
+  });
+});

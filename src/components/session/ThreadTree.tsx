@@ -211,10 +211,14 @@ function TreeVirtualRow({ ariaAttributes, index, style, ...data }: {
 } & TreeRowData) {
   const row = data.rows[index];
   if (!row) return null;
+  // react-window v2 passes list/row ARIA (role=listitem, aria-posinset,
+  // aria-setsize) for the row to spread onto its root element — without this
+  // the sidebar list announces zero items to screen readers (Codex review P3).
+  const aria = ariaAttributes as Record<string, unknown>;
   switch (row.kind) {
     case "header":
       return (
-        <div style={style} className={sectionLabelCls}>
+        <div style={style} {...aria} className={sectionLabelCls}>
           {row.label}
           {row.badge !== undefined && (
             <span className="ml-1 rounded bg-gb-bg px-1 text-[9px] text-gb-muted">{row.badge}</span>
@@ -226,6 +230,7 @@ function TreeVirtualRow({ ariaAttributes, index, style, ...data }: {
       return (
         <div
           style={style}
+          {...aria}
           className="group flex w-full items-center gap-1 rounded-md px-2 hover:bg-gb-surface-hover"
           onClick={() => data.onToggleProject(row.path)}
         >
@@ -262,12 +267,13 @@ function TreeVirtualRow({ ariaAttributes, index, style, ...data }: {
       );
     }
     case "thread":
-      return <div style={style}>{data.renderEntry(row.entry)}</div>;
+      return <div style={style} {...aria}>{data.renderEntry(row.entry)}</div>;
     case "triage": {
       const e = row.entry;
       return (
         <div
           style={style}
+          {...aria}
           onClick={() => data.onOpen(e)}
           className={`flex cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors ${
             row.unread ? "bg-gb-yellow/5 text-gb-text hover:bg-gb-yellow/10" : "text-gb-text-secondary hover:bg-gb-surface-hover"
@@ -282,7 +288,7 @@ function TreeVirtualRow({ ariaAttributes, index, style, ...data }: {
     }
     case "hint":
       return (
-        <div style={style} className="px-2 py-1 text-[11px] text-gb-muted/70">
+        <div style={style} {...aria} className="px-2 py-1 text-[11px] text-gb-muted/70">
           {row.text}
         </div>
       );
@@ -695,6 +701,10 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
           style={{ height: "100%" }}
         />
       </div>
+      {/* R5-06: the below-list sections are scroll-capped so expanding the
+          archived or stale-workspace list never collapses the virtual thread
+          list or clips its entries out of reach (Codex review P1). */}
+      <div data-testid="below-list-scroll" className="shrink-0 max-h-[50%] overflow-y-auto">
       {/* R5-02: stale-workspace governance — records whose cwd no longer
           exists live here instead of polluting the project groups. */}
       <StaleHistorySection
@@ -753,6 +763,7 @@ export function ThreadTree({ onNewSessionInDir, onResumeThread, onForkSession, o
             ))}
         </div>
       )}
+      </div>
 
       {menu && (
         <>
