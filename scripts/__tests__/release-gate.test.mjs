@@ -371,7 +371,6 @@ describe("latestUatRunCmd", () => {
     // reason must say UAT is human-driven, not "missing prerequisite artifact."
     const r = latestUatRunCmd({ runsDir: "/tmp/nope-no-uat", ci: "1" });
     expect(r).not.toBeNull();
-    expect(r).not.toBeNull();
     expect(r.skip).toMatch(/human-driven/);
   });
 

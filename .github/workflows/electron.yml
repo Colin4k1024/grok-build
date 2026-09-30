@@ -322,10 +322,10 @@ jobs:
           if-no-files-found: error
 
   # R5-10 / #266: the single auditable release gate. Runs `npm run release:gate`
-  # (unit → build → electron-build → evidence → pack → e2e → checksums →
-  # feed-verify → uat → host-platform install smoke → user-data-unchanged) on each
-  # platform so the platform-gated smoke steps (macos/linux/windows) all execute
-  # in CI. `if: always()` on the upload surfaces the failure summary even when
+  # (unit → build → electron-build → evidence → agent-bins → pack → e2e →
+  # checksums → feed-verify → uat → host-platform install smoke →
+  # user-data-unchanged) on each platform so the platform-gated smoke steps
+  # (macos/linux/windows) all execute in CI. `if: always()` on the upload surfaces the failure summary even when
   # the gate fails. The macOS leg uses the `release` environment for Apple
   # notarization secrets; linux/win32 legs run without it (secrets are mac-only).
   release-gate:

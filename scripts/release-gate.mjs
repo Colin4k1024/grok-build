@@ -9,8 +9,9 @@
  *
  * Sequence (continue-on-failure; a step whose prerequisite failed — or hasn't
  * run yet — is skipped, not run, so misordered steps can't run vacuously):
- *   unit → build → electron-build → evidence → pack → e2e → checksums →
- *   feed-verify → uat → platform install smoke (host only) → user-data-unchanged
+ *   unit → build → electron-build → evidence → agent-bins → pack → e2e →
+ *   checksums → feed-verify → uat → platform install smoke (host only) →
+ *   user-data-unchanged
  *
  * Outputs (the report goes to ./release/ unless --out-dir overrides; the
  * artifacts electron-builder produces always live in ./release/ and are
