@@ -32,16 +32,32 @@ beforeEach(() => {
   watchdogs = [];
 });
 
-afterEach(() => {
+afterEach(async () => {
   for (const w of watchdogs) {
     try {
-      w.kill("SIGKILL");
+      if (w.connected) {
+        // Graceful teardown: trigger the watchdog's reap of the stub agent via
+        // disconnect(), then await the watchdog's exit. SIGKILLing the watchdog
+        // directly would orphan the stub (the class this suite guards against);
+        // force-kill only as a stuck fallback (Codex review P3).
+        w.disconnect();
+        await new Promise<void>((resolve) => {
+          const force = setTimeout(
+            () => {
+              try { w.kill("SIGKILL"); } catch { /* dead */ }
+              resolve();
+            },
+            4000
+          );
+          w.once("exit", () => { clearTimeout(force); resolve(); });
+        });
+      }
     } catch {
       /* already dead */
     }
   }
   fs.rmSync(tmp, { recursive: true, force: true });
-});
+}, 15_000);
 
 /** A stub "agent" that records its pid and stays alive until signalled. */
 function writeStubAgent(pidFile: string): string {
