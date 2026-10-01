@@ -137,10 +137,10 @@ end tell`);
   // 3. VoiceOver's own navigation: first item, then move right, capturing the
   //    spoken phrase at every stop. Timeouts are per-stop: a busy VO just
   //    yields "(vo timeout)" for that stop instead of killing the patrol.
-  logLine(out, "V00 first-item | " + safeVOPhrase("tell vo cursor to move to first item"));
+  logLine(out, "V00 first-item | " + safeVOPhrase("move to first item"));
   for (let i = 1; i <= voStops; i++) {
     const tag = `V${String(i).padStart(2, "0")} vo-right`;
-    logLine(out, `${tag} | ` + safeVOPhrase("tell vo cursor to move right"));
+    logLine(out, `${tag} | ` + safeVOPhrase("move right"));
   }
 
   // 4. Keyboard station walk (what VO speaks per focus move is the AX focused
@@ -202,7 +202,8 @@ end tell`);
     hop("key code 48", 900);
     logLine(out, `S${String(i).padStart(2, "0")} Tab | ` + axStop());
   }
-  hop("key code 53", 1200);
+  // Settings is a destination PAGE (not a modal), so the reverse walk runs
+  // inside it — verifying the forward settings order is symmetric.
   for (let i = 1; i <= reverseStops; i++) {
     hop("key code 48 using shift down", 900);
     logLine(out, `R${String(i).padStart(2, "0")} ShiftTab | ` + axStop());
@@ -213,9 +214,16 @@ end tell`);
   process.exit(0);
 }
 
+/** Splice an ACTION ("move right") into the live query template. The
+ *  template already owns `tell vo cursor to` — callers pass the bare action,
+ *  so the executed AppleScript never doubles the tell. */
+export function buildVOQuery(action) {
+  return VO_PHRASE_QUERY.replace("MOVE_PLACEHOLDER", action);
+}
+
 function safeVOPhrase(move) {
   try {
-    return osa(VO_PHRASE_QUERY.replace("MOVE_PLACEHOLDER", move));
+    return osa(buildVOQuery(move));
   } catch (e) {
     return "(vo timeout/unavailable) " + e.message.split("\n")[0].slice(0, 60);
   }

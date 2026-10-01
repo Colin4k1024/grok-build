@@ -2,10 +2,10 @@
 //
 // Unit tests for the VoiceOver patrol harness (#274). The GUI parts (osascript
 // against a live VoiceOver + app, and main()'s exit paths) are human-window
-// tooling exercised by running the script; what IS testable headless is the
-// VO-detection contract and the exact runtime speech query the patrol sends.
+// tooling exercised by running the script; what IS testable headless is the VO-detection
+// contract, the exact runtime speech query the patrol sends, and arg parsing.
 import { describe, it, expect } from "vitest";
-import { detectVoiceOver, parseArgsAlias as parseArgs, VO_PHRASE_QUERY } from "../voiceover-patrol.mjs";
+import { detectVoiceOver, parseArgsAlias as parseArgs, VO_PHRASE_QUERY, buildVOQuery } from "../voiceover-patrol.mjs";
 
 // The script keeps parseArgs internal for the CLI; re-exported under an alias
 // for tests. If that alias is missing the test fails loudly rather than
@@ -44,6 +44,13 @@ describe("VO speech capture contract", () => {
     expect(VO_PHRASE_QUERY).toContain("tell application \"VoiceOver\"");
     expect(VO_PHRASE_QUERY).toContain("content of last phrase");
     expect(VO_PHRASE_QUERY).toContain("with timeout of");
+  });
+
+  it("splicing an ACTION never doubles the tell (regression: callers once passed full statements)", () => {
+    const q = buildVOQuery("move right");
+    expect(q.match(/tell vo cursor to/g)?.length).toBe(1);
+    expect(q).toContain("tell vo cursor to move right");
+    expect(buildVOQuery("move to first item")).toContain("tell vo cursor to move to first item");
   });
 });
 
