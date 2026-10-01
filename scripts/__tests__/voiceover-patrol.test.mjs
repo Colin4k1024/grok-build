@@ -1,9 +1,9 @@
 // @vitest-environment node
 //
 // Unit tests for the VoiceOver patrol harness (#274). The GUI parts (osascript
-// against a live VoiceOver + app) are human-window tooling; what IS testable
-// headless is the preflight contract: the script must never flip VoiceOver
-// itself and must fail loudly when VO is off, plus arg parsing.
+// against a live VoiceOver + app, and main()'s exit paths) are human-window
+// tooling exercised by running the script; what IS testable headless is the
+// VO-detection contract and the exact runtime speech query the patrol sends.
 import { describe, it, expect } from "vitest";
 import { detectVoiceOver, parseArgsAlias as parseArgs, VO_PHRASE_QUERY } from "../voiceover-patrol.mjs";
 
@@ -36,9 +36,14 @@ describe("detectVoiceOver (pgrep injected)", () => {
 });
 
 describe("VO speech capture contract", () => {
-  it("the spoken-phrase query reads content of last phrase from VoiceOver", () => {
-    expect(VO_PHRASE_QUERY).toContain('tell application "VoiceOver"');
+  it("the runtime query is the one safeVOPhrase executes: a VO-cursor move + last-phrase read inside a timeout", () => {
+    // MOVE_PLACEHOLDER is where safeVOPhrase splices the move ("tell vo cursor to move right");
+    // asserting the placeholder pins that the exported constant is the LIVE template,
+    // not a lookalike nobody runs.
+    expect(VO_PHRASE_QUERY).toContain("MOVE_PLACEHOLDER");
+    expect(VO_PHRASE_QUERY).toContain("tell application \"VoiceOver\"");
     expect(VO_PHRASE_QUERY).toContain("content of last phrase");
+    expect(VO_PHRASE_QUERY).toContain("with timeout of");
   });
 });
 

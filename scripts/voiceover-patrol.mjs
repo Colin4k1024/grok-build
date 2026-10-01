@@ -77,9 +77,16 @@ function runPgrep(...args) {
   }
 }
 
-/** The AppleScript snippet used for every station record. Kept as data so
- *  tests can assert the shape without a GUI. */
-export const VO_PHRASE_QUERY = 'tell application "VoiceOver" to get content of last phrase';
+/** The AppleScript block executed for every VO-navigation station: move the
+ *  VO cursor, then read what VoiceOver actually SPOKE (last phrase). Kept as
+ *  exported data so tests pin the real runtime query, not a lookalike. */
+export const VO_PHRASE_QUERY = `with timeout of 12 seconds
+  tell application "VoiceOver"
+    tell vo cursor to MOVE_PLACEHOLDER
+    delay 0.45
+    return content of last phrase
+  end tell
+end timeout`;
 
 function logLine(out, line) {
   fs.appendFileSync(out, line + "\n");
@@ -91,7 +98,14 @@ async function main() {
   const appName = args["app-name"] ?? "Grok Build";
   const voStops = Number(args["vo-stops"] ?? 8);
   const tabStops = Number(args["tab-stops"] ?? 12);
+  const settingsStops = Number(args["settings-stops"] ?? 7);
+  const reverseStops = Number(args["reverse-stops"] ?? 7);
   const out = args.out ?? path.join(repoRoot, ".uat", "voiceover-patrol.log");
+
+  if (process.platform !== "darwin") {
+    console.error(`[voiceover-patrol] darwin-only tool (VoiceOver is a macOS screen reader); refusing on ${process.platform}.`);
+    process.exit(1);
+  }
 
   // 1. Preflight: VoiceOver must ALREADY be on (executor toggles ⌘F5, not us).
   const vo = detectVoiceOver();
@@ -159,8 +173,22 @@ end tell`);
       return "(ax error) " + e.message.split("\n")[0];
     }
   };
+  let hopFailures = 0;
   const hop = (keyStmt, delayMs) => {
-    try { osa(`tell application "System Events" to ${keyStmt}`); } catch { /* keep walking */ }
+    try {
+      osa(`tell application "System Events" to ${keyStmt}`);
+      hopFailures = 0;
+    } catch (e) {
+      // A blip is fine; a STREAK means System Events cannot send events at all
+      // (e.g. missing Accessibility permission) — every further "station"
+      // would be a stale re-read, so fail the patrol instead of faking one.
+      hopFailures += 1;
+      if (hopFailures >= 3) {
+        logLine(out, `FATAL ${hopFailures} consecutive keystroke failures — System Events cannot send keys (Accessibility permission?)`);
+        console.error("[voiceover-patrol] aborting: keystroke channel is down");
+        process.exit(1);
+      }
+    }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
   };
 
@@ -170,12 +198,12 @@ end tell`);
   }
   hop('keystroke "," using command down', 1500);
   logLine(out, "S01 settings | " + axStop());
-  for (let i = 2; i <= 6; i++) {
+  for (let i = 2; i <= settingsStops; i++) {
     hop("key code 48", 900);
     logLine(out, `S${String(i).padStart(2, "0")} Tab | ` + axStop());
   }
   hop("key code 53", 1200);
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= reverseStops; i++) {
     hop("key code 48 using shift down", 900);
     logLine(out, `R${String(i).padStart(2, "0")} ShiftTab | ` + axStop());
   }
@@ -187,13 +215,7 @@ end tell`);
 
 function safeVOPhrase(move) {
   try {
-    return osa(`with timeout of 12 seconds
-  tell application "VoiceOver"
-    ${move}
-    delay 0.45
-    return content of last phrase
-  end tell
-end timeout`);
+    return osa(VO_PHRASE_QUERY.replace("MOVE_PLACEHOLDER", move));
   } catch (e) {
     return "(vo timeout/unavailable) " + e.message.split("\n")[0].slice(0, 60);
   }
@@ -201,5 +223,8 @@ end timeout`);
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);
 if (isMain) {
-  main();
+  main().catch((e) => {
+    console.error(`[voiceover-patrol] ${e?.message ?? e}`);
+    process.exit(1);
+  });
 }

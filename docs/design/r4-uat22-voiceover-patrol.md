@@ -1,6 +1,6 @@
 # R4 矩阵 UAT-22 跟进：VoiceOver 实机朗读巡检记录（#274）
 
-日期：2026-10-01 · 执行机：macOS（darwin 25.6.0，arm64）· 应用：Grok Build 0.1.0 @ commit `e58e33f5`（R5-10 合并后 main），隔离 UAT 环境 `.uat/runs/vo-274`（GROK_HOME / journal / userData / workspace 全隔离，`GROK_DESKTOP_AUTH=off` 离线启动，zh-CN / Asia-Shanghai）。
+日期：2026-10-01 · 执行机：macOS（darwin 25.6.0，arm64）· 应用：Grok Build 0.1.0 @ commit `e58e33f5`（R5-10 合并后 main），隔离 UAT 环境 `.uat/runs/vo-274`（下文复现命令中的 run 目录名可自定）（GROK_HOME / journal / userData / workspace 全隔离，`GROK_DESKTOP_AUTH=off` 离线启动，zh-CN / Asia-Shanghai）。
 
 ## 结论
 
@@ -23,7 +23,7 @@
 
 ## R4 矩阵 2.4 站序记录（AX 焦点属性 = VO 逐站朗读内容来源）
 
-正向 Tab 序（UAT-19 站序对照，全部具名）：
+正向 Tab 序（**本次为空工作区起始态**：初始焦点落在主区 composer 一侧，故 Tab 先走主区控件、第 6 站才到 skip link；UAT-19 记录的「skip link 第一」是在已有会话的主界面状态取得——两个状态的站点集合一致且全部具名。侧栏开关在 AX 树中暴露为 AXCheckBox（switch 语义），与 UAT-19 记录的 BUTTON 为同一控件的角色差异；「设置 (⌘,)」站在本次 12 站窗口内未达，其可达性由 ⌘, 直达与设置页站序另行覆盖）：
 
 ```
 ST00 初始        AXGroup      工作区                  （main landmark）
@@ -60,7 +60,8 @@ GB_JOURNAL_DIR=$PWD/.uat/runs/vo-patrol/journal \
 GB_UAT_USER_DATA_DIR=$PWD/.uat/runs/vo-patrol/user-data \
 GROK_DESKTOP_AUTH=off npx electron .          # or the packed app binary
 node scripts/voiceover-patrol.mjs --app-name <unique-process-name> \
-     --vo-stops 8 --tab-stops 12 --out .uat/voiceover-patrol.log
+     --vo-stops 8 --tab-stops 12 --settings-stops 7 --reverse-stops 7 \
+     --out .uat/voiceover-patrol.log
 ```
 
 关联：#260（UAT harness/AX 机器验证）、#274（本跟进）、R4 矩阵第 22 行、`docs/design/r5-uat-runbook.md`。
