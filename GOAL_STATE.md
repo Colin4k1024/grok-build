@@ -12,11 +12,11 @@
 **Out of scope:** upstream `xai-org/grok-build`; production release publish; deleting user history data.
 **Review gate:** Codex independent review per issue (code review before merge). Pass = APPROVE, no dimension <= 3.
 
-## Totals (as of 2026-10-01 — #266 review COMPLETE)
+## Totals (as of 2026-10-01 — #266 & #274 merged; EPIC final verification in flight)
 - Total open at start: **11** (EPIC #256, #257–#266) + #272, #274 filed later
-- Closed + merged to main: **10** — #257, #259, #263, #265, #258, #260, #264, #261, **#262**, **#272**
-- Remaining open: **3** — #256 (EPIC), #266 (grok APPROVE @ 245915b2, ready to merge), #274 (VoiceOver run)
-- main HEAD: 5201b7cf (post-#272). #266 on branch `feat/r5-10-release-gate` @ 245915b2.
+- Closed + merged to main: **12** — #257, #259, #263, #265, #258, #260, #264, #261, #262, #272, **#266 (PR #277)**, **#274 (PR #278)**
+- Remaining open: **1** — #256 (EPIC close-out: definition-of-done verification running)
+- main HEAD: 07206df4 (post-#278).
 
 ## Dependency graph
 - Wave 1: #257 ✅ #259 ✅ #263 ✅ #265 ✅ — COMPLETE
@@ -41,6 +41,8 @@
 - (#262) ✅ Merged to main (02d435d7, squash). react-window v2 virtualization (flat row model + per-row store subscriptions); ResizeObserver jsdom polyfill; vendor chunk split (entry 242.6KB/72.6KB gzip, largest chunk 327.5KB); `check-bundle-budget.mjs` postbuild gate (cross-platform forward-slash entry detection); ARIA spread on rows; below-list sections scroll-capped. Codex APPROVE (3 rounds — P1 layout, P2 gate-wiring, P3 ARIA, P1 win32 path, all fixed).
 - Filed during execution: #272 (agent serve orphans on app hard-kill — same parent-death class #265 fixed for ptyctl; 52 orphans found and cleaned on this machine), #274 (VoiceOver speech-run — needs a human at the release window; system state must not be flipped by automation).
 - (#272) ✅ Merged to main (squash).
+- (#274) ✅ Merged (PR #278, main 07206df4). REAL VoiceOver patrol executed: VO genuinely on (launchd -s + scrod), spoken phrases captured via VO's official AppleScript channel (「Grok Build 网页内容」「工作区 主体内容」 + system-dialog auto-readout); full R4 §2.4 station transcript (skip link → 会话/仪表盘/自动化/代理/搜索(⌘G) → 侧栏(⌘B), all named, symmetric reverse). scripts/voiceover-patrol.mjs refuses to flip VO itself; 8 unit tests. grok r1 CHANGES_REQUESTED (3 P2 + 6 P3) → r2 (1 P1: doubled tell) → r3 APPROVE @ 55ec90bd. System restored: VO off, patrol app stopped.
+- (#256) Definition-of-done verification: data hygiene ✓ (~/.grok/sessions hash d83471c4… unchanged across the clean 09:07 full suite, 208 entries; later delta = the grok-reviewer CLI's own session + a parallel workforce_os review — both unrelated to the app, same precedent as R4); P0/P1 ✓ (0 open); UAT strict = PR #273 r5-final 34/34 exit 0 + UAT-22 live VO patrol (PR #278); manifest consistency = PR #268 feed tests + gate feed-verify; gate report generation VERIFIED locally (release/release-report.{json,md} written on failure too). ENVIRONMENT NOTE: local gate unit step red because auth.x.ai is network-blocked on this machine now (curl 000; also broke cargo's rg download — both environment, not code; the 09:07 full suite on the same HEAD was green). macOS notarization + full-gate-green execute at tag CI (Apple secrets) — the designed execution point (#264/#266).
 - (#266) Review closed: rounds 1–24 Codex CLI (1 P2 pending at pause); rounds 25–27 grok CLI (independent reviewer; same pass bar, no dimension <= 3). r25 CHANGES_REQUESTED (P1 CI-sensitive UAT test, P1 libfuse2 AppImage boot, P2 missing agent-bin gate, P3 x2 doc drift) → fixed 22cbd39b; r26 APPROVE with 3 P3 (sequence comments missing agent-bins, dup assertion) → fixed 245915b2; r27 APPROVE on 245915b2 (delta verified, 29/29 tests under CI=true). gate unit tests 29; full suite 1085 pass 0 skip. Parent-death watchdog: AcpTransport forks a CJS watchdog with an IPC channel that re-execs the agent serve; on IPC disconnect (hard-kill/crash — fires even on SIGKILL) OR transport dispose (proc.disconnect(), cross-platform — win32 kill('SIGTERM') force-terminates without handlers) the watchdog SIGTERMs the agent (graceful flush) → 2s grace → SIGKILL → exit. Signal-number-preserving exit forwarding; stale-generation guard; ELECTRON_RUN_AS_NODE stripped from the agent env; build.sh ships the watchdog. 7 tests (2 cross-platform + 3 POSIX-gated + env-leak + kill-via-disconnect). Codex APPROVE (10 rounds).
 
 ## Resume instructions
