@@ -50,7 +50,7 @@ asserts `bypass_actors` is empty, so a standing bypass would fail the check.
 A pure-function verifier (`verifyRuleset`) + a live fetcher that queries the
 ruleset via `gh api repos/.../rulesets` and checks: enforcement=active, targets
 main, requires PR, required status checks configured + strict, blocks deletion,
-blocks force-push, no bypass actors. 10 unit tests. Run via
+blocks force-push, no bypass actors. 13 unit tests. Run via
 `npm run check:branch-protection`. Supports `--ruleset-file` for offline/testable
 verification.
 
