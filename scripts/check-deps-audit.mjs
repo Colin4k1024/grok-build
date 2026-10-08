@@ -31,6 +31,22 @@ const OFFICIAL_REGISTRY = "https://registry.npmjs.org";
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 const MIN_OWNED_SEVERITY = "high"; // critical + high must be owned
 
+/**
+ * A valid `npm audit --json` report has a `vulnerabilities` object and/or an
+ * `auditReportVersion`. An npm/registry ERROR (network outage, ENOAUDIT, mirror
+ * 404) exits non-zero with error-shaped JSON (`{message, error, ...}`) that has
+ * NO `vulnerabilities` key — without this shape check the gate would parse the
+ * error payload into zero findings and PASS (fail-open, Codex r1 P1). The gate
+ * must FAIL CLOSED when it cannot obtain a real audit report.
+ */
+export function isAuditReport(payload) {
+  return !!(
+    payload &&
+    typeof payload === "object" &&
+    (payload.vulnerabilities !== undefined || payload.auditReportVersion !== undefined)
+  );
+}
+
 /** Parse `npm audit --json` into a flat findings list + totals. Pure. */
 export function parseAudit(auditJson) {
   if (!auditJson || typeof auditJson !== "object") return { findings: [], totals: {} };
@@ -122,13 +138,23 @@ function runNpmAudit() {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
+      // win32: npm is npm.cmd and cannot be spawned without a shell (Codex r1 P2;
+      // same lesson as scripts/check-toolchain.mjs).
+      shell: process.platform === "win32",
     });
-    return JSON.parse(out);
+    const parsed = JSON.parse(out);
+    return isAuditReport(parsed) ? parsed : null;
   } catch (e) {
-    // npm audit exits non-zero when vulnerabilities exist; the JSON is on stdout.
+    // npm audit exits non-zero when vulnerabilities exist; the valid report is
+    // on stdout in that case. A registry/transport error ALSO exits non-zero
+    // but with error-shaped JSON (no `vulnerabilities` key) — isAuditReport
+    // distinguishes them so the gate fails closed on a bad report (Codex r1 P1).
     const stdout = e?.stdout ? String(e.stdout) : "";
     if (stdout) {
-      try { return JSON.parse(stdout); } catch { /* fall through */ }
+      try {
+        const parsed = JSON.parse(stdout);
+        if (isAuditReport(parsed)) return parsed;
+      } catch { /* not JSON */ }
     }
     return null;
   }
@@ -141,7 +167,8 @@ export function main(argv) {
 
   let audit;
   if (auditFile) {
-    audit = JSON.parse(fs.readFileSync(auditFile, "utf-8"));
+    const parsed = JSON.parse(fs.readFileSync(auditFile, "utf-8"));
+    audit = isAuditReport(parsed) ? parsed : null; // fail closed on a non-report payload
   } else {
     audit = runNpmAudit();
   }

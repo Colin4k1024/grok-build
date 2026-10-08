@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseAudit,
+  isAuditReport,
   validateException,
   validateExceptions,
   checkFindings,
@@ -103,5 +104,30 @@ describe("check-deps-audit (R6-03 #281)", () => {
     const { unowned } = checkFindings(findings, { exceptions: [] });
     // http-cache-semantics is moderate -> not in unowned
     expect(unowned.find((f) => f.name === "http-cache-semantics")).toBeFalsy();
+  });
+
+  describe("fail closed on a non-report payload (Codex r1 P1)", () => {
+    // npm audit on a registry/transport error exits non-zero with error-shaped
+    // JSON (no `vulnerabilities` key). The gate must NOT parse this into zero
+    // findings and pass — it must fail closed.
+    const errorPayload = { message: "404 Not Found - POST .../audits/quick", error: "[NOT_IMPLEMENTED]" };
+
+    it("isAuditReport rejects an npm/registry error payload", () => {
+      expect(isAuditReport(errorPayload)).toBe(false);
+      expect(isAuditReport(null)).toBe(false);
+      expect(isAuditReport({})).toBe(false);
+    });
+
+    it("isAuditReport accepts a real audit report", () => {
+      expect(isAuditReport(sampleAudit)).toBe(true);
+      expect(isAuditReport({ auditReportVersion: "2.0", vulnerabilities: {} })).toBe(true);
+    });
+
+    it("parseAudit of an error payload yields zero findings (the hazard)", () => {
+      // This is the vacuous-pass hazard: without isAuditReport gating upstream,
+      // an error payload parses to 0 findings. main() must guard with isAuditReport.
+      const { findings } = parseAudit(errorPayload);
+      expect(findings).toEqual([]);
+    });
   });
 });
