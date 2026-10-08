@@ -18,8 +18,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
+
+      - name: Preflight — toolchain contract
+        # R6-02 (#280): reject unsupported runtimes before expensive builds.
+        # Default requires node + lockfile; this job doesn't need protoc/rust.
+        shell: bash
+        run: npm run check:toolchain
 
       - name: Install dependencies (locked)
         run: npm ci
@@ -52,6 +58,7 @@ jobs:
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> evidence/summary.txt
           echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/summary.txt
           echo "tests=$(cat test-results/junit.xml 2>/dev/null | grep -c '<testcase ' || echo 'unknown')" >> evidence/summary.txt
+          node scripts/check-toolchain.mjs --json > evidence/toolchain.json 2>/dev/null || true
           cat evidence/summary.txt
 
       - name: Upload evidence
@@ -78,11 +85,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Preflight — toolchain contract (node, lockfile, rust)
+        # rust-toolchain.toml is authoritative (cargo honors it); this verifies
+        # the effective rustc matches the pin. protoc isn't needed here.
+        shell: bash
+        run: node scripts/check-toolchain.mjs --require rust
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -116,7 +129,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Setup Rust
@@ -125,8 +138,13 @@ jobs:
       - name: Setup protoc
         uses: arduino/setup-protoc@v3
         with:
-          version: 25.1
+          version: 29.3
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
+        # This job needs protoc + rust; a missing protoc or drifted rustc fails.
+        shell: bash
+        run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2

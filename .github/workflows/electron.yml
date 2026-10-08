@@ -45,7 +45,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Setup Rust
@@ -60,7 +60,7 @@ jobs:
       - name: Setup protoc
         uses: arduino/setup-protoc@v3
         with:
-          version: 25.1
+          version: 29.3
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Export PROTOC for build scripts
@@ -86,6 +86,11 @@ jobs:
 
       # Fail-fast chain: every step must pass before the next runs. A red
       # build/test/pack-gate step fails the job — no skip-to-green.
+      - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
+        # R6-02 (#280): reject unsupported runtimes before expensive builds.
+        shell: bash
+        run: node scripts/check-toolchain.mjs --require protoc,rust
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -196,7 +201,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Setup Rust
@@ -207,7 +212,7 @@ jobs:
       - name: Setup protoc
         uses: arduino/setup-protoc@v3
         with:
-          version: 25.1
+          version: 29.3
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Export PROTOC for build scripts
@@ -252,6 +257,11 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
+        # R6-02 (#280): reject unsupported runtimes before expensive builds.
+        shell: bash
+        run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Install frontend dependencies
         run: npm ci
@@ -355,7 +365,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: npm
 
       - name: Setup Rust
@@ -366,7 +376,7 @@ jobs:
       - name: Setup protoc
         uses: arduino/setup-protoc@v3
         with:
-          version: 25.1
+          version: 29.3
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Export PROTOC for build scripts
@@ -376,6 +386,10 @@ jobs:
           # git-bash reports /c/... paths; Win32 CreateProcess needs C:\...
           if command -v cygpath >/dev/null 2>&1; then P="$(cygpath -w "$P")"; fi
           echo "PROTOC=$P" >> "$GITHUB_ENV"
+
+      - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
+        shell: bash
+        run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Install dependencies
         run: npm ci
