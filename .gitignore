@@ -16,6 +16,10 @@ release/
 build/icon.iconset/
 .ccb/
 
+# Immutable release-candidate dirs (R6-06) — built, frozen, rehearsed locally;
+# reports live inside each candidate dir, never committed
+.candidates/
+
 # Test & coverage artifacts
 coverage/
 test-results/

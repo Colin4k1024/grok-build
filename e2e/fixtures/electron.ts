@@ -16,23 +16,32 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** Resolve the packed app binary, failing with an actionable diagnostic. */
+/** Resolve the packed app binary, failing with an actionable diagnostic.
+ *  GB_E2E_APP_DIR points the suite at an immutable release candidate under
+ *  .candidates/<id>/ (R6-06) — otherwise release/ is used. */
 export function resolvePackedApp(): string {
-  const candidates = [
-    path.join(REPO, "release", "mac-arm64", "Grok Build.app"),
-    path.join(REPO, "release", "mac", "Grok Build.app"),
-    path.join(REPO, "release", "mac-x64", "Grok Build.app"),
-    path.join(REPO, "release", "win-unpacked", "Grok Build.exe"),
-    path.join(REPO, "release", "linux-unpacked", "grok-build"),
+  const roots = [
+    ...(process.env.GB_E2E_APP_DIR ? [path.resolve(process.env.GB_E2E_APP_DIR)] : []),
+    REPO,
   ];
-  for (const appPath of candidates) {
-    const bin = process.platform === "win32"
-      ? appPath
-      : path.join(appPath, "Contents", "MacOS", "Grok Build");
-    if (fs.existsSync(bin)) return bin;
+  for (const root of roots) {
+    const candidates = [
+      path.join(root, "release", "mac-arm64", "Grok Build.app"),
+      path.join(root, "release", "mac", "Grok Build.app"),
+      path.join(root, "release", "mac-x64", "Grok Build.app"),
+      path.join(root, "mac-arm64", "Grok Build.app"), // candidate dirs hold the bundle directly
+      path.join(root, "release", "win-unpacked", "Grok Build.exe"),
+      path.join(root, "release", "linux-unpacked", "grok-build"),
+    ];
+    for (const appPath of candidates) {
+      const bin = process.platform === "win32"
+        ? appPath
+        : path.join(appPath, "Contents", "MacOS", "Grok Build");
+      if (fs.existsSync(bin)) return bin;
+    }
   }
   throw new Error(
-    `no packed app found under release/ — run npm run electron:pack first (looked for ${candidates.join(", ")})`
+    "no packed app found — run npm run electron:pack first (or set GB_E2E_APP_DIR to a candidate dir)"
   );
 }
 
