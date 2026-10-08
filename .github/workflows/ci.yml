@@ -24,6 +24,7 @@ jobs:
       - name: Preflight — toolchain contract
         # R6-02 (#280): reject unsupported runtimes before expensive builds.
         # Default requires node + lockfile; this job doesn't need protoc/rust.
+        shell: bash
         run: npm run check:toolchain
 
       - name: Install dependencies (locked)
@@ -93,6 +94,7 @@ jobs:
       - name: Preflight — toolchain contract (node, lockfile, rust)
         # rust-toolchain.toml is authoritative (cargo honors it); this verifies
         # the effective rustc matches the pin. protoc isn't needed here.
+        shell: bash
         run: node scripts/check-toolchain.mjs --require rust
 
       - name: Rust cache
@@ -141,6 +143,7 @@ jobs:
 
       - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
         # This job needs protoc + rust; a missing protoc or drifted rustc fails.
+        shell: bash
         run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Rust cache

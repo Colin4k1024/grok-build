@@ -88,6 +88,7 @@ jobs:
       # build/test/pack-gate step fails the job — no skip-to-green.
       - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
         # R6-02 (#280): reject unsupported runtimes before expensive builds.
+        shell: bash
         run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Install frontend dependencies
@@ -259,6 +260,7 @@ jobs:
 
       - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
         # R6-02 (#280): reject unsupported runtimes before expensive builds.
+        shell: bash
         run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Install frontend dependencies
@@ -386,6 +388,7 @@ jobs:
           echo "PROTOC=$P" >> "$GITHUB_ENV"
 
       - name: Preflight — toolchain contract (node, lockfile, protoc, rust)
+        shell: bash
         run: node scripts/check-toolchain.mjs --require protoc,rust
 
       - name: Install dependencies

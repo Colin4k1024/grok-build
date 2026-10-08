@@ -274,6 +274,13 @@ export function main(argv) {
   // absence. (Codex r1 P1: the prior parser only handled the `=` form, so the
   // space form used by every workflow silently no-op'd.)
   const require = parseRequire(argv);
+  // Only suppress rustup auto-install when rust is NOT required — a no-Rust job
+  // (e.g. frontend) shouldn't pay for a multi-hundred-MB toolchain it doesn't
+  // use. When rust IS required, allow auto-install so the rustup proxy can
+  // fetch the rust-toolchain.toml-pinned toolchain (Codex r3 P1: blanket
+  // RUSTUP_AUTO_INSTALL=0 broke rust-pty/e2e/release-gate, where the pin
+  // isn't installed until the proxy resolves it).
+  const rustRequired = require.includes("rust");
 
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf-8"));
   const nodeRange = pkg.engines?.node;
@@ -299,11 +306,11 @@ export function main(argv) {
     nodeRange,
     lockfile,
     protocOutput: probeProtoc(),
-    // Probe rustc with RUSTUP_AUTO_INSTALL=0 so a no-Rust job (e.g. the
-    // frontend job) doesn't trigger a multi-hundred-MB toolchain auto-install
-    // via the rustup proxy + rust-toolchain.toml (Codex r2 P3). If rustc is
-    // installed (rust jobs), it reports; otherwise run() returns null → WARN.
-    rustcOutput: run("rustc", ["--version"], { env: { ...process.env, RUSTUP_AUTO_INSTALL: "0" } }),
+    // Probe rustc with RUSTUP_AUTO_INSTALL=0 ONLY when rust isn't required, so
+    // a no-Rust job doesn't trigger a toolchain auto-install via the rustup
+    // proxy + rust-toolchain.toml. When rust IS required, allow auto-install
+    // so the pinned toolchain can be fetched and reported (Codex r3 P1).
+    rustcOutput: run("rustc", ["--version"], { env: rustRequired ? process.env : { ...process.env, RUSTUP_AUTO_INSTALL: "0" } }),
     rustChannel: parseRustToolchainChannel(rustToml),
     electronVersion: pkg.devDependencies?.electron,
     electronBuilderVersion: pkg.devDependencies?.["electron-builder"],
