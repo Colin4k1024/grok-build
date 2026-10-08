@@ -130,4 +130,23 @@ describe("check-deps-audit (R6-03 #281)", () => {
       expect(findings).toEqual([]);
     });
   });
+
+  describe("malformed exceptions file (Codex r2 P3)", () => {
+    const { findings } = parseAudit(sampleAudit);
+
+    it("checkFindings does not crash when exceptions is a non-array", () => {
+      // a hand-edit mistake: exceptions as an object instead of an array
+      expect(() => checkFindings(findings, { exceptions: { not: "an array" } })).not.toThrow();
+      const { unowned } = checkFindings(findings, { exceptions: { not: "an array" } });
+      // vitest (critical) + vite (high) are unowned because no valid exceptions
+      expect(unowned.length).toBe(2);
+    });
+
+    it("checkFindings skips null/non-object entries without crashing", () => {
+      expect(() => checkFindings(findings, { exceptions: [null, "nope", { package: "vitest", severity: "critical", exposure: "dev", owner: "r", mitigation: "x", expires: "2099-01-01" }] })).not.toThrow();
+      const { unowned, owned } = checkFindings(findings, { exceptions: [null, "nope", { package: "vitest", severity: "critical", exposure: "dev", owner: "r", mitigation: "x", expires: "2099-01-01" }] }, { now: new Date("2026-01-01") });
+      expect(owned.length).toBe(1); // vitest covered
+      expect(unowned.length).toBe(1); // vite unowned
+    });
+  });
 });

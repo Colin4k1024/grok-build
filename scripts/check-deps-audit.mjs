@@ -112,7 +112,13 @@ export function validateExceptions(doc, now = new Date()) {
 export function checkFindings(findings, exceptionsDoc, opts = {}) {
   const minRank = SEVERITY_RANK[opts.minSeverity || MIN_OWNED_SEVERITY];
   const now = opts.now || new Date();
-  const excByName = new Map((exceptionsDoc?.exceptions || []).map((e) => [e.package, e]));
+  // Tolerate a malformed exceptions file (non-array `exceptions`, null entries)
+  // so validateExceptions' error list is reported cleanly instead of an
+  // uncaught TypeError — the gate still fails closed (Codex r2 P3).
+  const excList = Array.isArray(exceptionsDoc?.exceptions) ? exceptionsDoc.exceptions : [];
+  const excByName = new Map(
+    excList.filter((e) => e && typeof e === "object").map((e) => [e.package, e]),
+  );
   const unowned = [];
   const owned = [];
   for (const f of findings) {
