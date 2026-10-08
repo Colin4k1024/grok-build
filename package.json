@@ -18,6 +18,7 @@
     "electron:pack": "npm run build && npm run electron:build && electron-builder",
     "release:gate": "node scripts/release-gate.mjs",
     "check:toolchain": "node scripts/check-toolchain.mjs",
+    "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

@@ -27,6 +27,15 @@ jobs:
         shell: bash
         run: npm run check:toolchain
 
+      - name: Dependency audit gate (critical/high owned)
+        # R6-03 (#281): every critical/high npm-audit finding must be fixed or
+        # listed in security/audit-exceptions.json with owner + mitigation +
+        # non-expired expiry. Unowned or invalid/expired exceptions fail the job.
+        # Reads package-lock.json (no node_modules needed) — fails fast on
+        # security regressions before the expensive install.
+        shell: bash
+        run: npm run check:deps-audit
+
       - name: Install dependencies (locked)
         run: npm ci
 
