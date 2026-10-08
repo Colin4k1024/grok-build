@@ -15,8 +15,6 @@ import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
 // Stable required checks (GitHub-hosted jobs that run on every PR). The e2e job
 // runs on a self-hosted runner ([self-hosted, macos-selfhosted]) and is
 // monitored but NOT a hard merge gate — requiring it would block PRs when the
@@ -112,23 +110,31 @@ function fetchRulesetByName(name = RULESET_NAME) {
 
 export function main(argv) {
   const jsonOut = argv.includes("--json");
-  const fileIdx = argv.indexOf("--ruleset-file");
+
+  // Parse --ruleset-file in BOTH forms: `--ruleset-file <path>` and
+  // `--ruleset-file=<path>` (Codex r3 P2: the equals form was silently ignored
+  // and fell through to the live fetch, verifying the wrong input).
+  let rulesetFile = null;
+  {
+    const eq = argv.find((a) => a.startsWith("--ruleset-file="));
+    const sp = argv.indexOf("--ruleset-file");
+    if (eq) rulesetFile = eq.slice("--ruleset-file=".length);
+    else if (sp >= 0) rulesetFile = sp + 1 < argv.length && !argv[sp + 1].startsWith("--") ? argv[sp + 1] : null;
+  }
+  const hasFlag = argv.some((a) => a.startsWith("--ruleset-file"));
 
   let ruleset;
-  if (fileIdx >= 0) {
-    // --ruleset-file must have a value (not another flag / end-of-args); a
-    // missing value must NOT silently fall through to the live fetch (Codex r2 P3).
-    const file = fileIdx >= 0 && fileIdx + 1 < argv.length && !argv[fileIdx + 1].startsWith("--") ? argv[fileIdx + 1] : null;
-    if (!file) {
-      const msg = "check-branch-protection: --ruleset-file requires a value (use --ruleset-file <path>).";
+  if (hasFlag) {
+    if (!rulesetFile) {
+      const msg = "check-branch-protection: --ruleset-file requires a value (use --ruleset-file <path> or --ruleset-file=<path>).";
       if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
       else console.error(msg);
       return 1;
     }
     try {
-      ruleset = JSON.parse(fs.readFileSync(file, "utf-8"));
+      ruleset = JSON.parse(fs.readFileSync(rulesetFile, "utf-8"));
     } catch (e) {
-      const msg = `check-branch-protection: --ruleset-file ${file} is not valid JSON or is unreadable: ${e.message}`;
+      const msg = `check-branch-protection: --ruleset-file ${rulesetFile} is not valid JSON or is unreadable: ${e.message}`;
       if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
       else console.error(msg);
       return 1;
