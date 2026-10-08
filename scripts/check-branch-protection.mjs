@@ -81,30 +81,35 @@ export function verifyRuleset(ruleset, { requiredChecks = REQUIRED_CHECKS, targe
 
 /**
  * Fetch the FULL ruleset (with rules/conditions/bypass_actors) by name.
- * The list endpoint (GET /rulesets) returns summaries only — it omits rules,
- * conditions, and bypass_actors (Codex r1 P1). So: fetch the list, find by name,
- * then fetch the full object via GET /rulesets/{id}.
+ * Returns { ruleset, fetchError } so main() can distinguish a network/API
+ * failure (fetchError=true) from the ruleset not existing (fetchError=false,
+ * ruleset=null) — the latter is the drift scenario this verifier catches
+ * (Codex r5 P2: reporting "network" for a deleted ruleset was misleading).
  */
 function fetchRulesetByName(name = RULESET_NAME) {
   const repo = process.env.GB_REPO || "Colin4k1024/grok-build";
+  let list;
   try {
     const listOut = execFileSync("gh", ["api", `repos/${repo}/rulesets`], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     });
-    const list = JSON.parse(listOut);
-    const found = (Array.isArray(list) ? list : []).find((r) => r.name === name);
-    if (!found) return null;
-    // Fetch the FULL ruleset (with rules/conditions/bypass_actors).
+    list = JSON.parse(listOut);
+  } catch {
+    return { ruleset: null, fetchError: true };
+  }
+  const found = (Array.isArray(list) ? list : []).find((r) => r.name === name);
+  if (!found) return { ruleset: null, fetchError: false }; // list fetched OK, ruleset missing
+  try {
     const fullOut = execFileSync("gh", ["api", `repos/${repo}/rulesets/${found.id}`], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     });
-    return JSON.parse(fullOut);
+    return { ruleset: JSON.parse(fullOut), fetchError: false };
   } catch {
-    return null;
+    return { ruleset: null, fetchError: true };
   }
 }
 
@@ -140,10 +145,20 @@ export function main(argv) {
       return 1;
     }
   } else {
-    ruleset = fetchRulesetByName();
+    const { ruleset: fetched, fetchError } = fetchRulesetByName();
+    if (fetchError) {
+      const msg = "check-branch-protection: could not fetch the ruleset (gh API / network). Use --ruleset-file to pass a pre-generated ruleset.";
+      if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
+      else console.error(msg);
+      return 1;
+    }
+    ruleset = fetched;
   }
   if (!ruleset) {
-    const msg = "check-branch-protection: could not fetch the ruleset (gh API / network). Use --ruleset-file to pass a pre-generated ruleset.";
+    // List fetched OK but the ruleset doesn't exist — the drift scenario this
+    // verifier exists to catch (main is unprotected). Don't suggest --ruleset-file
+    // (a stale export would pass while the live repo is unprotected, Codex r5 P2).
+    const msg = `check-branch-protection: ruleset "${RULESET_NAME}" NOT FOUND — main is unprotected (the ruleset was deleted or never provisioned). Re-provision via the admin procedure in docs/adr/0008-branch-protection.md.`;
     if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
     else console.error(msg);
     return 1;
