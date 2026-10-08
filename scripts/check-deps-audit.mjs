@@ -84,7 +84,7 @@ export function validateException(exc, now = new Date()) {
       errors.push(`exception expired ${exc.expires} — re-triage or remove the finding`);
     }
   }
-  if (exc.severity && !(exc.severity in SEVERITY_RANK)) {
+  if (exc.severity && !Object.hasOwn(SEVERITY_RANK, exc.severity)) {
     errors.push(`severity "${exc.severity}" is not a known npm severity`);
   }
   return { ok: errors.length === 0, errors };
@@ -124,7 +124,9 @@ export function checkFindings(findings, exceptionsDoc, opts = {}) {
   for (const f of findings) {
     if (SEVERITY_RANK[f.severity] < minRank) continue; // below the bar — report only
     const exc = excByName.get(f.name);
-    const excRank = SEVERITY_RANK[exc?.severity] ?? -1;
+    // Object.hasOwn (not `in`) so a prototype-chain key like "constructor" in
+    // exc.severity can't yield the Object constructor as a rank (Codex r5 P3).
+    const excRank = Object.hasOwn(SEVERITY_RANK, exc?.severity) ? SEVERITY_RANK[exc.severity] : -1;
     // No exception, OR the exception's recorded severity doesn't cover this
     // finding's (a NEW higher-severity advisory on an excepted package) -> the
     // stale exception must NOT count as ownership; surface for re-triage

@@ -190,4 +190,23 @@ describe("check-deps-audit (R6-03 #281)", () => {
       expect(errs.join(" ")).toContain(bad);
     });
   });
+
+  describe("prototype-chain severity bypass (Codex r5 P3)", () => {
+    // `in` matched inherited Object.prototype keys; "constructor"/"toString"
+    // as a severity was treated as known and yielded the Object constructor as
+    // a rank (function < N is NaN -> false -> silently owned any finding).
+    it("validateException rejects a prototype-chain severity like 'constructor'", () => {
+      const r = validateException({ package: "vite", severity: "constructor", exposure: "build", owner: "r", mitigation: "x", expires: "2099-01-01" });
+      expect(r.ok).toBe(false);
+      expect(r.errors.join(" ")).toMatch(/not a known npm severity/);
+    });
+
+    it("checkFindings treats a 'constructor'-severity exception as NOT covering (re-triage)", () => {
+      const findings = [{ name: "vite", severity: "high", via: ["x"], fixAvailable: { available: false }, range: "" }];
+      const doc = { exceptions: [{ package: "vite", severity: "constructor", exposure: "build", owner: "r", mitigation: "x", expires: "2099-01-01" }] };
+      const { unowned, owned } = checkFindings(findings, doc, { now: new Date("2026-01-01") });
+      expect(owned.length).toBe(0);
+      expect(unowned.length).toBe(1); // not covered -> re-triage
+    });
+  });
 });
