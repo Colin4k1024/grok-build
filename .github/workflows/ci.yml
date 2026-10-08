@@ -106,10 +106,13 @@ jobs:
 
   e2e:
     # R5-05 (#261): Electron Playwright visual + keyboard regression against
-    # the packed app. macOS matches the primary dev platform; the fixture
-    # isolates every run from the real user profile.
+    # the packed app. Runs on a self-hosted macOS runner whose display fits the
+    # committed baselines (1200×800 / 1440×900 / 1180×900). GitHub-hosted macOS
+    # runners clamp the window to ~1024 wide (#287); a self-hosted runner with
+    # a ≥1440px display resolves it. The fixture isolates every run from the
+    # real user profile.
     name: Electron E2E (Playwright)
-    runs-on: macos-latest
+    runs-on: [self-hosted, macos-selfhosted]
     steps:
       - uses: actions/checkout@v4
 
