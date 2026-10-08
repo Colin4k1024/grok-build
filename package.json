@@ -19,6 +19,8 @@
     "release:gate": "node scripts/release-gate.mjs",
     "check:toolchain": "node scripts/check-toolchain.mjs",
     "check:branch-protection": "node scripts/check-branch-protection.mjs",
+    "rehearse:candidate": "node scripts/rehearse-candidate.mjs",
+    "build:candidate": "node scripts/build-candidate.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:release-creds": "node scripts/check-release-creds.mjs",
     "test": "vitest run",
