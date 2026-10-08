@@ -8,9 +8,9 @@
 ## Totals (as of 2026-10-08)
 - Total open at R6 start: **7** — #279–#285
 - Filed during execution: **#287** (e2e visual baselines vs CI macOS display)
-- Closed + merged: **2** — **#280** (R6-02 toolchain, 9cf9aacb), **#281** (R6-03 dep security, b35558f6)
-- Remaining open: **6** — #279 (fix done, blocked by #287), #282, #283, #284, #285, #287
-- main HEAD: `b35558f6` (post-#281)
+- Closed + merged: **3** — **#280** (R6-02 toolchain, 9cf9aacb), **#281** (R6-03 dep security, b35558f6), **#283** (R6-05 release env, this PR)
+- Remaining open: **5** — #279 (fix done, blocked by #287), #282, #284, #285, #287
+- main HEAD: post-#283 (release env + credential preflight)
 
 ## Dependency graph (R6)
 - Wave 1 (trustworthy baseline):
@@ -20,14 +20,14 @@
   - #281 (R6-03, security) — ✅ **CLOSED** (b35558f6, Codex r8 clean APPROVE).
 - Wave 2 (repo + release controls):
   - #282 (R6-04) — blocked by #279 (green e2e). Blocks #285.
-  - #283 (R6-05, security) — **READY_FOR_DEV**, independent. Blocks #284.
+  - #283 (R6-05, security) — ✅ **CLOSED** (Codex r4 clean APPROVE; `release` env provisioned with required reviewer).
 - Wave 3 (RC rehearsal + sign-off):
-  - #284 (R6-06) — blocked by #279, #280✅, #281✅, #283. Blocks #285.
+  - #284 (R6-06) — blocked by #279 (only remaining dep — #280✅/#281✅/#283✅ closed). Blocks #285.
   - #285 (R6-07, go/no-go) — blocked by #282, #284. Closes milestone last.
 
-## Current state (paused)
-- **#279** — fix on PR #286 (HEAD `a8ca06ae`). 3 root causes fixed (portable mktemp, `--publish never` on electron:pack, `assert-e2e-ran.mjs` guard). Codex clean APPROVE (r3). PR CI: frontend✓ (mktemp fix proven on Linux), both Rust PTY✓, Pack✓ (--publish never), Assert-Playwright-ran✓; `Run Electron e2e suite`✗ = #287 (visual baselines 1200×800/1440×900 vs CI macOS display ~1024). NOT merged (blocked by #287).
-- **#287** — HUMAN_BLOCKED. Decision needed: which visual-test strategy for CI (4 options in the issue). Until resolved, #279 can't merge, which blocks #282/#284.
+## Current state
+- **#279** — fix on PR #286 (HEAD `0740c03b`, + self-hosted runs-on). 3 root causes fixed (portable mktemp, `--publish never` on electron:pack, `assert-e2e-ran.mjs` guard). Codex clean APPROVE (r3). PR CI: frontend✓ (mktemp fix proven on Linux), both Rust PTY✓, Pack✓ (--publish never), Assert-Playwright-ran✓; `Run Electron e2e suite`✗ = #287 (visual baselines 1200×800/1440×900 vs GitHub-hosted macOS display ~1024). NOT merged — e2e now runs on the self-hosted 5K runner (runs-on change pushed), pending GitHub Actions to trigger the run + the runner to pick it up.
+- **#287** — resolved-in-principle (self-hosted 5K runner fits the baselines). Pending Actions trigger to verify e2e green. The runner is online but the machine's network to GitHub was severely degraded all session (SSL reconnects), and Actions hasn't created a run for the #279-branch pushes since 03:28 UTC.
 - **#280** — ✅ merged to main (9cf9aacb). Toolchain contract: .nvmrc=22, engines.node>=22.12.0, protoc 29.3 aligned, rust-toolchain.toml 1.94.0 authoritative, `scripts/check-toolchain.mjs` preflight (dependency-free, runs before npm ci; --require space/= forms; loud-fail on unknown/missing require; RUSTUP_AUTO_INSTALL=0 only when rust not required; resolved versions from lockfile), wired into all 6 CI jobs (shell:bash for pwsh), ADR 0005. 27 tests. Codex 7-round APPROVE.
 
 ## Next when resumed
