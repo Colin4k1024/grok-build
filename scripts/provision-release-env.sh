@@ -20,7 +20,7 @@ REVIEWER_ID="${2:-33594643}"   # Colin4k1024 (repo owner) as the required review
 
 echo "Provisioning 'release' environment on $REPO (required reviewer id=$REVIEWER_ID)..."
 gh api -X PUT "repos/$REPO/environments/release" --input - <<EOF
-{"wait_timer":0,"reviewers":[{"type":"User","id":$REVIEWER_ID}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":false}}
+{"wait_timer":0,"reviewers":[{"type":"User","id":$REVIEWER_ID}]}
 EOF
 
 echo
