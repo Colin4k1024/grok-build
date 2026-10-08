@@ -96,14 +96,23 @@ describe("check-toolchain parsers + checks (R6-02 #280)", () => {
     expect(checkLockfile(null).ok).toBe(false);
   });
 
-  it("checkProtoc passes when protoc is present", () => {
+  it("checkProtoc passes when protoc is present (presence-only, no expected)", () => {
     expect(checkProtoc("libprotoc 29.3").ok).toBe(true);
+  });
+
+  it("checkProtoc enforces the pinned version when provided (ADR 0005, Codex r2 P2)", () => {
+    expect(checkProtoc("libprotoc 29.3", "29.3").ok).toBe(true);
+    const drift = checkProtoc("libprotoc 28.3", "29.3");
+    expect(drift.ok).toBe(false);
+    expect(drift.reason).toMatch(/28.3/);
+    expect(drift.reason).toMatch(/29.3/);
   });
 
   it("checkProtoc fails with an actionable message when protoc is missing", () => {
     const r = checkProtoc(null);
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/protoc not found/);
+    expect(r.reason).toMatch(/\$PROTOC|bin\/protoc/);
   });
 
   it("checkRust passes when rustc matches the pinned channel", () => {

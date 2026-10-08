@@ -31,6 +31,10 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXPECTED_LOCKFILE_VERSION = 3;
+// The protoc version the contract pins (ADR 0005). CI (arduino/setup-protoc)
+// and dev (bin/protoc dotslash) must both resolve this; checkProtoc enforces
+// equality so a half-done bump (CI without bin/protoc, or vice-versa) is caught.
+const EXPECTED_PROTOC_VERSION = "29.3";
 
 /** Parse a "X.Y.Z" (extra pre-release/build metadata ignored) into [maj,min,pat]. */
 export function parseVersion(v) {
@@ -162,16 +166,28 @@ export function checkLockfile(lockfile) {
   return { ok: true, reason: `lockfileVersion ${v}.` };
 }
 
-/** @param {string|null} protocOutput @returns {CheckResult} */
-export function checkProtoc(protocOutput) {
+/**
+ * @param {string|null} protocOutput
+ * @param {string} [expectedVersion]  if provided, enforce equality (the ADR
+ *   declares a single aligned protoc version; presence-only would let dev/CI
+ *   drift — the exact gap R6-02 set out to close)
+ * @returns {CheckResult}
+ */
+export function checkProtoc(protocOutput, expectedVersion) {
   const v = parseProtocVersion(protocOutput);
   if (!v) {
     return {
       ok: false,
-      reason: "protoc not found on PATH. CI uses arduino/setup-protoc; locally use `bin/protoc` or install protoc.",
+      reason: "protoc not found. CI uses arduino/setup-protoc; locally use `bin/protoc` (dotslash) or set $PROTOC. The build resolves $PROTOC → bin/protoc → PATH.",
     };
   }
-  return { ok: true, reason: `protoc ${v}.` };
+  if (expectedVersion && v !== expectedVersion) {
+    return {
+      ok: false,
+      reason: `protoc ${v} does not match the pinned ${expectedVersion} (ADR 0005). Align CI (arduino/setup-protoc version) and bin/protoc to ${expectedVersion}.`,
+    };
+  }
+  return { ok: true, reason: `protoc ${v}${expectedVersion ? ` (== ${expectedVersion})` : ""}.` };
 }
 
 /** @param {string|null} rustcOutput @param {string|null} expectedChannel @returns {CheckResult} */
@@ -217,7 +233,7 @@ export function checkAll(deps) {
   const results = {
     node: checkNode(deps.nodeVersion, deps.nodeRange),
     lockfile: checkLockfile(deps.lockfile),
-    protoc: checkProtoc(deps.protocOutput),
+    protoc: checkProtoc(deps.protocOutput, EXPECTED_PROTOC_VERSION),
     rust: checkRust(deps.rustcOutput, deps.rustChannel),
   };
   return { results, versions };
@@ -238,9 +254,14 @@ export function computeFailures(results, require) {
     .map(([name, r]) => `[${name}] ${r.reason}`);
 }
 
-function run(cmd, args) {
+function run(cmd, args, opts = {}) {
   try {
-    return execFileSync(cmd, args, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync(cmd, args, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: opts.shell ?? false,
+      env: opts.env ?? process.env,
+    }).trim();
   } catch {
     return null;
   }
@@ -267,11 +288,22 @@ export function main(argv) {
 
   const deps = {
     nodeVersion: process.versions.node,
-    npmVersion: run(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]),
+    // win32: npm is npm.cmd; since Node's CVE-2024-27980 fix, spawning a .cmd
+    // without a shell throws, so use shell:true on Windows to actually capture
+    // the npm version (Codex r2 P3).
+    npmVersion: run(
+      process.platform === "win32" ? "npm.cmd" : "npm",
+      ["--version"],
+      { shell: process.platform === "win32" },
+    ),
     nodeRange,
     lockfile,
     protocOutput: probeProtoc(),
-    rustcOutput: run("rustc", ["--version"]),
+    // Probe rustc with RUSTUP_AUTO_INSTALL=0 so a no-Rust job (e.g. the
+    // frontend job) doesn't trigger a multi-hundred-MB toolchain auto-install
+    // via the rustup proxy + rust-toolchain.toml (Codex r2 P3). If rustc is
+    // installed (rust jobs), it reports; otherwise run() returns null → WARN.
+    rustcOutput: run("rustc", ["--version"], { env: { ...process.env, RUSTUP_AUTO_INSTALL: "0" } }),
     rustChannel: parseRustToolchainChannel(rustToml),
     electronVersion: pkg.devDependencies?.electron,
     electronBuilderVersion: pkg.devDependencies?.["electron-builder"],
