@@ -91,7 +91,6 @@
       "package.json"
     ],
     "asar": true,
-    "publish": "never",
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
