@@ -70,7 +70,10 @@ if [[ "$target" == *.dmg ]]; then
     exit 1
   fi
   # Mount read-only into a private mount point; always detach on exit.
-  mnt="$(mktemp -d -t gb-verify-dmg)"
+  # Portable temp dir: the explicit-path-with-X's form works on both GNU
+  # coreutils (which requires X's in the template) and BSD/macOS. The BSD-only
+  # `mktemp -d -t PREFIX` form breaks Linux unit tests (R6-01 #279).
+  mnt="$(mktemp -d "${TMPDIR:-/tmp}/gb-verify-dmg.XXXXXX")"
   if hdiutil attach "$target" -nobrowse -readonly -mountpoint "$mnt" >/dev/null 2>&1; then
     mounted="$mnt"
     inner="$mnt/Grok Build.app"

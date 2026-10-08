@@ -128,10 +128,13 @@ jobs:
 
   e2e:
     # R5-05 (#261): Electron Playwright visual + keyboard regression against
-    # the packed app. macOS matches the primary dev platform; the fixture
-    # isolates every run from the real user profile.
+    # the packed app. Runs on a self-hosted macOS runner whose display fits the
+    # committed baselines (1200×800 / 1440×900 / 1180×900). GitHub-hosted macOS
+    # runners clamp the window to ~1024 wide (#287); a self-hosted runner with
+    # a ≥1440px display resolves it. The fixture isolates every run from the
+    # real user profile.
     name: Electron E2E (Playwright)
-    runs-on: macos-latest
+    runs-on: [self-hosted, macos-selfhosted]
     steps:
       - uses: actions/checkout@v4
 
@@ -167,7 +170,17 @@ jobs:
       - name: Build Rust agent binary
         run: cargo build --release -p xai-grok-pager-bin -p ptyctl-cli
 
-      - name: Pack (unsigned, for e2e)
+      # Clean prior pack output so a cancelled/partial run cannot be reused as
+      # success on rerun (R6-01 #279): the fixture resolves release/*, so a
+      # stale partial package there would be picked up as if it built.
+      - name: Clean prior pack/e2e output
+        run: rm -rf release e2e-results
+
+      # electron:pack now passes --publish never (R6-01 #279), so
+      # electron-builder never requests GH_TOKEN and never publishes even when
+      # the runner's default token is present. CSC_IDENTITY_AUTO_DISCOVERY
+      # stays false so no signing identity is required.
+      - name: Pack (unsigned, non-publishing, for e2e)
         run: npm run electron:pack
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -179,10 +192,29 @@ jobs:
           TZ: Asia/Shanghai
           LANG: zh-CN.UTF-8
 
-      - name: Upload e2e artifacts on failure
-        if: failure()
+      # A skipped/empty Playwright invocation must fail the job — the original
+      # R6-01 regression had the pack step halt so Playwright never ran. The
+      # guard reads the JSON report and fails when 0 tests executed (R6-01 #279).
+      - name: Assert Playwright actually ran tests
+        if: always()
+        run: node scripts/assert-e2e-ran.mjs
+
+      # Exact-SHA evidence binding for the e2e job (R6-01 #279).
+      - name: Generate e2e evidence snapshot
+        if: always()
+        run: |
+          mkdir -p evidence
+          echo "sha=$(git rev-parse HEAD)" >> evidence/e2e-summary.txt
+          echo "job=e2e" >> evidence/e2e-summary.txt
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> evidence/e2e-summary.txt
+          cat evidence/e2e-summary.txt
+
+      - name: Upload e2e artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-results
-          path: e2e-results/
+          path: |
+            e2e-results/
+            evidence/e2e-summary.txt
           retention-days: 7

@@ -69,6 +69,16 @@ function stubAll({ codesign = 0, spctl = 0, stapler = 0 } = {}) {
 }
 
 describe("verify-macos-release.sh (R5-08 #264)", () => {
+  it("uses a portable mktemp form (not BSD-only -t PREFIX) — R6-01 #279", () => {
+    // GNU coreutils `mktemp -d -t PREFIX` treats PREFIX as a template that
+    // requires trailing X's, so the BSD-only form errors on Linux. The
+    // explicit-path-with-X's form works on both. Assert the script source
+    // uses the portable form so a regression fails this test everywhere.
+    const src = fs.readFileSync(SCRIPT, "utf-8");
+    expect(src).not.toMatch(/mktemp\s+-d\s+-t\s+gb-verify-dmg/);
+    expect(src).toMatch(/mktemp\s+-d\s+"\$\{TMPDIR:-\/tmp\}\/gb-verify-dmg\.XXXXXX"/);
+  });
+
   it("fails clearly when a required tool is missing from PATH", () => {
     // empty stubBin — no codesign at all
     const r = run(appDir, {}, { barePath: true });
