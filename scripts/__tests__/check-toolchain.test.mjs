@@ -4,6 +4,10 @@ import {
   parseRustToolchainChannel,
   parseRustcVersion,
   parseProtocVersion,
+  parseVersion,
+  satisfies,
+  isValidVersion,
+  parseRequire,
   checkNode,
   checkLockfile,
   checkProtoc,
@@ -11,6 +15,40 @@ import {
   checkAll,
   computeFailures,
 } from "../check-toolchain.mjs";
+
+describe("inline semver + argv parsing (no node_modules dependency, Codex r1 P1/P3)", () => {
+  it("parseVersion extracts major.minor.patch", () => {
+    expect(parseVersion("22.16.0")).toEqual([22, 16, 0]);
+    expect(parseVersion("1.94.0 (abc)")).toEqual([1, 94, 0]);
+    expect(parseVersion("stable")).toBeNull();
+    expect(parseVersion(null)).toBeNull();
+  });
+
+  it("satisfies handles >= / < ranges used by the contract (no semver package)", () => {
+    expect(satisfies("22.16.0", ">=22.12.0")).toBe(true);
+    expect(satisfies("22.12.0", ">=22.12.0")).toBe(true); // boundary
+    expect(satisfies("20.18.0", ">=22.12.0")).toBe(false);
+    expect(satisfies("22.16.0", ">=22.12.0 <23")).toBe(true);
+    expect(satisfies("23.0.0", ">=22.12.0 <23")).toBe(false);
+    expect(satisfies("not-a-version", ">=22.12.0")).toBe(false);
+  });
+
+  it("isValidVersion distinguishes version channels from named channels", () => {
+    expect(isValidVersion("1.94.0")).toBe(true);
+    expect(isValidVersion("stable")).toBe(false);
+    expect(isValidVersion("nightly")).toBe(false);
+  });
+
+  it("parseRequire handles BOTH the space form (workflows) and the = form", () => {
+    expect(parseRequire(["--require", "protoc,rust"])).toEqual(["protoc", "rust"]);
+    expect(parseRequire(["--require=protoc,rust"])).toEqual(["protoc", "rust"]);
+    expect(parseRequire(["--require", "rust"])).toEqual(["rust"]);
+    expect(parseRequire(["--json"])).toEqual([]);
+    expect(parseRequire([])).toEqual([]);
+    // the space form must not be swallowed by the = branch
+    expect(parseRequire(["--require", "protoc,rust", "--json"])).toEqual(["protoc", "rust"]);
+  });
+});
 
 describe("check-toolchain parsers + checks (R6-02 #280)", () => {
   it("parseRustToolchainChannel extracts the channel version", () => {

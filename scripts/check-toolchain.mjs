@@ -24,10 +24,92 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import semver from "semver";
+
+// The preflight runs BEFORE `npm ci` (fail-fast on unsupported runtimes), so it
+// must not import any package that lives in node_modules. The version checks
+// below use a tiny inline comparator instead of the `semver` package.
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXPECTED_LOCKFILE_VERSION = 3;
+
+/** Parse a "X.Y.Z" (extra pre-release/build metadata ignored) into [maj,min,pat]. */
+export function parseVersion(v) {
+  if (typeof v !== "string") return null;
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+/** Compare two [maj,min,pat] arrays. */
+function cmpVersion(a, b) {
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+/**
+ * Minimal `semver.satisfies` covering the ranges this contract uses: one or
+ * more space-separated clauses, each `>=|>|<=|<|= X.Y.Z`. (No `^`/`~`/`*` —
+ * the contract pins explicit floors like ">=22.12.0".)
+ */
+export function satisfies(version, range) {
+  const v = parseVersion(version);
+  if (!v) return false;
+  return String(range).split(/\s+/).filter(Boolean).every((clause) => {
+    const m = /^(>=|<=|>|<|=)?\s*(\d+(?:\.\d+){0,2})$/.exec(clause.trim());
+    if (!m) return false;
+    const op = m[1] || "=";
+    const operand = m[2].split(".").map(Number);
+    while (operand.length < 3) operand.push(0);
+    const c = cmpVersion(v, operand);
+    if (op === ">=") return c >= 0;
+    if (op === ">") return c > 0;
+    if (op === "<=") return c <= 0;
+    if (op === "<") return c < 0;
+    return c === 0;
+  });
+}
+
+/** True if `v` is a concrete "X.Y.Z" version (not a named channel like "stable"). */
+export function isValidVersion(v) {
+  return parseVersion(v) != null;
+}
+
+/**
+ * Parse the `--require` flag from argv. Accepts BOTH forms:
+ *   --require protoc,rust   (space-separated — what the workflows use)
+ *   --require=protoc,rust   (equals form)
+ * Pure so it can be unit-tested (Codex r1 P1: the prior code only handled the
+ * `=` form, so the space form used by every workflow silently no-op'd.)
+ */
+export function parseRequire(argv) {
+  const eq = argv.find((a) => a.startsWith("--require="));
+  if (eq) {
+    return eq.slice("--require=".length).split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const sp = argv.indexOf("--require");
+  if (sp >= 0 && sp + 1 < argv.length) {
+    return argv[sp + 1].split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Probe protoc the way the build does — mirror crates/build/xai-proto-build/
+ * src/find_protoc.rs: $PROTOC → bin/protoc (dotslash) → PATH. (Codex r1 P3: the
+ * prior code only checked PATH, so a local dev setup using `bin/protoc` with no
+ * system protoc falsely failed.)
+ */
+function probeProtoc() {
+  const envProtoc = process.env.PROTOC;
+  if (envProtoc) {
+    const out = run(envProtoc, ["--version"]);
+    if (out) return out;
+  }
+  const binProtoc = path.join(REPO, "bin", "protoc");
+  // bin/protoc is a dotslash manifest; only resolves where dotslash is
+  // installed. On systems without it, run() returns null → fall through.
+  const binOut = run(binProtoc, ["--version"]);
+  if (binOut) return binOut;
+  return run("protoc", ["--version"]);
+}
 
 /** Extract the `channel = "X"` value from rust-toolchain.toml content. */
 export function parseRustToolchainChannel(toml) {
@@ -58,7 +140,7 @@ export function parseProtocVersion(protocOutput) {
 export function checkNode(nodeVersion, range) {
   if (!nodeVersion) return { ok: false, reason: "Node version unavailable." };
   if (!range) return { ok: false, reason: "package.json has no engines.node range." };
-  if (!semver.satisfies(nodeVersion, range)) {
+  if (!satisfies(nodeVersion, range)) {
     return {
       ok: false,
       reason: `Node ${nodeVersion} does not satisfy engines.node "${range}" (Electron 44 requires >=22.12.0). Install Node 22 (see .nvmrc: \`nvm install\`).`,
@@ -102,7 +184,7 @@ export function checkRust(rustcOutput, expectedChannel) {
   // Compare major.minor.patch; rust-toolchain.toml channel may be a version
   // ("1.94.0") or a named channel ("stable"). Only version channels are
   // checked for equality; named channels are recorded but not rejected.
-  if (semver.valid(expectedChannel)) {
+  if (isValidVersion(expectedChannel)) {
     if (actual !== expectedChannel) {
       return {
         ok: false,
@@ -165,12 +247,12 @@ function run(cmd, args) {
 }
 
 export function main(argv) {
-  // --require a,b,c : which checks must pass (default: node,lockfile). Jobs
-  // that need protoc/rust pass `--require protoc,rust` so a missing protoc or
-  // drifted rustc fails the preflight; a job that doesn't need them isn't
-  // failed for their absence.
-  const requireArg = argv.find((a) => a.startsWith("--require"));
-  const require = requireArg ? requireArg.slice("--require".length).replace(/^=/, "").split(",").map((s) => s.trim()).filter(Boolean) : [];
+  // --require accepts both `--require protoc,rust` (workflows) and
+  // `--require=protoc,rust`. Default required = node, lockfile; --require adds
+  // extras so a job that doesn't need protoc/rust isn't failed for their
+  // absence. (Codex r1 P1: the prior parser only handled the `=` form, so the
+  // space form used by every workflow silently no-op'd.)
+  const require = parseRequire(argv);
 
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, "package.json"), "utf-8"));
   const nodeRange = pkg.engines?.node;
@@ -188,7 +270,7 @@ export function main(argv) {
     npmVersion: run(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]),
     nodeRange,
     lockfile,
-    protocOutput: run("protoc", ["--version"]),
+    protocOutput: probeProtoc(),
     rustcOutput: run("rustc", ["--version"]),
     rustChannel: parseRustToolchainChannel(rustToml),
     electronVersion: pkg.devDependencies?.electron,
