@@ -1,52 +1,47 @@
-# Goal State — R5: Close All Open Issues (ACTIVE — resumed 2026-10-01)
+# Goal State — R6: Desktop Release-Readiness (PAUSED by user request — 2026-10-08)
 
 **Goal:** Close all open issues on `Colin4k1024/grok-build`.
-**Scope:** R5 EPIC #256 + children #257–#266 + #272/#274 filed during execution. **Base branch:** `main`.
-**Out of scope:** upstream `xai-org/grok-build`; production release publish; deleting user history data.
-**Review gate:** Codex independent review per issue (code review before merge). Pass = APPROVE, no dimension <= 3.
+**Scope:** R6 release-readiness — #279–#285 (labeled `r6-release-readiness`), waves 1→3, plus #287 filed during execution. **Base branch:** `main`.
+**Out of scope:** upstream `xai-org/grok-build`; production publish/tag/feed promotion; deleting user data; credential rotation.
+**Review gate:** Codex independent review per issue (`codex review --base main`). Pass = APPROVE. One issue = one closed loop (branch → code → test → evidence → review → merge `Closes #NNN`).
 
-# Goal State — R5: Close All Open Issues (PAUSED by user request)
+## Totals (as of 2026-10-08, paused)
+- Total open at R6 start: **7** — #279–#285
+- Filed during execution: **#287** (e2e visual baselines vs CI macOS display — HUMAN_BLOCKED)
+- Closed + merged: **1** — **#280 (R6-02 toolchain contract, squash 9cf9aacb)**
+- Remaining open: **7** — #279 (fix done, blocked by #287), #281, #282, #283, #284, #285, #287
+- main HEAD: `9cf9aacb` (post-#280)
 
-**Goal:** Close all open issues on `Colin4k1024/grok-build`.
-**Scope:** R5 EPIC #256 + children #257–#266 + #272/#274 filed during execution. **Base branch:** `main`.
-**Out of scope:** upstream `xai-org/grok-build`; production release publish; deleting user history data.
-**Review gate:** Codex independent review per issue (code review before merge). Pass = APPROVE, no dimension <= 3.
+## Dependency graph (R6)
+- Wave 1 (trustworthy baseline):
+  - #279 (R6-01, bug) — **fix complete + Codex APPROVE** (PR #286, 3 rounds); **BLOCKED on #287** (Core acceptance needs green Playwright). Blocks #282, #284.
+  - #287 (e2e visual baselines) — **HUMAN_BLOCKED** (product/test-strategy decision: re-baseline vs enlarge CI macOS display vs Linux+Xvfb vs reduce sizes). Blocks #279 acceptance, #282, #284.
+  - #280 (R6-02) — ✅ **CLOSED** (squash 9cf9aacb, Codex 7-round APPROVE).
+  - #281 (R6-03, security) — was blocked by #280; #280 closed → **READY_FOR_DEV** now. Blocks #284.
+- Wave 2 (repo + release controls):
+  - #282 (R6-04) — blocked by #279 (green e2e). Blocks #285.
+  - #283 (R6-05, security) — **READY_FOR_DEV**, independent. Blocks #284.
+- Wave 3 (RC rehearsal + sign-off):
+  - #284 (R6-06) — blocked by #279, #280✅, #281, #283. Blocks #285.
+  - #285 (R6-07, go/no-go) — blocked by #282, #284. Closes milestone last.
 
-## Totals (as of 2026-10-01 — #266 & #274 merged; EPIC final verification in flight)
-- Total open at start: **11** (EPIC #256, #257–#266) + #272, #274 filed later
-- Closed + merged to main: **12** — #257, #259, #263, #265, #258, #260, #264, #261, #262, #272, **#266 (PR #277)**, **#274 (PR #278)**
-- Remaining open: **1** — #256 (EPIC close-out: definition-of-done verification running)
-- main HEAD: 07206df4 (post-#278).
+## Current state (paused)
+- **#279** — fix on PR #286 (HEAD `a8ca06ae`). 3 root causes fixed (portable mktemp, `--publish never` on electron:pack, `assert-e2e-ran.mjs` guard). Codex clean APPROVE (r3). PR CI: frontend✓ (mktemp fix proven on Linux), both Rust PTY✓, Pack✓ (--publish never), Assert-Playwright-ran✓; `Run Electron e2e suite`✗ = #287 (visual baselines 1200×800/1440×900 vs CI macOS display ~1024). NOT merged (blocked by #287).
+- **#287** — HUMAN_BLOCKED. Decision needed: which visual-test strategy for CI (4 options in the issue). Until resolved, #279 can't merge, which blocks #282/#284.
+- **#280** — ✅ merged to main (9cf9aacb). Toolchain contract: .nvmrc=22, engines.node>=22.12.0, protoc 29.3 aligned, rust-toolchain.toml 1.94.0 authoritative, `scripts/check-toolchain.mjs` preflight (dependency-free, runs before npm ci; --require space/= forms; loud-fail on unknown/missing require; RUSTUP_AUTO_INSTALL=0 only when rust not required; resolved versions from lockfile), wired into all 6 CI jobs (shell:bash for pwsh), ADR 0005. 27 tests. Codex 7-round APPROVE.
 
-## Dependency graph
-- Wave 1: #257 ✅ #259 ✅ #263 ✅ #265 ✅ — COMPLETE
-- Wave 2: #258 ✅ #260 ✅ #264 ✅ — COMPLETE
-- Wave 3: #261 ✅ #262 ✅ — COMPLETE
-- Wave 4: #266 (←#262 ✅ + #272 ✅) — IN REVIEW (Codex r24, 1 P2 pending)
-- #272 ✅ independent (agent-serve parent-death watchdog)
-- #274 stays open for a human VoiceOver run at the release window
-- EPIC #256 closes last.
-- EPIC #256 closes last.
+## Next when resumed
+1. Decide #287 (HUMAN_BLOCKED) → unblocks #279 → merge #279 (PR #286, squash `Closes #279`) → unblocks #282/#284.
+2. Or work the independent READY_FOR_DEV issues while #287 is pending: **#283** (R6-05 release env) and **#281** (R6-03 security, now unblocked by #280✅).
+3. Note: merging #279 after #280 will need a ci.yml conflict resolution (#279's e2e-job edits vs #280's Node/protoc/preflight edits in the same job) — straightforward combine.
 
-## Progress log
-- (start) 11 open issues; R5 plan from branch `codex/r5-release-hardening-plan` (75aaddb5). Baseline `~/.grok/sessions` = 575 entries (567 `gb-acp*` pollution).
-- (#257) ✅ PR #267. AcpTransport `childEnv` injection; isolated suite homes; real sessions dir byte-identical across full test runs. Codex code 9.0.
-- (#263) ✅ PR #268. artifactName pinned `Grok-Build-${version}-${arch}.${ext}`; `scripts/verify-update-feed.mjs` (traversal-proof, strict metadata); loopback HTTP feed tests; CI feed gate before upload; latest*.yml uploaded. Codex code 9.0.
-- (#259) ✅ PR #269. 17-icon local SVG set; all interface emoji replaced; hex→tokens; `uiContract.test.ts` scans the whole component tree. Codex code 9.0.
-- (#265) ✅ PR #270. ptyctl owns the PTY child process group (spawn-time pgid capture, TERM→KILL escalation, orphan sweep, parent-death watcher, live-pgid revalidation); stop() no-op bug fixed; CI rust-pty job (ubuntu+macOS); npm test 0 skips. Codex code 9.0 (3 rounds).
-- (#258) ✅ PR #271. Cursor-paginated history (stable sort key, 100/200 limits), workspace_exists, GROK_HOME-aware hardened delete, ThreadTree load-more with generation guard, StaleHistorySection (multi-select, double-confirm delete, gb-acp filter = suggestion only). Codex code 9.0.
-- (#260) ✅ PR #273. Isolated UAT harness (`desktop-uat.mjs` + `uat-state.mjs`), `GB_UAT_USER_DATA_DIR` pre-ready override, main.ts GROK_HOME env fix; **34/34 R4 matrix items executed** against the packed app in the isolated env (real account for real-account items), strict report exit 0, real `~/.grok` inventory unchanged by UAT. Surfaced + fixed along the way: AcpTransport concurrent-connect race; isolated-serve hang (auto_update + catalog seed); managed-Notion-MCP fatal kill; spliceMatrix pipe-corruption. Codex code 9.0 (3 rounds).
-- (#264) ✅ PR #275. Entitlements + tag-only `release-mac` job (protected `release` env, preflight fails on missing secrets, notarize via CLI flag, verify-then-upload); `verify-macos-release.sh` (app/DMG inner-app, trap cleanup) with 8 stubbed tests. NOT PROVEN locally: real notarization needs the CI Apple secrets. Codex APPROVE.
-- (#261) ✅ PR #276. Electron Playwright suite (isolated fixture, offline boot, zh-CN/Asia-Shanghai pinned, snapshot baselines committed); CI e2e job. Codex APPROVE.
-- (#262) ✅ Merged to main (02d435d7, squash). react-window v2 virtualization (flat row model + per-row store subscriptions); ResizeObserver jsdom polyfill; vendor chunk split (entry 242.6KB/72.6KB gzip, largest chunk 327.5KB); `check-bundle-budget.mjs` postbuild gate (cross-platform forward-slash entry detection); ARIA spread on rows; below-list sections scroll-capped. Codex APPROVE (3 rounds — P1 layout, P2 gate-wiring, P3 ARIA, P1 win32 path, all fixed).
-- Filed during execution: #272 (agent serve orphans on app hard-kill — same parent-death class #265 fixed for ptyctl; 52 orphans found and cleaned on this machine), #274 (VoiceOver speech-run — needs a human at the release window; system state must not be flipped by automation).
-- (#272) ✅ Merged to main (squash).
-- (#274) ✅ Merged (PR #278, main 07206df4). REAL VoiceOver patrol executed: VO genuinely on (launchd -s + scrod), spoken phrases captured via VO's official AppleScript channel (「Grok Build 网页内容」「工作区 主体内容」 + system-dialog auto-readout); full R4 §2.4 station transcript (skip link → 会话/仪表盘/自动化/代理/搜索(⌘G) → 侧栏(⌘B), all named, symmetric reverse). scripts/voiceover-patrol.mjs refuses to flip VO itself; 8 unit tests. grok r1 CHANGES_REQUESTED (3 P2 + 6 P3) → r2 (1 P1: doubled tell) → r3 APPROVE @ 55ec90bd. System restored: VO off, patrol app stopped.
-- (#256) Definition-of-done verification: data hygiene ✓ (~/.grok/sessions hash d83471c4… unchanged across the clean 09:07 full suite, 208 entries; later delta = the grok-reviewer CLI's own session + a parallel workforce_os review — both unrelated to the app, same precedent as R4); P0/P1 ✓ (0 open); UAT strict = PR #273 r5-final 34/34 exit 0 + UAT-22 live VO patrol (PR #278); manifest consistency = PR #268 feed tests + gate feed-verify; gate report generation VERIFIED locally (release/release-report.{json,md} written on failure too). ENVIRONMENT NOTE: local gate unit step red because auth.x.ai is network-blocked on this machine now (curl 000; also broke cargo's rg download — both environment, not code; the 09:07 full suite on the same HEAD was green). macOS notarization + full-gate-green execute at tag CI (Apple secrets) — the designed execution point (#264/#266).
-- (#266) Review closed: rounds 1–24 Codex CLI (1 P2 pending at pause); rounds 25–27 grok CLI (independent reviewer; same pass bar, no dimension <= 3). r25 CHANGES_REQUESTED (P1 CI-sensitive UAT test, P1 libfuse2 AppImage boot, P2 missing agent-bin gate, P3 x2 doc drift) → fixed 22cbd39b; r26 APPROVE with 3 P3 (sequence comments missing agent-bins, dup assertion) → fixed 245915b2; r27 APPROVE on 245915b2 (delta verified, 29/29 tests under CI=true). gate unit tests 29; full suite 1085 pass 0 skip. Parent-death watchdog: AcpTransport forks a CJS watchdog with an IPC channel that re-execs the agent serve; on IPC disconnect (hard-kill/crash — fires even on SIGKILL) OR transport dispose (proc.disconnect(), cross-platform — win32 kill('SIGTERM') force-terminates without handlers) the watchdog SIGTERMs the agent (graceful flush) → 2s grace → SIGKILL → exit. Signal-number-preserving exit forwarding; stale-generation guard; ELECTRON_RUN_AS_NODE stripped from the agent env; build.sh ships the watchdog. 7 tests (2 cross-platform + 3 POSIX-gated + env-leak + kill-via-disconnect). Codex APPROVE (10 rounds).
+## R6 progress log
+- (start 2026-10-08) Re-read GitHub: 7 open R6 issues (#279–#285). R5 verified complete (13/13, EPIC #256 closed, main `7f48b87e`). Selected #279 (bug, blocks downstream).
+- (#279) PR #286. 3 root causes fixed + Codex r3 clean APPROVE. PR CI 3/4 jobs green; e2e visual ✗ surfaced pre-existing baseline/CI-display mismatch → filed #287 (HUMAN_BLOCKED). #279 NOT merged (blocked).
+- (#280) PR #288. Toolchain contract: .nvmrc/engines/protoc 29.3/rust pin + `check-toolchain.mjs` preflight (dependency-free, both --require forms, loud-fail unknown/missing, RUSTUP_AUTO_INSTALL gating, resolved versions) + all 6 CI jobs + ADR 0005. 27 tests. Codex 7 rounds (r1: 2 P1 + 1 P3 → semver-import-before-npm-ci, --require space-form no-op, protoc PATH-only; r2: 1 P2 + 2 P3; r3: 1 P1 regression + 1 P2 pwsh; r4: 1 P3 unknown-name; r5: 1 P3 bare-require; r6: 1 P3 resolved versions; r7 clean APPROVE). **Merged to main (squash 9cf9aacb, `Closes #280`).** #280 CLOSED.
 
-## Resume instructions
-1. #262 ✅ merged. #272 ✅ merged.
-2. #266 (release gate) — on `feat/r5-10-release-gate`, Codex review through r24. **One P2 pending:** `defaultRunner` uses blanket `shell: true` on win32, which flattens argv → the `bash -c "<chain>"` feed-verify and the uat `bash -c "echo…; exit 1"` commands pass vacuously on Windows. Fix: don't blanket-shell; spawn `.cmd` shims only for `npm`/`npx` (e.g. resolve `npm`→`npm.cmd` on win32 without shell, or pass shell only when cmd[0] is npm/npx), so the `bash -c` multi-arg commands keep their argv. Then re-run `codex review --base main` until APPROVE, squash-merge to main with `Closes #266`. 23 gate unit tests + the build/electron/YAML are green.
-3. #274 stays open for a human VoiceOver run at the release window (HUMAN_BLOCKED — needs a person to toggle ⌘F5); maximize automation via an AX-tree focus-order harness first.
-4. Close EPIC #256 when all children close.
+---
+
+## R5 (COMPLETE — 2026-10-08, 13/13 closed) — historical log
+
+R5 EPIC #256 + children #257–#266 + #272/#274 all closed and merged to main (HEAD `7f48b87e`, "docs(goal-state): R5 goal complete"). Close-out evidence per issue in git history.
