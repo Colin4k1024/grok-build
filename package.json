@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -14,6 +17,7 @@
     "electron:start": "npm run electron:build && electron .",
     "electron:pack": "npm run build && npm run electron:build && electron-builder",
     "release:gate": "node scripts/release-gate.mjs",
+    "check:toolchain": "node scripts/check-toolchain.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
