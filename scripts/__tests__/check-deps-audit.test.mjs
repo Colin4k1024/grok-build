@@ -6,7 +6,11 @@ import {
   validateException,
   validateExceptions,
   checkFindings,
+  main,
 } from "../check-deps-audit.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const sampleAudit = {
   metadata: { vulnerabilities: { info: 0, low: 0, moderate: 1, high: 1, critical: 1, total: 3 } },
@@ -167,6 +171,23 @@ describe("check-deps-audit (R6-03 #281)", () => {
       const { unowned, owned } = checkFindings(findings, doc, { now: new Date("2026-01-01") });
       expect(owned.length).toBe(1);
       expect(unowned.length).toBe(0);
+    });
+  });
+
+  describe("malformed JSON inputs fail closed with a named file (Codex r4 P3)", () => {
+    it("main() returns 1 and names the file when --audit-file is invalid JSON", () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gb-audit-"));
+      const bad = path.join(tmp, "bad.json");
+      fs.writeFileSync(bad, "{ not valid json");
+      const orig = console.error;
+      const errs = [];
+      console.error = (s) => errs.push(String(s));
+      const code = main(["--audit-file", bad]);
+      console.error = orig;
+      fs.rmSync(tmp, { recursive: true, force: true });
+      expect(code).toBe(1);
+      expect(errs.join(" ")).toMatch(/not valid JSON/);
+      expect(errs.join(" ")).toContain(bad);
     });
   });
 });

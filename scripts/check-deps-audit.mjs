@@ -175,24 +175,38 @@ export function main(argv) {
   const jsonOut = argv.includes("--json");
   const auditFileIdx = argv.indexOf("--audit-file");
   const auditFile = auditFileIdx >= 0 ? argv[auditFileIdx + 1] : null;
+  const fail = (msg) => {
+    if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
+    else console.error(msg);
+    return 1;
+  };
 
   let audit;
   if (auditFile) {
-    const parsed = JSON.parse(fs.readFileSync(auditFile, "utf-8"));
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(auditFile, "utf-8"));
+    } catch (e) {
+      return fail(`check-deps-audit: --audit-file ${auditFile} is not valid JSON: ${e.message}`);
+    }
     audit = isAuditReport(parsed) ? parsed : null; // fail closed on a non-report payload
   } else {
     audit = runNpmAudit();
   }
   if (!audit) {
-    const msg = "check-deps-audit: could not obtain npm audit output (network/registry). Use --audit-file to pass a pre-generated report.";
-    if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
-    else console.error(msg);
-    return 1;
+    return fail("check-deps-audit: could not obtain npm audit output (network/registry). Use --audit-file to pass a pre-generated report.");
   }
 
-  const exceptionsDoc = fs.existsSync(EXCEPTIONS_FILE)
-    ? JSON.parse(fs.readFileSync(EXCEPTIONS_FILE, "utf-8"))
-    : { exceptions: [] };
+  let exceptionsDoc;
+  if (fs.existsSync(EXCEPTIONS_FILE)) {
+    try {
+      exceptionsDoc = JSON.parse(fs.readFileSync(EXCEPTIONS_FILE, "utf-8"));
+    } catch (e) {
+      return fail(`check-deps-audit: ${EXCEPTIONS_FILE} is not valid JSON: ${e.message}`);
+    }
+  } else {
+    exceptionsDoc = { exceptions: [] };
+  }
 
   const { findings, totals } = parseAudit(audit);
   const { ok: excOk, errors: excErrors } = validateExceptions(exceptionsDoc);
@@ -231,6 +245,18 @@ export function main(argv) {
   return report.ok ? 0 : 1;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Run only when invoked directly (not when imported by tests). Compare
+// realpaths so invocation through a symlinked path (e.g. macOS /tmp, symlinked
+// runner workspaces, IDE actions) still matches — otherwise the guard is false,
+// main() never runs, and the gate silently exits 0 (vacuous pass, Codex r4 P2).
+function invokedDirectly() {
+  try {
+    return fs.realpathSync(path.resolve(process.argv[1] || "")) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   process.exit(main(process.argv.slice(2)));
 }
