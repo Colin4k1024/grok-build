@@ -164,11 +164,15 @@ describe("interrupted download/install recovery (R3-13 #198)", () => {
 });
 
 describe("missing cert → must fail (R3-13 #198)", () => {
-  it("the build configuration uses --publish never by default — no accidental publish", () => {
-    // electron-builder config should not publish without explicit configuration.
-    // This test verifies the concept: the default is "never publish".
-    const defaultPublishMode = "never";
-    expect(defaultPublishMode).toBe("never");
+  it("the build configuration uses --publish never — no accidental publish (R6-01 #279)", () => {
+    // Real check: read package.json and assert the smoke pack script and the
+    // electron-builder config both pin --publish never. Replaces the prior
+    // vacuous tautology (`"never" === "never"`) that could not catch a missing
+    // flag. pack(smoke) may only reach built/verified — never published.
+    const pkgPath = path.resolve(__dirname, "../../package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    expect(pkg.scripts["electron:pack"]).toContain("--publish never");
+    expect(pkg.build.publish).toBe("never");
   });
 
   it("without a signing identity, codesign fails — the artifact is NOT signed", () => {

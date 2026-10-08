@@ -9,7 +9,14 @@ export default defineConfig({
   timeout: 120_000,
   retries: 0,
   workers: 1, // one Electron app at a time — they share the display
-  reporter: [["list"], ["html", { outputFolder: "e2e-results/report", open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "e2e-results/report", open: "never" }],
+    // JSON report consumed by scripts/assert-e2e-ran.mjs so a vacuous run
+    // (0 tests / all skipped / Playwright never started) fails the CI job
+    // instead of passing silently (R6-01 #279).
+    ["json", { outputFile: "e2e-results/results.json" }],
+  ],
   outputDir: "e2e-results/artifacts",
   // NOTE: locale/timezoneId in `use` do NOT reach an _electron-launched app;
   // the fixture passes them as Chromium env/args explicitly (see
