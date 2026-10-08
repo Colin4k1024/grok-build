@@ -175,13 +175,28 @@ function runNpmAudit() {
 
 export function main(argv) {
   const jsonOut = argv.includes("--json");
-  const auditFileIdx = argv.indexOf("--audit-file");
-  const auditFile = auditFileIdx >= 0 ? argv[auditFileIdx + 1] : null;
+  // Parse --audit-file in BOTH forms: `--audit-file <path>` and `--audit-file=<path>`.
+  // A missing value (bare `--audit-file` or `--audit-file=`) must error rather
+  // than silently fall back to a live audit — otherwise a typo'd flag gates on
+  // the wrong input (Codex r6 P3, same arg-misparse class as --require).
   const fail = (msg) => {
     if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
     else console.error(msg);
     return 1;
   };
+  let auditFile = null;
+  {
+    const eq = argv.find((a) => a.startsWith("--audit-file="));
+    const sp = argv.indexOf("--audit-file");
+    if (eq) {
+      auditFile = eq.slice("--audit-file=".length);
+    } else if (sp >= 0) {
+      auditFile = sp + 1 < argv.length ? argv[sp + 1] : null;
+    }
+  }
+  if (argv.some((a) => a.startsWith("--audit-file")) && !auditFile) {
+    return fail("check-deps-audit: --audit-file requires a value (use --audit-file <path> or --audit-file=<path>).");
+  }
 
   let audit;
   if (auditFile) {

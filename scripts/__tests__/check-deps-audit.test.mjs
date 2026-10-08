@@ -191,8 +191,52 @@ describe("check-deps-audit (R6-03 #281)", () => {
     });
   });
 
-  describe("prototype-chain severity bypass (Codex r5 P3)", () => {
-    // `in` matched inherited Object.prototype keys; "constructor"/"toString"
+  describe("--audit-file arg parsing (Codex r6 P3)", () => {
+    // both forms must work; a missing value must error rather than silently
+    // fall back to a live audit (which would gate on the wrong input).
+    const goodReport = path.join(os.tmpdir(), "gb-audit-good.json");
+    fs.writeFileSync(goodReport, JSON.stringify(sampleAudit));
+
+    it("accepts the space form: --audit-file <path>", () => {
+      const orig = console.error;
+      console.error = () => {};
+      const code = main(["--audit-file", goodReport]);
+      console.error = orig;
+      expect(code).toBe(1); // sample audit has unowned critical/high (no exceptions provided)
+    });
+
+    it("accepts the equals form: --audit-file=<path>", () => {
+      const orig = console.error;
+      console.error = () => {};
+      const code = main([`--audit-file=${goodReport}`]);
+      console.error = orig;
+      expect(code).toBe(1); // sample audit has unowned critical/high (no exceptions provided)
+    });
+
+    it("errors on a missing value (bare --audit-file)", () => {
+      const orig = console.error;
+      const errs = [];
+      console.error = (s) => errs.push(String(s));
+      const code = main(["--audit-file"]);
+      console.error = orig;
+      expect(code).toBe(1);
+      expect(errs.join(" ")).toMatch(/requires a value/);
+    });
+
+    it("errors on --audit-file= with an empty value", () => {
+      const orig = console.error;
+      const errs = [];
+      console.error = (s) => errs.push(String(s));
+      const code = main(["--audit-file="]);
+      console.error = orig;
+      expect(code).toBe(1);
+      expect(errs.join(" ")).toMatch(/requires a value/);
+    });
+
+    fs.rmSync(goodReport, { force: true });
+  });
+
+  describe("prototype-chain severity bypass (Codex r5 P3)", () => {    // `in` matched inherited Object.prototype keys; "constructor"/"toString"
     // as a severity was treated as known and yielded the Object constructor as
     // a rank (function < N is NaN -> false -> silently owned any finding).
     it("validateException rejects a prototype-chain severity like 'constructor'", () => {
