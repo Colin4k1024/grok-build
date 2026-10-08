@@ -39,7 +39,9 @@ describe("check-release-creds (R6-05 #283)", () => {
   });
 
   it("lists all 5 required secrets", () => {
-    expect(REQUIRED_SECRETS.sort()).toEqual(
+    // copy before sort so the module-level export isn't mutated in place
+    // (shared-state pollution in a security-invariant test file, Codex r3 P3).
+    expect([...REQUIRED_SECRETS].sort()).toEqual(
       ["APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER", "CSC_KEY_PASSWORD", "CSC_LINK"].sort(),
     );
   });
