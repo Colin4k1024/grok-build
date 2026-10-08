@@ -1,28 +1,28 @@
-# Goal State — R6: Desktop Release-Readiness (PAUSED by user request — 2026-10-08)
+# Goal State — R6: Desktop Release-Readiness (ACTIVE — 2026-10-08, runner set up)
 
 **Goal:** Close all open issues on `Colin4k1024/grok-build`.
 **Scope:** R6 release-readiness — #279–#285 (labeled `r6-release-readiness`), waves 1→3, plus #287 filed during execution. **Base branch:** `main`.
 **Out of scope:** upstream `xai-org/grok-build`; production publish/tag/feed promotion; deleting user data; credential rotation.
 **Review gate:** Codex independent review per issue (`codex review --base main`). Pass = APPROVE. One issue = one closed loop (branch → code → test → evidence → review → merge `Closes #NNN`).
 
-## Totals (as of 2026-10-08, paused)
+## Totals (as of 2026-10-08)
 - Total open at R6 start: **7** — #279–#285
-- Filed during execution: **#287** (e2e visual baselines vs CI macOS display — HUMAN_BLOCKED)
-- Closed + merged: **1** — **#280 (R6-02 toolchain contract, squash 9cf9aacb)**
-- Remaining open: **7** — #279 (fix done, blocked by #287), #281, #282, #283, #284, #285, #287
-- main HEAD: `9cf9aacb` (post-#280)
+- Filed during execution: **#287** (e2e visual baselines vs CI macOS display)
+- Closed + merged: **2** — **#280** (R6-02 toolchain, 9cf9aacb), **#281** (R6-03 dep security, b35558f6)
+- Remaining open: **6** — #279 (fix done, blocked by #287), #282, #283, #284, #285, #287
+- main HEAD: `b35558f6` (post-#281)
 
 ## Dependency graph (R6)
 - Wave 1 (trustworthy baseline):
-  - #279 (R6-01, bug) — **fix complete + Codex APPROVE** (PR #286, 3 rounds); **BLOCKED on #287** (Core acceptance needs green Playwright). Blocks #282, #284.
-  - #287 (e2e visual baselines) — **HUMAN_BLOCKED** (product/test-strategy decision: re-baseline vs enlarge CI macOS display vs Linux+Xvfb vs reduce sizes). Blocks #279 acceptance, #282, #284.
-  - #280 (R6-02) — ✅ **CLOSED** (squash 9cf9aacb, Codex 7-round APPROVE).
-  - #281 (R6-03, security) — was blocked by #280; #280 closed → **READY_FOR_DEV** now. Blocks #284.
+  - #279 (R6-01, bug) — **fix complete + Codex r3 APPROVE** (PR #286); e2e `runs-on` pointed at the self-hosted 5K runner to resolve #287; **BLOCKED** on GitHub Actions triggering the run (network was degraded; runner is online + listening). Blocks #282, #284.
+  - #287 (e2e visual baselines) — **resolved-in-principle** by the self-hosted runner (5K display fits the 1200×800/1440×900 baselines); **pending Actions trigger to verify** e2e green, then `Closes #279 #287`.
+  - #280 (R6-02) — ✅ **CLOSED** (9cf9aacb).
+  - #281 (R6-03, security) — ✅ **CLOSED** (b35558f6, Codex r8 clean APPROVE).
 - Wave 2 (repo + release controls):
   - #282 (R6-04) — blocked by #279 (green e2e). Blocks #285.
   - #283 (R6-05, security) — **READY_FOR_DEV**, independent. Blocks #284.
 - Wave 3 (RC rehearsal + sign-off):
-  - #284 (R6-06) — blocked by #279, #280✅, #281, #283. Blocks #285.
+  - #284 (R6-06) — blocked by #279, #280✅, #281✅, #283. Blocks #285.
   - #285 (R6-07, go/no-go) — blocked by #282, #284. Closes milestone last.
 
 ## Current state (paused)
