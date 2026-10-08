@@ -57,7 +57,13 @@ export function verifyRuleset(ruleset, { requiredChecks = REQUIRED_CHECKS, targe
   push("targets main", Array.isArray(conds?.include) && conds.include.includes(`refs/heads/${targetBranch}`), `include=${conds?.include?.join(",") || "(none)"}`);
 
   const pr = getRule(ruleset, "pull_request");
-  push("requires pull request", !!pr, pr ? `required_approving_review_count=${pr.parameters?.required_approving_review_count ?? "?"}` : "no pull_request rule");
+  // Assert not just that the rule exists, but that it enforces ≥1 review +
+  // stale-review dismissal (Codex r1 P2: a drifted ruleset with count=0 or
+  // dismissal=false would pass an existence-only check).
+  const prOk = !!pr
+    && (pr.parameters?.required_approving_review_count ?? 0) >= 1
+    && pr.parameters?.dismiss_stale_reviews_on_push === true;
+  push("requires pull request", prOk, pr ? `required_approving_review_count=${pr.parameters?.required_approving_review_count ?? "?"}, dismiss_stale=${pr.parameters?.dismiss_stale_reviews_on_push}` : "no pull_request rule");
 
   const rsc = getRule(ruleset, "required_status_checks");
   const configured = rsc?.parameters?.required_status_checks?.map((c) => c.context) || [];
@@ -75,14 +81,30 @@ export function verifyRuleset(ruleset, { requiredChecks = REQUIRED_CHECKS, targe
   return { ok: checks.every((c) => c.ok), checks };
 }
 
-function fetchRulesets() {
+/**
+ * Fetch the FULL ruleset (with rules/conditions/bypass_actors) by name.
+ * The list endpoint (GET /rulesets) returns summaries only — it omits rules,
+ * conditions, and bypass_actors (Codex r1 P1). So: fetch the list, find by name,
+ * then fetch the full object via GET /rulesets/{id}.
+ */
+function fetchRulesetByName(name = RULESET_NAME) {
+  const repo = process.env.GB_REPO || "Colin4k1024/grok-build";
   try {
-    const out = execFileSync("gh", ["api", `repos/${process.env.GB_REPO || "Colin4k1024/grok-build"}/rulesets`], {
+    const listOut = execFileSync("gh", ["api", `repos/${repo}/rulesets`], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       env: process.env,
     });
-    return JSON.parse(out);
+    const list = JSON.parse(listOut);
+    const found = (Array.isArray(list) ? list : []).find((r) => r.name === name);
+    if (!found) return null;
+    // Fetch the FULL ruleset (with rules/conditions/bypass_actors).
+    const fullOut = execFileSync("gh", ["api", `repos/${repo}/rulesets/${found.id}`], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      env: process.env,
+    });
+    return JSON.parse(fullOut);
   } catch {
     return null;
   }
@@ -93,19 +115,19 @@ export function main(argv) {
   const fileIdx = argv.indexOf("--ruleset-file");
   const file = fileIdx >= 0 ? argv[fileIdx + 1] : null;
 
-  let rulesets;
+  let ruleset;
   if (file) {
-    rulesets = JSON.parse(fs.readFileSync(file, "utf-8"));
+    // The file is a single full ruleset object (the GET /rulesets/{id} response).
+    ruleset = JSON.parse(fs.readFileSync(file, "utf-8"));
   } else {
-    rulesets = fetchRulesets();
+    ruleset = fetchRulesetByName();
   }
-  if (!rulesets) {
-    const msg = "check-branch-protection: could not fetch rulesets (gh API / network). Use --ruleset-file to pass a pre-generated list.";
+  if (!ruleset) {
+    const msg = "check-branch-protection: could not fetch the ruleset (gh API / network). Use --ruleset-file to pass a pre-generated ruleset.";
     if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
     else console.error(msg);
     return 1;
   }
-  const ruleset = findRuleset(rulesets);
   const { ok, checks } = verifyRuleset(ruleset);
 
   if (jsonOut) {

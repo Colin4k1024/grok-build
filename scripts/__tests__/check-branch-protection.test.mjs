@@ -1,6 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
-import { findRuleset, getRule, verifyRuleset, REQUIRED_CHECKS, RULESET_NAME } from "../check-branch-protection.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { findRuleset, getRule, verifyRuleset, main, REQUIRED_CHECKS, RULESET_NAME } from "../check-branch-protection.mjs";
 
 const GOOD_RULESET = {
   name: RULESET_NAME,
@@ -81,5 +84,38 @@ describe("check-branch-protection (R6-04 #282)", () => {
     const { ok, checks } = verifyRuleset(r);
     expect(ok).toBe(false);
     expect(checks.find((c) => c.name === "targets main").ok).toBe(false);
+  });
+
+  describe("PR parameter assertions (Codex r1 P2)", () => {
+    it("fails when required_approving_review_count is 0", () => {
+      const r = JSON.parse(JSON.stringify(GOOD_RULESET));
+      r.rules[0].parameters.required_approving_review_count = 0;
+      const { ok, checks } = verifyRuleset(r);
+      expect(ok).toBe(false);
+      expect(checks.find((c) => c.name === "requires pull request").ok).toBe(false);
+    });
+
+    it("fails when dismiss_stale_reviews_on_push is false", () => {
+      const r = JSON.parse(JSON.stringify(GOOD_RULESET));
+      r.rules[0].parameters.dismiss_stale_reviews_on_push = false;
+      const { ok } = verifyRuleset(r);
+      expect(ok).toBe(false);
+    });
+  });
+
+  describe("full-ruleset fetch (Codex r1 P1)", () => {
+    it("main() with --ruleset-file reads a single full ruleset object (not a list)", () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gb-ruleset-"));
+      const file = path.join(tmp, "ruleset.json");
+      fs.writeFileSync(file, JSON.stringify(GOOD_RULESET));
+      const orig = console.log;
+      const out = [];
+      console.log = (s) => out.push(String(s));
+      const code = main(["--ruleset-file", file]);
+      console.log = orig;
+      fs.rmSync(tmp, { recursive: true, force: true });
+      expect(code).toBe(0); // GOOD_RULESET is fully compliant
+      expect(out.join(" ")).toMatch(/PASS.*enforcement active/);
+    });
   });
 });
