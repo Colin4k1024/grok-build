@@ -35,8 +35,9 @@ export const EVIDENCE_MAX_AGE_MS = 14 * 24 * 3600 * 1000;
 
 function run(cmd, args, opts = {}) {
   try {
-    return execFileSync(cmd, args, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], env: process.env, ...opts }).trim();
-  } catch {
+    return execFileSync(cmd, args, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 30_000, ...opts }).trim();
+  } catch (e) {
+    if (e?.killed || e?.signal === "SIGTERM") console.error(`go-no-go: ${cmd} timed out`);
     return null;
   }
 }
@@ -51,12 +52,11 @@ export function listCandidates(dirs) {
   return out;
 }
 
-/** Parse the security-exception ledger. Pure. */
-export function parseExceptions(raw) {
+/** Parse the security-exception ledger. `now` is injectable for tests. */
+export function parseExceptions(raw, now = Date.now()) {
   try {
     const j = typeof raw === "string" ? JSON.parse(raw) : raw;
     const list = Array.isArray(j?.exceptions) ? j.exceptions : [];
-    const now = Date.now();
     return list.map((e) => ({
       id: e.id ?? e.name ?? "?",
       reason: e.reason ?? "",
@@ -103,7 +103,7 @@ function readJson(f) {
   }
 }
 
-export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECISIONS_DIR, now = Date.now() } = {}) {
+export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECISIONS_DIR, now = Date.now(), e2eResultsPath = path.join(REPO, "e2e-results", "results.json"), securityExceptionsPath = path.join(REPO, "security", "audit-exceptions.json"), runbookPath = path.join(REPO, "docs", "release-validation.md"), skipBranchProtection = false } = {}) {
   const jsonOut = argv.includes("--json");
   const shaIdx = argv.indexOf("--sha");
   const wantSha = shaIdx >= 0 ? argv[shaIdx + 1] : null;
@@ -127,11 +127,18 @@ export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECI
   }
 
   const rehearsal = readJson(path.join(candidatesDir, candId, "candidate-report.json"));
-  const decision = readJson(path.join(decisionsDir, `${stamp.sha}.json`));
+  const rawDecision = readJson(path.join(decisionsDir, `${stamp.sha}.json`));
 
   const gaps = [];
   const blocking = [];
   const residualRisks = [];
+
+  // 0. candidate freshness — a candidate older than the evidence window is
+  //    itself stale evidence, whatever its rehearsal said.
+  const builtAtMs = Date.parse(stamp.builtAt) || 0;
+  if (builtAtMs && now - builtAtMs > EVIDENCE_MAX_AGE_MS) {
+    gaps.push(`candidate built ${stamp.builtAt} exceeds the ${EVIDENCE_MAX_AGE_MS / 86400000}-day evidence window — build a NEW candidate`);
+  }
 
   // 1. candidate rehearsal evidence
   if (!rehearsal) {
@@ -148,38 +155,56 @@ export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECI
     blocking.push(`rehearsal provenance sha ${rehearsal.candidate.sha} ≠ stamp sha ${stamp.sha}`);
   }
 
-  // 2. security exceptions — expired ones block, active ones are residual
-  const exceptions = parseExceptions(fs.readFileSync(path.join(REPO, "security", "audit-exceptions.json"), "utf-8"));
+  // 2. security exceptions — expired ones block, active ones are residual.
+  //    A missing/unreadable ledger is an OPERATOR gap (not a crash).
+  const exceptionsRaw = (() => {
+    try {
+      return fs.readFileSync(securityExceptionsPath, "utf-8");
+    } catch {
+      return null;
+    }
+  })();
+  const exceptions = exceptionsRaw === null ? [] : parseExceptions(exceptionsRaw);
+  if (exceptionsRaw === null) gaps.push("security/audit-exceptions.json unreadable — cannot verify exception expiry");
   for (const e of exceptions) {
     if (e.expired) blocking.push(`security exception ${e.id} expired ${e.expiresAt}`);
     else residualRisks.push(`security exception ${e.id}: ${e.reason} (expires ${e.expiresAt})`);
   }
 
-  // 3. branch protection (ruleset) — recorded state, checked via gh when live
-  const bp = run("node", [path.join(REPO, "scripts", "check-branch-protection.mjs"), "--json"]);
+  // 3. branch protection (ruleset) — recorded state, checked via gh when live.
+  //    Bounded: a hung GitHub API call must not hang the whole decision.
+  const bp = skipBranchProtection
+    ? '{"ok":true}'
+    : run("node", [path.join(REPO, "scripts", "check-branch-protection.mjs"), "--json"], { timeout: 30_000 });
   const bpOk = bp !== null && /"ok"\s*:\s*true/.test(bp);
   if (!bpOk) gaps.push("main branch protection ruleset not verified active (scripts/check-branch-protection.mjs)");
 
   // 4. rollback evidence — the runbook must exist and mention rollback
-  const runbook = path.join(REPO, "docs", "release-validation.md");
-  const hasRollback = fs.existsSync(runbook) && /rollback|回滚/i.test(fs.readFileSync(runbook, "utf-8"));
+  let hasRollback = false;
+  try {
+    hasRollback = fs.existsSync(runbookPath) && /rollback|回滚/i.test(fs.readFileSync(runbookPath, "utf-8"));
+  } catch { /* unreadable runbook == absent */ }
   if (!hasRollback) gaps.push("rollback documentation absent from docs/release-validation.md");
 
-  // 5. test evidence freshness: full vitest + e2e results must be newer than
-  //    the candidate build (stale = evidence predates the bits)
-  const builtAt = Date.parse(stamp.builtAt) || 0;
-  const e2eResults = path.join(REPO, "e2e-results", "results.json");
-  if (fs.existsSync(e2eResults)) {
-    if (fs.statSync(e2eResults).mtimeMs < builtAt) gaps.push("e2e results.json older than the candidate build (stale)");
-  } else {
-    gaps.push("no e2e results.json (run npm run test:e2e)");
-  }
+  // 5. test evidence freshness: e2e results must be newer than the candidate
+  //    build (stale = evidence predates the bits). Stat ONCE — no TOCTOU
+  //    between existsSync and statSync.
+  let e2eMtime = 0;
+  try {
+    e2eMtime = fs.statSync(e2eResultsPath).mtimeMs;
+  } catch { /* absent */ }
+  const e2eFresh = e2eMtime >= builtAtMs;
+  if (!e2eMtime) gaps.push("no e2e results.json (run npm run test:e2e)");
+  else if (!e2eFresh) gaps.push("e2e results.json older than the candidate build (stale)");
 
-  // 6. decision record hygiene
-  if (decision && decision.grantedBy !== "human") {
+  // 6. decision record hygiene — the record is ALWAYS echoed for audit
+  //    transparency (blocked records carry blocked: true), but only a
+  //    well-formed human record reaches buildDecision as a decision.
+  const decisionValid = rawDecision && rawDecision.grantedBy === "human" && typeof rawDecision.approver === "string" && rawDecision.approver.trim().length > 0;
+  if (rawDecision && rawDecision.grantedBy !== "human") {
     blocking.push("decision record must carry grantedBy:'human' — tooling cannot self-approve");
   }
-  if (decision && !decision.approver) {
+  if (rawDecision && (!rawDecision.approver || typeof rawDecision.approver !== "string")) {
     blocking.push("decision record missing approver name");
   }
 
@@ -189,7 +214,7 @@ export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECI
     gaps,
     blocking,
     residualRisks,
-    decision: decision && decision.grantedBy === "human" && decision.approver ? decision : null,
+    decision: decisionValid ? rawDecision : null,
   });
 
   const report = {
@@ -200,9 +225,18 @@ export function main(argv, { candidatesDir = CANDIDATES_DIR, decisionsDir = DECI
       securityExceptions: exceptions,
       branchProtectionVerified: bpOk,
       rollbackDocumented: hasRollback,
-      e2eFresh: fs.existsSync(e2eResults) && fs.statSync(e2eResults).mtimeMs >= builtAt,
+      e2eFresh,
     },
-    decision: decision ? { approver: decision.approver, grantedBy: decision.grantedBy, at: decision.at, note: decision.note ?? null } : null,
+    decision: rawDecision
+      ? {
+          approver: typeof rawDecision.approver === "string" ? rawDecision.approver : null,
+          grantedBy: rawDecision.grantedBy ?? null,
+          at: rawDecision.at ?? null,
+          note: typeof rawDecision.note === "string" ? rawDecision.note : null,
+          valid: Boolean(decisionValid),
+          blocked: !decisionValid,
+        }
+      : null,
     state: result.state,
     go: result.go,
     gaps,
