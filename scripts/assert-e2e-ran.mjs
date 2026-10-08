@@ -29,18 +29,23 @@ export function checkReport(report) {
   if (!stats || typeof stats !== "object") {
     return { ok: false, reason: "Playwright report has no stats block — suite did not run." };
   }
-  // `expected` = tests that ran to a terminal expected outcome (passed/failed/flaky).
-  // A value < 1 means no test actually executed (all skipped or none matched) —
-  // a vacuous pass we must block.
-  const expected = Number(stats.expected);
-  if (!Number.isFinite(expected) || expected < 1) {
-    const skipped = Number(stats.skipped) || 0;
+  // `expected` = tests that matched their expected outcome (passed, or
+  // expected-failures that failed); `unexpected` = tests that failed when
+  // expected to pass; `flaky` = tests that passed after a retry. Counting all
+  // three means "at least one test actually executed". A vacuous run —
+  // all-skipped, no tests matched, or Playwright never started — has all three
+  // at 0 and must be blocked. (Using only `expected` would misreport a real
+  // all-failure run as vacuous, since a failing suite has expected=0.)
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const executed = num(stats.expected) + num(stats.unexpected) + num(stats.flaky);
+  if (executed < 1) {
+    const skipped = num(stats.skipped);
     return {
       ok: false,
-      reason: `Playwright ran 0 expected tests (skipped=${skipped}) — vacuous pass blocked.`,
+      reason: `Playwright executed 0 tests (expected=${num(stats.expected)}, unexpected=${num(stats.unexpected)}, skipped=${skipped}) — vacuous pass blocked.`,
     };
   }
-  return { ok: true, reason: `Playwright ran ${expected} expected test(s).` };
+  return { ok: true, reason: `Playwright executed ${executed} test(s).` };
 }
 
 export function main(argv) {
