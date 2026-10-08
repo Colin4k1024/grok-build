@@ -124,7 +124,12 @@ export function checkFindings(findings, exceptionsDoc, opts = {}) {
   for (const f of findings) {
     if (SEVERITY_RANK[f.severity] < minRank) continue; // below the bar — report only
     const exc = excByName.get(f.name);
-    if (!exc) {
+    const excRank = SEVERITY_RANK[exc?.severity] ?? -1;
+    // No exception, OR the exception's recorded severity doesn't cover this
+    // finding's (a NEW higher-severity advisory on an excepted package) -> the
+    // stale exception must NOT count as ownership; surface for re-triage
+    // (Codex r3 P2: name-only matching silently accepted security regressions).
+    if (!exc || excRank < SEVERITY_RANK[f.severity]) {
       unowned.push(f);
       continue;
     }

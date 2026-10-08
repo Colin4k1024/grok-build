@@ -149,4 +149,24 @@ describe("check-deps-audit (R6-03 #281)", () => {
       expect(unowned.length).toBe(1); // vite unowned
     });
   });
+
+  describe("severity-cover matching (Codex r3 P2)", () => {
+    // A NEW higher-severity advisory on an excepted package must be flagged
+    // unowned for re-triage; name-only matching would silently accept it.
+    it("a higher-severity finding on an excepted package is unowned", () => {
+      const findings = [{ name: "electron-builder", severity: "critical", via: ["x"], fixAvailable: { available: false }, range: "" }];
+      const doc = { exceptions: [{ package: "electron-builder", severity: "moderate", exposure: "build", owner: "r", mitigation: "x", expires: "2099-01-01" }] };
+      const { unowned, owned } = checkFindings(findings, doc, { now: new Date("2026-01-01") });
+      expect(owned.length).toBe(0);
+      expect(unowned.length).toBe(1); // critical > moderate -> re-triage
+    });
+
+    it("an equal-or-lower severity finding on an excepted package is owned", () => {
+      const findings = [{ name: "vite", severity: "high", via: ["x"], fixAvailable: { available: false }, range: "" }];
+      const doc = { exceptions: [{ package: "vite", severity: "high", exposure: "build", owner: "r", mitigation: "x", expires: "2099-01-01" }] };
+      const { unowned, owned } = checkFindings(findings, doc, { now: new Date("2026-01-01") });
+      expect(owned.length).toBe(1);
+      expect(unowned.length).toBe(0);
+    });
+  });
 });
