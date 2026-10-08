@@ -200,4 +200,18 @@ describe("check-toolchain parsers + checks (R6-02 #280)", () => {
     });
     expect(computeFailures(results, ["protoc", "rust"])).toEqual([]);
   });
+
+  it("computeFailures fails LOUDLY on an unknown --require name (Codex r4 P3)", () => {
+    const { results } = checkAll({
+      nodeVersion: "22.16.0", nodeRange: ">=22.12.0",
+      lockfile: { lockfileVersion: 3 },
+      protocOutput: "libprotoc 29.3",
+      rustcOutput: "rustc 1.94.0 (x)", rustChannel: "1.94.0",
+    });
+    // typo "protc" — must NOT silently no-op (same class as the space-form bug)
+    const failures = computeFailures(results, ["protc"]);
+    expect(failures.length).toBe(1);
+    expect(failures[0]).toMatch(/^\[require\] unknown check "protc"/);
+    expect(failures[0]).toMatch(/valid:.*protoc.*rust/);
+  });
 });

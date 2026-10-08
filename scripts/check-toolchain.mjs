@@ -249,9 +249,19 @@ export function checkAll(deps) {
  */
 export function computeFailures(results, require) {
   const req = new Set(["node", "lockfile", ...require]);
-  return Object.entries(results)
+  const failures = Object.entries(results)
     .filter(([name, r]) => req.has(name) && !r.ok)
     .map(([name, r]) => `[${name}] ${r.reason}`);
+  // A typo'd --require name (e.g. "protc") matches nothing and would silently
+  // weaken the gate — the same silent-no-op class the space-form parser bug
+  // belonged to. Fail loudly so a workflow typo is caught (Codex r4 P3).
+  const valid = new Set(Object.keys(results));
+  for (const name of require) {
+    if (!valid.has(name)) {
+      failures.push(`[require] unknown check "${name}" — valid: ${[...valid].join(", ")}`);
+    }
+  }
+  return failures;
 }
 
 function run(cmd, args, opts = {}) {
