@@ -48,6 +48,23 @@ describe("inline semver + argv parsing (no node_modules dependency, Codex r1 P1/
     // the space form must not be swallowed by the = branch
     expect(parseRequire(["--require", "protoc,rust", "--json"])).toEqual(["protoc", "rust"]);
   });
+
+  it("parseRequire fails loudly on a bare --require with no value (Codex r5 P3)", () => {
+    // all three missing-value forms return [""] so computeFailures rejects the
+    // empty name as unknown — same silent-no-op class as the space-form bug.
+    expect(parseRequire(["--require"])).toEqual([""]);
+    expect(parseRequire(["--require", ""])).toEqual([""]);
+    expect(parseRequire(["--require="])).toEqual([""]);
+    // and computeFailures surfaces it as a [require] failure
+    const { results } = checkAll({
+      nodeVersion: "22.16.0", nodeRange: ">=22.12.0",
+      lockfile: { lockfileVersion: 3 },
+      protocOutput: "libprotoc 29.3", rustcOutput: "rustc 1.94.0 (x)", rustChannel: "1.94.0",
+    });
+    const failures = computeFailures(results, [""]);
+    expect(failures.length).toBe(1);
+    expect(failures[0]).toMatch(/^\[require\] unknown check/);
+  });
 });
 
 describe("check-toolchain parsers + checks (R6-02 #280)", () => {

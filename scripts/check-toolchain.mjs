@@ -86,11 +86,19 @@ export function isValidVersion(v) {
 export function parseRequire(argv) {
   const eq = argv.find((a) => a.startsWith("--require="));
   if (eq) {
-    return eq.slice("--require=".length).split(",").map((s) => s.trim()).filter(Boolean);
+    const names = eq.slice("--require=".length).split(",").map((s) => s.trim()).filter(Boolean);
+    // `--require=` with no/empty value is a silent-no-op hazard (the gate would
+    // degrade to node+lockfile). Return [""] so computeFailures rejects it as an
+    // unknown name — same loud-failure class as a typo (Codex r5 P3).
+    return names.length ? names : [""];
   }
   const sp = argv.indexOf("--require");
-  if (sp >= 0 && sp + 1 < argv.length) {
-    return argv[sp + 1].split(",").map((s) => s.trim()).filter(Boolean);
+  if (sp >= 0) {
+    // bare `--require` (no following token, or an empty token) — same hazard.
+    if (sp + 1 < argv.length && argv[sp + 1] !== "") {
+      return argv[sp + 1].split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    return [""];
   }
   return [];
 }
