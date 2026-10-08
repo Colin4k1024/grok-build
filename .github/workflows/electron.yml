@@ -231,26 +231,13 @@ jobs:
           workspaces: '.'
           key: ${{ matrix.rust-target }}
 
-      # A tag release must NEVER silently degrade to unsigned (R5-08):
-      # missing signing credentials fail the build before anything is packed.
-      # Only presence/absence booleans are echoed — never secret material.
-      - name: Preflight — signing credentials present
+      # A tag release must NEVER silently degrade to unsigned (R5-08 / R6-05 #283):
+      # the preflight proves credential READINESS — presence + conservative format —
+      # and FAILS CLOSED before anything is packed. Only secret NAMES + PASS/FAIL are
+      # echoed; the script is redaction-tested and never prints a value.
+      - name: Preflight — release credentials ready
         shell: bash
-        run: |
-          set -euo pipefail
-          missing=0
-          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
-            if [ -z "${!v:-}" ]; then
-              echo "::error::missing required signing secret: $v"
-              missing=1
-            else
-              echo "secret present: $v"
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::tag release requires all signing secrets in the protected 'release' environment"
-            exit 1
-          fi
+        run: node scripts/check-release-creds.mjs
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
