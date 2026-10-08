@@ -18,6 +18,7 @@
     "electron:pack": "npm run build && npm run electron:build && electron-builder --publish never",
     "release:gate": "node scripts/release-gate.mjs",
     "check:toolchain": "node scripts/check-toolchain.mjs",
+    "check:branch-protection": "node scripts/check-branch-protection.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:release-creds": "node scripts/check-release-creds.mjs",
     "test": "vitest run",
