@@ -50,7 +50,7 @@ export function findArtifacts(files, { ext = ["dmg", "zip"] } = {}) {
  * @returns {{ state: string, accepted: boolean, report: object }}
  */
 export function buildReport(deps) {
-  const { sha, version, platform, artifacts, manifestOk, agentBinsOk, e2ePassed, e2eCount, signatureStatus } = deps;
+  const { sha, version, platform, artifacts, manifestOk, agentBinsOk, e2ePassed, e2eCount, e2eStale = false, signatureStatus } = deps;
   const verified = manifestOk && agentBinsOk;
   const rehearsed = verified && e2ePassed;
   // A smoke (unsigned) candidate is "accepted" for rehearsal (NOT for production
@@ -68,7 +68,7 @@ export function buildReport(deps) {
       artifacts,
       "manifest-verify": manifestOk ? "pass" : "fail",
       "agent-bins": agentBinsOk ? "present" : "missing",
-      "e2e-launch-smoke": e2ePassed ? `pass (${e2eCount} tests)` : "fail",
+      "e2e-launch-smoke": e2ePassed ? `pass (${e2eCount} tests)` : e2eStale ? "stale (results.json older than artifacts — re-run npm run test:e2e)" : "fail",
       "signature-status": signatureStatus,
       "win-linux": "NOT PROVEN locally (requires CI or cross-compile toolchains; documented residual risk)",
       state,
@@ -120,14 +120,21 @@ export function main(argv) {
     agentBinsOk = fs.existsSync(agentPath) && fs.statSync(agentPath).size > 0;
   }
 
-  // e2e launch-smoke: read the Playwright results.json
-  let e2ePassed = false, e2eCount = 0;
+  // e2e launch-smoke: read the Playwright results.json. Staleness guard
+  // (Codex r1 P3): if results.json is OLDER than the newest candidate artifact,
+  // the e2e evidence is stale (a new pack without a re-run) → don't accept.
+  let e2ePassed = false, e2eCount = 0, e2eStale = false;
   const e2eResultsPath = path.join(REPO, "e2e-results", "results.json");
   if (fs.existsSync(e2eResultsPath)) {
     try {
       const r = JSON.parse(fs.readFileSync(e2eResultsPath, "utf-8"));
       e2eCount = Number(r.stats?.expected) || 0;
       e2ePassed = e2eCount > 0 && (Number(r.stats?.unexpected) || 0) === 0;
+      // staleness: results.json mtime must be >= the newest artifact mtime
+      const e2eMtime = fs.statSync(e2eResultsPath).mtimeMs;
+      const newestArtifact = Math.max(...artifacts.map((a) => fs.statSync(path.join(RELEASE_DIR, a.name)).mtimeMs));
+      e2eStale = e2eMtime < newestArtifact;
+      if (e2eStale) e2ePassed = false; // stale evidence → not accepted
     } catch { /* malformed */ }
   }
 

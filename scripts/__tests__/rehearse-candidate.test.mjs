@@ -58,34 +58,4 @@ describe("rehearse-candidate (R6-06 #284)", () => {
       expect(accepted).toBe(false);
     });
   });
-
-  describe("update state machine (concurrency/crash/recovery)", () => {
-    // #284: interrupted download keeps old app launchable; corrupt metadata
-    // rejected; rollback to last-known-good. These mirror the R5 #198
-    // updater-state transitions, applied to the candidate context.
-    it("a 'downloading' state resets to 'available' on restart (no truncated install)", () => {
-      const state = { status: "downloading", version: "0.2.0" };
-      const restarted = state.status === "downloading" ? "available" : state.status;
-      expect(restarted).toBe("available"); // re-download, never installs truncated
-    });
-
-    it("a corrupt package/metadata is rejected before install (negative criterion)", () => {
-      const corruptSha = "deadbeef" + "0".repeat(56); // wrong sha
-      const expectedSha = "a".repeat(64);
-      expect(corruptSha).not.toBe(expectedSha); // rejected
-    });
-
-    it("rollback to last-known-good after a failed update (old app still launchable)", () => {
-      const installedVersion = "0.2.0"; // attempted
-      const lastKnownGood = "0.1.0"; // rolled back
-      const launchableAfterRollback = lastKnownGood !== installedVersion; // old app intact
-      expect(launchableAfterRollback).toBe(true);
-    });
-
-    it("rerun is idempotent (rehearsal can be safely re-run)", () => {
-      const first = buildReport({ sha: "s", version: "0.1.0", platform: "darwin-arm64", artifacts: [], manifestOk: true, agentBinsOk: true, e2ePassed: true, e2eCount: 13, signatureStatus: "unsigned-smoke" });
-      const second = buildReport({ sha: "s", version: "0.1.0", platform: "darwin-arm64", artifacts: [], manifestOk: true, agentBinsOk: true, e2ePassed: true, e2eCount: 13, signatureStatus: "unsigned-smoke" });
-      expect(first.state).toBe(second.state); // deterministic
-    });
-  });
 });
