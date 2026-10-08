@@ -113,12 +113,26 @@ function fetchRulesetByName(name = RULESET_NAME) {
 export function main(argv) {
   const jsonOut = argv.includes("--json");
   const fileIdx = argv.indexOf("--ruleset-file");
-  const file = fileIdx >= 0 ? argv[fileIdx + 1] : null;
 
   let ruleset;
-  if (file) {
-    // The file is a single full ruleset object (the GET /rulesets/{id} response).
-    ruleset = JSON.parse(fs.readFileSync(file, "utf-8"));
+  if (fileIdx >= 0) {
+    // --ruleset-file must have a value (not another flag / end-of-args); a
+    // missing value must NOT silently fall through to the live fetch (Codex r2 P3).
+    const file = fileIdx >= 0 && fileIdx + 1 < argv.length && !argv[fileIdx + 1].startsWith("--") ? argv[fileIdx + 1] : null;
+    if (!file) {
+      const msg = "check-branch-protection: --ruleset-file requires a value (use --ruleset-file <path>).";
+      if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
+      else console.error(msg);
+      return 1;
+    }
+    try {
+      ruleset = JSON.parse(fs.readFileSync(file, "utf-8"));
+    } catch (e) {
+      const msg = `check-branch-protection: --ruleset-file ${file} is not valid JSON or is unreadable: ${e.message}`;
+      if (jsonOut) console.log(JSON.stringify({ ok: false, error: msg }));
+      else console.error(msg);
+      return 1;
+    }
   } else {
     ruleset = fetchRulesetByName();
   }

@@ -55,7 +55,6 @@ blocks force-push, no bypass actors. 10 unit tests. Run via
 verification.
 
 ## Consequences
-
 - A PR cannot merge when a required check is red, skipped, or stale (strict
   policy: head SHA == checked SHA).
 - Force-push and branch deletion are rejected on main.
@@ -64,3 +63,14 @@ verification.
 - The ruleset configuration can be exported (`gh api repos/.../rulesets`) and
   re-applied if accidentally edited.
 - No production release, tag, or source rewrite occurs during verification.
+
+## Verification cadence
+
+The verifier (`npm run check:branch-protection`) is run:
+- After every emergency-bypass re-enable (step 3 of the emergency procedure).
+- Periodically / on-demand by an admin to catch ruleset drift (e.g., a forgotten
+  re-enable after an incident).
+- A scheduled GitHub Actions workflow (weekly cron) can be added once a token
+  with `administration: read` scope is provisioned — the default `GITHUB_TOKEN`
+  may not have rulesets read access, which would make a scheduled run fail closed
+  (noise). Until then the verifier is manual but documented.
