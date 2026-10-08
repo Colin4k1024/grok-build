@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   parseAudit,
   isAuditReport,
@@ -194,46 +194,53 @@ describe("check-deps-audit (R6-03 #281)", () => {
   describe("--audit-file arg parsing (Codex r6 P3)", () => {
     // both forms must work; a missing value must error rather than silently
     // fall back to a live audit (which would gate on the wrong input).
-    const goodReport = path.join(os.tmpdir(), "gb-audit-good.json");
-    fs.writeFileSync(goodReport, JSON.stringify(sampleAudit));
+    // The fixture is created in beforeAll (NOT the describe body — that runs at
+    // collection time, before `it`, so the file would be gone and the tests
+    // would exercise the ENOENT path instead of the gating path, Codex r7 P2).
+    // The fixture contains a ROGUE package NOT in the real exception file, so
+    // the gate reaches the unowned-critical path (exit 1 + "unowned" on stderr),
+    // distinguishing the gating path from the ENOENT error path.
+    const rogueAudit = {
+      auditReportVersion: "2",
+      metadata: { vulnerabilities: { critical: 1, total: 1 } },
+      vulnerabilities: { "rogue-critical-pkg": { severity: "critical", via: [], fixAvailable: { available: false }, range: "*" } },
+    };
+    const goodReport = path.join(os.tmpdir(), "gb-audit-rogue.json");
+    beforeAll(() => fs.writeFileSync(goodReport, JSON.stringify(rogueAudit)));
+    afterAll(() => fs.rmSync(goodReport, { force: true }));
 
-    it("accepts the space form: --audit-file <path>", () => {
+    const capture = (args) => {
       const orig = console.error;
-      console.error = () => {};
-      const code = main(["--audit-file", goodReport]);
+      const errs = [];
+      console.error = (s) => errs.push(String(s));
+      const code = main(args);
       console.error = orig;
-      expect(code).toBe(1); // sample audit has unowned critical/high (no exceptions provided)
+      return { code, err: errs.join(" ") };
+    };
+
+    it("accepts the space form: --audit-file <path> (gating path, not ENOENT)", () => {
+      const { code, err } = capture(["--audit-file", goodReport]);
+      expect(code).toBe(1); // rogue-critical-pkg is unowned (not in the real exception file)
+      expect(err).toMatch(/unowned critical\/high/); // gating path, not the ENOENT error path
     });
 
-    it("accepts the equals form: --audit-file=<path>", () => {
-      const orig = console.error;
-      console.error = () => {};
-      const code = main([`--audit-file=${goodReport}`]);
-      console.error = orig;
-      expect(code).toBe(1); // sample audit has unowned critical/high (no exceptions provided)
+    it("accepts the equals form: --audit-file=<path> (gating path, not ENOENT)", () => {
+      const { code, err } = capture([`--audit-file=${goodReport}`]);
+      expect(code).toBe(1);
+      expect(err).toMatch(/unowned critical\/high/);
     });
 
     it("errors on a missing value (bare --audit-file)", () => {
-      const orig = console.error;
-      const errs = [];
-      console.error = (s) => errs.push(String(s));
-      const code = main(["--audit-file"]);
-      console.error = orig;
+      const { code, err } = capture(["--audit-file"]);
       expect(code).toBe(1);
-      expect(errs.join(" ")).toMatch(/requires a value/);
+      expect(err).toMatch(/requires a value/);
     });
 
     it("errors on --audit-file= with an empty value", () => {
-      const orig = console.error;
-      const errs = [];
-      console.error = (s) => errs.push(String(s));
-      const code = main(["--audit-file="]);
-      console.error = orig;
+      const { code, err } = capture(["--audit-file="]);
       expect(code).toBe(1);
-      expect(errs.join(" ")).toMatch(/requires a value/);
+      expect(err).toMatch(/requires a value/);
     });
-
-    fs.rmSync(goodReport, { force: true });
   });
 
   describe("prototype-chain severity bypass (Codex r5 P3)", () => {    // `in` matched inherited Object.prototype keys; "constructor"/"toString"
