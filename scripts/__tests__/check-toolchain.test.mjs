@@ -8,6 +8,7 @@ import {
   satisfies,
   isValidVersion,
   parseRequire,
+  resolvedVersion,
   checkNode,
   checkLockfile,
   checkProtoc,
@@ -37,6 +38,15 @@ describe("inline semver + argv parsing (no node_modules dependency, Codex r1 P1/
     expect(isValidVersion("1.94.0")).toBe(true);
     expect(isValidVersion("stable")).toBe(false);
     expect(isValidVersion("nightly")).toBe(false);
+  });
+
+  it("resolvedVersion reads the exact pinned version from the lockfile (Codex r6 P3)", () => {
+    const lock = { packages: { "node_modules/electron": { version: "44.4.1" } } };
+    expect(resolvedVersion(lock, "electron", "^44.4.1")).toBe("44.4.1");
+    // falls back to the declared range when the lockfile entry is absent
+    expect(resolvedVersion(null, "electron", "^44.4.1")).toBe("^44.4.1");
+    expect(resolvedVersion({}, "electron", "^44.4.1")).toBe("^44.4.1");
+    expect(resolvedVersion({ packages: {} }, "electron", undefined)).toBe(null);
   });
 
   it("parseRequire handles BOTH the space form (workflows) and the = form", () => {

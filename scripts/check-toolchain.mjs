@@ -272,6 +272,17 @@ export function computeFailures(results, require) {
   return failures;
 }
 
+/**
+ * Resolve a dependency's exact pinned version from package-lock.json, falling
+ * back to the declared range in package.json. (Codex r6 P3: recording the
+ * declared range "^44.4.1" as "the version" is misleading in the evidence
+ * chain; the lockfile pins the exact version actually used.)
+ */
+export function resolvedVersion(lockfile, name, declared) {
+  const v = lockfile?.packages?.[`node_modules/${name}`]?.version;
+  return v ?? declared ?? null;
+}
+
 function run(cmd, args, opts = {}) {
   try {
     return execFileSync(cmd, args, {
@@ -330,8 +341,8 @@ export function main(argv) {
     // so the pinned toolchain can be fetched and reported (Codex r3 P1).
     rustcOutput: run("rustc", ["--version"], { env: rustRequired ? process.env : { ...process.env, RUSTUP_AUTO_INSTALL: "0" } }),
     rustChannel: parseRustToolchainChannel(rustToml),
-    electronVersion: pkg.devDependencies?.electron,
-    electronBuilderVersion: pkg.devDependencies?.["electron-builder"],
+    electronVersion: resolvedVersion(lockfile, "electron", pkg.devDependencies?.electron),
+    electronBuilderVersion: resolvedVersion(lockfile, "electron-builder", pkg.devDependencies?.["electron-builder"]),
   };
 
   const { results, versions } = checkAll(deps);
