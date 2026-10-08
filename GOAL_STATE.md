@@ -8,9 +8,9 @@
 ## Totals (as of 2026-10-08)
 - Total open at R6 start: **7** — #279–#285
 - Filed during execution: **#287** (e2e visual baselines vs CI macOS display)
-- Closed + merged: **3** — **#280** (R6-02 toolchain, 9cf9aacb), **#281** (R6-03 dep security, b35558f6), **#283** (R6-05 release env, this PR)
-- Remaining open: **5** — #279 (fix done, blocked by #287), #282, #284, #285, #287
-- main HEAD: post-#283 (release env + credential preflight)
+- Closed + merged: **5** — **#279** (R6-01, 737830fc), **#280** (R6-02, 9cf9aacb), **#281** (R6-03, b35558f6), **#283** (R6-05), **#287** (resolved by self-hosted 5K runner, e2e 13/13)
+- Remaining open: **3** — #282 (READY_FOR_DEV now), #284, #285
+- main HEAD: `737830fc` (post-#279/#287)
 
 ## Dependency graph (R6)
 - Wave 1 (trustworthy baseline):
